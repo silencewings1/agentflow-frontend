@@ -104,7 +104,7 @@ export default function App() {
 
   /* --- simulated agent turn ---------------------------------------------- */
   const runTurn = useCallback(
-    (prompt: string) => {
+    (prompt: string, contract?: AgentEvent) => {
       timers.current.forEach(clearTimeout);
       timers.current = [];
       setMode("session");
@@ -112,6 +112,7 @@ export default function App() {
       const uid = `u${Date.now()}`;
       const script: AgentEvent[] = [
         { id: `${uid}-a`, kind: "user", text: prompt },
+        ...(contract ? [contract] : []),
         {
           id: `${uid}-b`,
           kind: "reasoning",
@@ -169,12 +170,12 @@ export default function App() {
   );
 
   const startTask = useCallback(
-    (prompt: string, wf: Workflow) => {
+    (prompt: string, wf: Workflow, contract: AgentEvent) => {
       setWorkflow(wf);
       setWfStep(0);
       setNewTaskOpen(false);
       setVisible(0);
-      runTurn(prompt);
+      runTurn(prompt, contract);
       push({
         tone: "ok",
         title: `已按「${wf.name}」启动`,
@@ -347,6 +348,10 @@ export default function App() {
             setModel((m) => (m === "agentflow-large" ? "agentflow-swift" : "agentflow-large"))
           }
           onPalette={() => setPaletteOpen(true)}
+          onOpenEvidence={() => {
+            setInspectorTab("evidence");
+            setInspectorOpen(true);
+          }}
         />
 
         {mode === "welcome" ? (

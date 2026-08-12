@@ -2,7 +2,8 @@ import { Icon } from "./Icons";
 import type { Theme } from "../data/mock";
 import type { SettingsPane } from "./Settings";
 
-const NAV: { id: SettingsPane; label: string; glyph: "Agent" | "Plug" | "Cloud" }[] = [
+const NAV: { id: SettingsPane; label: string; glyph: "Layers" | "Agent" | "Plug" | "Cloud" }[] = [
+  { id: "arch", label: "总体架构", glyph: "Layers" },
   { id: "agents", label: "智能体", glyph: "Agent" },
   { id: "connect", label: "连接层", glyph: "Plug" },
   { id: "env", label: "环境配置", glyph: "Cloud" },

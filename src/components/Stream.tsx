@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Icon, iconByKey } from "./Icons";
+import { Icon, iconByKey, type IconName } from "./Icons";
 import type { AgentEvent } from "../data/mock";
+import { roleLabel, permTierLabel } from "../data/settings";
+import { roleGlyph } from "../data/workflows";
 
 export function Stream({
   events,
@@ -248,7 +250,362 @@ function Event({
           </div>
         </article>
       );
+    case "handoff":
+      return <Handoff e={e} style={style} />;
+
+    case "gate":
+      return <Gate e={e} style={style} />;
+
+    case "rework":
+      return <Rework e={e} style={style} />;
+
+    case "controlled":
+      return <Controlled e={e} style={style} />;
+
+    case "checkpoint":
+      return <Checkpoint e={e} style={style} />;
+
+    case "contract":
+      return <Contract e={e} style={style} />;
   }
+}
+
+/* ===================== 任务契约（第二章第二节） ======================== */
+
+function Contract({ e, style }: { e: Extract<AgentEvent, { kind: "contract" }>; style: object }) {
+  const [open, setOpen] = useState(true);
+  const rows: { label: string; items: string[]; glyph: IconName }[] = [
+    { label: "改动范围", items: e.scope, glyph: "Layers" },
+    { label: "完成判定", items: e.doneCriteria, glyph: "Check" },
+    { label: "需人工放行", items: e.approvals, glyph: "Shield" },
+    { label: "输入资料", items: e.materials, glyph: "Book" },
+    { label: "可用工具", items: e.tools, glyph: "Plug" },
+    { label: "交付物", items: e.deliverables, glyph: "Cube" },
+  ];
+
+  return (
+    <article className="ev ev--card" style={style}>
+      <div className="ev__gutter" />
+      <div className="card card--contract" data-open={open}>
+        <button className="ctr__head" onClick={() => setOpen((v) => !v)}>
+          <span className="ctr__seal">
+            <Icon.Nodes size={13} />
+          </span>
+          <span className="ctr__headText">
+            <span className="ctr__kicker">任务契约 · 唯一入口与验收依据</span>
+            <strong className="ctr__title">{e.title}</strong>
+          </span>
+          <span className="ctr__meta mono">{e.repo}</span>
+          <span className="ctr__wf">{e.workflow}</span>
+          <Icon.Chevron size={14} className={open ? "rot180" : undefined} />
+        </button>
+
+        <div className="ctr__body">
+          <p className="ctr__problem">
+            <span className="kicker">要解决的问题</span>
+            {e.problem}
+          </p>
+          <div className="ctr__grid">
+            {rows.map((r, i) => {
+              const G = Icon[r.glyph];
+              return (
+                <section
+                  className="ctrCell"
+                  key={r.label}
+                  style={{ ["--i" as string]: i }}
+                >
+                  <span className="ctrCell__label">
+                    <G size={11} />
+                    {r.label}
+                    <b className="mono">{r.items.length}</b>
+                  </span>
+                  <ul className="ctrCell__list">
+                    {r.items.map((it) => (
+                      <li key={it}>{it}</li>
+                    ))}
+                  </ul>
+                </section>
+              );
+            })}
+          </div>
+          <p className="ctr__foot">
+            契约一经确认即作为后续每个节点的验收基线；范围之外的改动会被门禁拦截并要求补充契约。
+          </p>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+/* =================== 结构化任务交接（第二章第三节） ==================== */
+
+function Handoff({ e, style }: { e: Extract<AgentEvent, { kind: "handoff" }>; style: object }) {
+  const [open, setOpen] = useState(false);
+  const From = Icon[roleGlyph[e.from]];
+  const To = Icon[roleGlyph[e.to]];
+
+  return (
+    <article className="ev ev--card" style={style}>
+      <div className="ev__gutter" />
+      <div className="card card--handoff" data-open={open}>
+        <button className="handoff__head" onClick={() => setOpen((v) => !v)}>
+          <span className="handoff__pair">
+            <i className="handoff__role" data-role={e.from}>
+              <From size={12} />
+              {roleLabel[e.from]}
+            </i>
+            <Icon.Arrow size={12} className="handoff__arrow" />
+            <i className="handoff__role" data-role={e.to}>
+              <To size={12} />
+              {roleLabel[e.to]}
+            </i>
+          </span>
+          <span className="handoff__title">{e.title}</span>
+          <span className="handoff__badge mono">交接物</span>
+          <Icon.Chevron size={12} className="handoff__chev" />
+        </button>
+        <div className="handoff__body">
+          <div className="handoff__grid">
+            <ContractCol label="交接范围" items={e.scope} tone="scope" />
+            <ContractCol label="完成判定" items={e.done} tone="done" />
+            {e.open?.length ? <ContractCol label="未决问题" items={e.open} tone="open" /> : null}
+          </div>
+          <div className="handoff__ev mono">
+            <Icon.Shield size={11} />
+            随交接传递证据
+            {e.evidence.map((id) => (
+              <span key={id} className="evRef">
+                {id}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function ContractCol({
+  label,
+  items,
+  tone,
+}: {
+  label: string;
+  items: string[];
+  tone: "scope" | "done" | "open";
+}) {
+  return (
+    <div className="cCol" data-tone={tone}>
+      <span className="cCol__label kicker">{label}</span>
+      <ul className="cCol__list">
+        {items.map((t) => (
+          <li key={t}>{t}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/* ===================== AI 研发质量门禁（第六节） ====================== */
+
+function Gate({ e, style }: { e: Extract<AgentEvent, { kind: "gate" }>; style: object }) {
+  const [open, setOpen] = useState(e.verdict === "block");
+  const failed = e.checks.filter((c) => c.state === "fail").length;
+  const warned = e.checks.filter((c) => c.state === "warn").length;
+  const passed = e.checks.length - failed - warned;
+
+  return (
+    <article className="ev ev--card" style={style}>
+      <div className="ev__gutter" />
+      <div className="card card--gate" data-verdict={e.verdict} data-open={open}>
+        <button className="gate__head" onClick={() => setOpen((v) => !v)}>
+          <span className="gate__seal" data-verdict={e.verdict}>
+            {e.verdict === "pass" ? (
+              <Icon.Check size={13} />
+            ) : e.verdict === "block" ? (
+              <Icon.X size={13} />
+            ) : (
+              <Icon.Dot size={13} />
+            )}
+          </span>
+          <span className="gate__name">{e.gate}</span>
+          <span className="gate__node mono">节点 {e.node}</span>
+          <span className="gate__score mono">
+            <b data-tone="ok">{passed}</b> 通过
+            {warned > 0 && (
+              <>
+                {" · "}
+                <b data-tone="warn">{warned}</b> 警示
+              </>
+            )}
+            {failed > 0 && (
+              <>
+                {" · "}
+                <b data-tone="fail">{failed}</b> 未过
+              </>
+            )}
+          </span>
+          <span className="gate__verdict" data-verdict={e.verdict}>
+            {e.verdict === "pass" ? "放行" : e.verdict === "block" ? "拦截" : "豁免"}
+          </span>
+          <Icon.Chevron size={12} className="gate__chev" />
+        </button>
+        <div className="gate__body">
+          <ul className="gate__dims">
+            {e.checks.map((c, i) => (
+              <li key={c.dim} data-state={c.state} style={{ ["--i" as string]: i }}>
+                <span className="gate__dot" />
+                <span className="gate__dim">{c.dim}</span>
+                <span className="gate__note">{c.note}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="gate__foot mono">
+            <span>{e.reviewer}</span>
+            <span className="gate__evs">
+              {e.evidence.map((id) => (
+                <span key={id} className="evRef">
+                  {id}
+                </span>
+              ))}
+            </span>
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+/* ======================== 定向返工（第三节） ========================== */
+
+function Rework({ e, style }: { e: Extract<AgentEvent, { kind: "rework" }>; style: object }) {
+  return (
+    <article className="ev ev--card" style={style}>
+      <div className="ev__gutter" />
+      <div className="card card--rework">
+        <div className="rework__head">
+          <span className="rework__badge">
+            <Icon.Merge size={12} />
+            定向返工
+          </span>
+          <span className="rework__route mono">
+            {e.fromNode}
+            <Icon.Arrow size={11} className="rot180" />
+            {e.toNode}
+          </span>
+          <span className="rework__round mono">第 {e.round} 轮</span>
+        </div>
+        <p className="rework__reason">{e.reason}</p>
+        <div className="rework__grid">
+          <div className="rework__col" data-tone="redo">
+            <span className="kicker">仅重做</span>
+            <ul>
+              {e.redo.map((t) => (
+                <li key={t}>{t}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="rework__col" data-tone="keep">
+            <span className="kicker">保留成果</span>
+            <ul>
+              {e.keep.map((t) => (
+                <li key={t}>{t}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+        <p className="rework__hint">
+          承接角色 <b>{roleLabel[e.role]}智能体</b> · 上下文与已通过结论随交接物一并传递，无需整体重来
+        </p>
+      </div>
+    </article>
+  );
+}
+
+/* ==================== 受控连接层调用（第五节） ======================== */
+
+function Controlled({ e, style }: { e: Extract<AgentEvent, { kind: "controlled" }>; style: object }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <article className="ev ev--card" style={style}>
+      <div className="ev__gutter" />
+      <div className="card card--ctrl" data-open={open}>
+        <button className="ctrl__head" onClick={() => setOpen((v) => !v)}>
+          <span className="ctrl__tier" data-tier={e.tier}>
+            {permTierLabel[e.tier]}
+          </span>
+          <span className="ctrl__conn mono">{e.conn}</span>
+          <span className="ctrl__action">{e.action}</span>
+          <span className="ctrl__trace mono">{e.traceId}</span>
+          <Icon.Chevron size={12} className="ctrl__chev" />
+        </button>
+        <div className="ctrl__body">
+          <ol className="ctrl__steps">
+            {e.steps.map((s, i) => (
+              <li key={s.label} data-state={s.state} style={{ ["--i" as string]: i }}>
+                <b className="mono">{i + 1}</b>
+                {s.label}
+              </li>
+            ))}
+          </ol>
+          {e.approver && (
+            <p className="ctrl__foot mono">
+              <Icon.Shield size={11} />
+              人工放行 {e.approver} · 调用参数、影响面与结果已全量归档，可按 {e.traceId} 回放
+            </p>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+/* ===================== 人工检查点（第一节人工检查层） ================= */
+
+function Checkpoint({ e, style }: { e: Extract<AgentEvent, { kind: "checkpoint" }>; style: object }) {
+  const [pick, setPick] = useState<string | null>(e.decided ?? null);
+  return (
+    <article className="ev ev--card" style={style}>
+      <div className="ev__gutter" />
+      <div className="card card--ckpt" data-done={pick ? "true" : undefined}>
+        <div className="ckpt__head">
+          <span className="ckpt__badge">
+            <Icon.Sparkle size={12} />
+            人工检查点
+          </span>
+          <span className="ckpt__node mono">节点 {e.node}</span>
+          <span className="ckpt__hint">人只判定节点结论，不逐行读码</span>
+        </div>
+        <p className="ckpt__q">{e.question}</p>
+        <ul className="ckpt__facts">
+          {e.facts.map((f, i) => (
+            <li key={f.label} data-tone={f.tone ?? "info"} style={{ ["--i" as string]: i }}>
+              <span className="ckpt__fl kicker">{f.label}</span>
+              <span className="ckpt__fv">{f.value}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="ckpt__acts">
+          {e.options.map((o) => (
+            <button
+              key={o}
+              className="ckpt__opt"
+              data-active={pick === o ? "true" : undefined}
+              onClick={() => setPick(o)}
+            >
+              {pick === o && <Icon.Check size={11} />}
+              {o}
+            </button>
+          ))}
+        </div>
+        {pick && (
+          <p className="ckpt__done mono">
+            已判定「{pick}」· {e.decidedBy ?? "me@agentflow.dev"} · 判定结论进入证据链
+          </p>
+        )}
+      </div>
+    </article>
+  );
 }
 
 function Reasoning({ e, style }: { e: Extract<AgentEvent, { kind: "reasoning" }>; style: object }) {

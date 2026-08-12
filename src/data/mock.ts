@@ -1,3 +1,5 @@
+import type { AgentRole, PermTier } from "./settings";
+
 export type Theme = "lumen" | "ink";
 
 export type SessionState = "running" | "review" | "done" | "failed" | "idle";
@@ -127,6 +129,80 @@ export type AgentEvent = EventBase &
         risk: "low" | "medium" | "high";
       }
     | { kind: "tests"; passed: number; failed: number; skipped: number; ms: number }
+    /* ---- 以下为「可信协同」工作流事件 ---- */
+    | {
+        /** 结构化任务交接：上游 agent 向下游交付的交接物 */
+        kind: "handoff";
+        from: AgentRole;
+        to: AgentRole;
+        title: string;
+        /** 交接契约字段：范围 / 完成判定 / 未决问题 */
+        scope: string[];
+        done: string[];
+        open?: string[];
+        /** 随交接物一并传递的证据 id */
+        evidence: string[];
+      }
+    | {
+        /** AI 研发质量门禁：作为公开质量节点的评审结论 */
+        kind: "gate";
+        gate: string;
+        node: string;
+        verdict: "pass" | "block" | "waived";
+        /** 各审查维度的结论 */
+        checks: { dim: string; state: "pass" | "fail" | "warn"; note: string }[];
+        reviewer: string;
+        evidence: string[];
+      }
+    | {
+        /** 定向返工：门禁失败后精确回退到责任节点，而非整体重来 */
+        kind: "rework";
+        reason: string;
+        fromNode: string;
+        toNode: string;
+        role: AgentRole;
+        /** 仅重做的范围，体现「定向」 */
+        redo: string[];
+        keep: string[];
+        round: number;
+      }
+    | {
+        /** 受控连接层调用：七步受控链路的一次落库记录 */
+        kind: "controlled";
+        conn: string;
+        tier: PermTier;
+        action: string;
+        steps: { label: string; state: "ok" | "wait" | "deny" }[];
+        traceId: string;
+        /** 高风险写入需要的人工放行 */
+        approver?: string;
+      }
+    | {
+        /** 人工检查层：把人从逐行读码升级为节点判定 */
+        kind: "checkpoint";
+        node: string;
+        question: string;
+        /** 供人工判断的收敛信息，而非全量代码 */
+        facts: { label: string; value: string; tone?: "ok" | "warn" | "info" }[];
+        options: string[];
+        decided?: string;
+        decidedBy?: string;
+      }
+    | {
+        /** 智能执行中枢：任务契约是任务的唯一入口与验收依据 */
+        kind: "contract";
+        title: string;
+        problem: string;
+        repo: string;
+        workflow: string;
+        /** 契约七要素中的清单类字段 */
+        scope: string[];
+        doneCriteria: string[];
+        approvals: string[];
+        materials: string[];
+        tools: string[];
+        deliverables: string[];
+      }
   );
 
 export const conversation: AgentEvent[] = [
@@ -135,6 +211,30 @@ export const conversation: AgentEvent[] = [
     kind: "user",
     text: "`/auth` 里的 token 刷新逻辑散落在三个中间件里，帮我抽成独立的 service，保持现有 API 行为不变，并补上单测。",
     attachments: ["auth-flow.png", "middleware.ts"],
+  },
+  {
+    id: "e1b",
+    kind: "contract",
+    title: "token 刷新逻辑收敛改造",
+    problem:
+      "三处中间件各自读写 Redis 完成 token 刷新，存在并发双写风险且无法单点验证；需收敛为单一 TokenService 并保持对外行为不变。",
+    repo: "agentflow/atlas-api · main",
+    workflow: "需求开发",
+    scope: [
+      "src/auth/middleware/* 的 refresh 调用点",
+      "src/auth/token-service.ts（新增）",
+      "test/auth/* 单元测试",
+    ],
+    doneCriteria: [
+      "res.locals.session 对外契约零变更",
+      "并发刷新场景有互斥保护且有用例覆盖",
+      "类型检查通过，测试覆盖率不低于 90%",
+      "审查门禁六个维度无阻断项",
+    ],
+    approvals: ["沙箱内执行测试命令", "代码合并到 main"],
+    materials: ["仓库源码", "AGENTS.md 工程约定", "依赖扫描结果"],
+    tools: ["repo.read", "repo.patch", "test.run", "scan.sast"],
+    deliverables: ["实现与验证材料", "证据链归档", "变更说明"],
   },
   {
     id: "e2",
@@ -153,6 +253,25 @@ export const conversation: AgentEvent[] = [
       { label: "补充并发刷新的单元测试", status: "active" },
       { label: "跑完整测试套件并校验契约", status: "todo" },
     ],
+  },
+  {
+    id: "e3b",
+    kind: "handoff",
+    from: "requirement",
+    to: "development",
+    title: "需求智能体 → 开发智能体：token 刷新收敛改造",
+    scope: [
+      "统一 session / bearer / cookie 三处中间件的刷新逻辑",
+      "对外保持 res.locals.session 字段与 legacy/compat.ts 再导出不变",
+      "并发刷新场景下 Redis 写入必须收敛为一次",
+    ],
+    done: [
+      "三处中间件不再各自实现刷新窗口判断",
+      "新增单测覆盖并发刷新与过期边界",
+      "契约回归比对通过，无字段增删",
+    ],
+    open: ["rotateSession 是否本次一并标记弃用，待人工检查点确认"],
+    evidence: ["ev-req-01", "ev-scan-02"],
   },
   {
     id: "e4",
@@ -202,6 +321,51 @@ export const conversation: AgentEvent[] = [
     ],
   },
   {
+    id: "e8b",
+    kind: "gate",
+    gate: "AI 变更审查门禁",
+    node: "评审",
+    verdict: "block",
+    reviewer: "审查智能体 · reviewer-1",
+    checks: [
+      { dim: "需求一致性", state: "pass", note: "改造范围与交接物 scope 逐条对齐" },
+      { dim: "对外契约兼容", state: "pass", note: "res.locals.session 字段比对无差异" },
+      { dim: "并发安全", state: "fail", note: "single-flight 锁未覆盖 Redis 连接抖动后的重入路径" },
+      { dim: "测试有效性", state: "warn", note: "并发用例仅验证调用次数，未断言锁释放" },
+      { dim: "日志与可观测", state: "pass", note: "刷新失败已打点，含 traceId" },
+      { dim: "敏感信息", state: "pass", note: "未出现明文 token 落日志" },
+    ],
+    evidence: ["ev-diff-04", "ev-test-05"],
+  },
+  {
+    id: "e8c",
+    kind: "rework",
+    reason: "并发安全维度未通过：锁重入路径缺失",
+    fromNode: "评审",
+    toNode: "代码开发",
+    role: "development",
+    round: 2,
+    redo: [
+      "为 single-flight 锁补充连接抖动后的重入保护",
+      "并发用例追加锁释放断言",
+    ],
+    keep: [
+      "TokenService 抽取结果",
+      "三处中间件薄封装改写",
+      "契约回归比对结论",
+    ],
+  },
+  {
+    id: "e8d",
+    kind: "handoff",
+    from: "review",
+    to: "development",
+    title: "审查智能体 → 开发智能体：定向返工交接",
+    scope: ["仅修复锁重入路径与对应断言，不重做已通过部分"],
+    done: ["重入场景下 Redis 写入仍为一次", "锁在异常分支上必定释放"],
+    evidence: ["ev-gate-06"],
+  },
+  {
     id: "e9",
     kind: "approval",
     command: "pnpm vitest run test/auth --coverage",
@@ -238,6 +402,58 @@ export const conversation: AgentEvent[] = [
     failed: 0,
     skipped: 1,
     ms: 1420,
+  },
+  {
+    id: "e11b",
+    kind: "gate",
+    gate: "AI 变更审查门禁",
+    node: "评审",
+    verdict: "pass",
+    reviewer: "审查智能体 · reviewer-1（第 2 轮）",
+    checks: [
+      { dim: "需求一致性", state: "pass", note: "返工范围未溢出交接物约定" },
+      { dim: "对外契约兼容", state: "pass", note: "契约比对复跑一致" },
+      { dim: "并发安全", state: "pass", note: "重入路径已覆盖，锁释放在 finally 分支" },
+      { dim: "测试有效性", state: "pass", note: "新增锁释放断言，并发用例 9 → 11" },
+      { dim: "日志与可观测", state: "pass", note: "重入告警新增独立打点" },
+      { dim: "敏感信息", state: "pass", note: "无新增外发字段" },
+    ],
+    evidence: ["ev-diff-07", "ev-test-08", "ev-cover-09"],
+  },
+  {
+    id: "e11c",
+    kind: "controlled",
+    conn: "GitLab · atlas-api",
+    tier: "write",
+    action: "创建合并请求 feat/token-service-consolidation → main",
+    traceId: "trc-8f21c40e",
+    steps: [
+      { label: "身份核验", state: "ok" },
+      { label: "权限判定", state: "ok" },
+      { label: "参数校验", state: "ok" },
+      { label: "影响面预估", state: "ok" },
+      { label: "人工放行", state: "ok" },
+      { label: "执行调用", state: "ok" },
+      { label: "留痕归档", state: "ok" },
+    ],
+    approver: "me@agentflow.dev",
+  },
+  {
+    id: "e11d",
+    kind: "checkpoint",
+    node: "交付",
+    question: "本次改造是否可以合入 main？",
+    facts: [
+      { label: "门禁结论", value: "6/6 维度通过（第 2 轮）", tone: "ok" },
+      { label: "定向返工", value: "1 次 · 仅重做并发锁与断言", tone: "info" },
+      { label: "对外契约", value: "无变更，legacy 再导出保留", tone: "ok" },
+      { label: "测试", value: "23 通过 / 0 失败 / 1 跳过 · 覆盖 96.4%", tone: "ok" },
+      { label: "受控写入", value: "1 次 MR 创建，已留痕 trc-8f21c40e", tone: "info" },
+      { label: "未决问题", value: "rotateSession 弃用注释未处理", tone: "warn" },
+    ],
+    options: ["同意合入", "先补弃用注释", "退回开发"],
+    decided: "先补弃用注释",
+    decidedBy: "me@agentflow.dev",
   },
   {
     id: "e12",

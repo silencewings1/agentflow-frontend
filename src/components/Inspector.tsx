@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Icon } from "./Icons";
 import {
   diffs,
@@ -7,13 +7,22 @@ import {
   type FileNode,
   type Session,
 } from "../data/mock";
+import {
+  evidenceChain,
+  evidenceKindLabel,
+  replaySteps,
+  permTierLabel,
+  type EvidenceKind,
+} from "../data/settings";
 import type { Toast } from "./Toasts";
 
-export type InspectorTab = "files" | "diff" | "terminal" | "env";
+export type InspectorTab = "files" | "diff" | "terminal" | "env" | "evidence" | "replay";
 
 const tabs: { key: InspectorTab; label: string }[] = [
   { key: "files", label: "文件" },
   { key: "diff", label: "改动" },
+  { key: "evidence", label: "证据链" },
+  { key: "replay", label: "回放" },
   { key: "terminal", label: "终端" },
   { key: "env", label: "沙箱" },
 ];
@@ -35,6 +44,8 @@ export function Inspector({
   onClose: () => void;
   onToast: (t: Omit<Toast, "id">) => void;
 }) {
+  const evReady = evidenceChain.filter((e) => e.confirmed).length;
+
   return (
     <aside className="inspector">
       <header className="inspector__head">
@@ -49,6 +60,11 @@ export function Inspector({
               {t.label}
               {t.key === "diff" && (
                 <span className="tab__badge mono">{session.diff.files}</span>
+              )}
+              {t.key === "evidence" && (
+                <span className="tab__badge mono">
+                  {evReady}/{evidenceChain.length}
+                </span>
               )}
             </button>
           ))}
@@ -65,10 +81,216 @@ export function Inspector({
         {tab === "diff" && (
           <DiffView path={activeFile} onFile={onFile} onToast={onToast} />
         )}
+        {tab === "evidence" && <EvidencePane onToast={onToast} />}
+        {tab === "replay" && <ReplayPane onToast={onToast} />}
         {tab === "terminal" && <Terminal />}
         {tab === "env" && <Env session={session} />}
       </div>
     </aside>
+  );
+}
+
+/* ============================== 证据链 ==================================== */
+/* 每条结论都能回溯到出处、版本与责任人 —— 交接物之所以可信的依据 */
+
+const evGlyph: Record<EvidenceKind, "Pencil" | "Plug" | "Beaker" | "Shield" | "Book" | "Check"> = {
+  change: "Pencil",
+  toolcall: "Plug",
+  test: "Beaker",
+  scan: "Shield",
+  review: "Book",
+  approval: "Check",
+};
+
+function EvidencePane({ onToast }: { onToast: (t: Omit<Toast, "id">) => void }) {
+  const [only, setOnly] = useState(false);
+  const list = useMemo(
+    () => (only ? evidenceChain.filter((e) => !e.confirmed) : evidenceChain),
+    [only],
+  );
+  const ready = evidenceChain.filter((e) => e.confirmed).length;
+  const blocking = evidenceChain.filter((e) => !e.confirmed && e.required).length;
+  const pct = Math.round((ready / evidenceChain.length) * 100);
+
+  return (
+    <div className="pane">
+      <div className="paneHead">
+        <div className="paneHead__text">
+          <span className="kicker">证据链</span>
+          <h3 className="serif">每条结论都可回溯到出处</h3>
+        </div>
+      </div>
+
+      <div className="evSum">
+        <div className="evSum__meter">
+          <span className="evSum__bar">
+            <i style={{ width: `${pct}%` }} />
+          </span>
+          <span className="evSum__pct mono">{pct}%</span>
+        </div>
+        <p className="evSum__note">
+          {ready}/{evidenceChain.length} 项已核实
+          {blocking > 0 && (
+            <>
+              ·<b>{blocking} 项必需证据未闭环</b>，交付门禁保持阻断
+            </>
+          )}
+        </p>
+        <button className="chipBtn" data-on={only} onClick={() => setOnly((v) => !v)}>
+          <Icon.Sliders size={11} />
+          {only ? "显示全部" : "仅看未闭环"}
+        </button>
+      </div>
+
+      <ol className="evChain">
+        {list.map((e, i) => {
+          const G = Icon[evGlyph[e.kind]];
+          return (
+            <li
+              className="evChain__item"
+              key={e.id}
+              data-ok={e.confirmed}
+              style={{ ["--i" as string]: i }}
+            >
+              <span className="evChain__node">
+                <G size={11} />
+              </span>
+              <div className="evChain__main">
+                <header className="evChain__top">
+                  <span className="evChain__kind">{evidenceKindLabel[e.kind]}</span>
+                  {e.required && <i className="evChain__req">必需</i>}
+                  <span className="evChain__at mono">{e.at}</span>
+                </header>
+                <strong className="evChain__title">{e.title}</strong>
+                <div className="evChain__meta">
+                  <span className="mono" title="出处">{e.source}</span>
+                  <span className="evChain__ver mono" title="版本">{e.version}</span>
+                  <span title="责任人">{e.actor}</span>
+                </div>
+              </div>
+              <button
+                className="evChain__state"
+                data-ok={e.confirmed}
+                onClick={() =>
+                  onToast(
+                    e.confirmed
+                      ? { tone: "ok", title: `${e.id} 已核实`, body: `${e.source} · ${e.version}` }
+                      : { tone: "warn", title: `${e.id} 尚未闭环`, body: "需补齐后才能进入交付门禁。" },
+                  )
+                }
+              >
+                {e.confirmed ? <Icon.Check size={11} /> : <Icon.Dot size={11} />}
+                {e.confirmed ? "已核实" : "待闭环"}
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+
+      <p className="paneFoot">
+        证据链随交接物在节点之间传递：下游无需重新提问即可拿到上游的事实、版本与责任人，
+        返工时也只替换失效的那几条证据。
+      </p>
+    </div>
+  );
+}
+
+/* ============================== 任务回放 ================================== */
+/* 把整条执行链路还原为可审计的时间线：谁、在什么权限下、做了什么、结果如何 */
+
+const resultLabel: Record<string, string> = {
+  ok: "通过",
+  fail: "失败",
+  denied: "已拒绝",
+  wait: "等待",
+};
+
+function ReplayPane({ onToast }: { onToast: (t: Omit<Toast, "id">) => void }) {
+  const [cursor, setCursor] = useState(replaySteps.length - 1);
+  const cur = replaySteps[cursor];
+  const abnormal = replaySteps.filter((s) => s.result !== "ok").length;
+
+  return (
+    <div className="pane">
+      <div className="paneHead">
+        <div className="paneHead__text">
+          <span className="kicker">任务回放</span>
+          <h3 className="serif">完整链路可逐步复盘</h3>
+        </div>
+        <button
+          className="chipBtn"
+          onClick={() =>
+            onToast({
+              tone: "info",
+              title: "回放已导出",
+              body: `${replaySteps.length} 个步骤 · ${abnormal} 处异常，可作为审计材料归档。`,
+            })
+          }
+        >
+          <Icon.Copy size={11} />
+          导出审计
+        </button>
+      </div>
+
+      <div className="rpScrub">
+        <input
+          type="range"
+          min={0}
+          max={replaySteps.length - 1}
+          value={cursor}
+          onChange={(e) => setCursor(Number(e.target.value))}
+          aria-label="回放进度"
+        />
+        <span className="rpScrub__pos mono">
+          {cursor + 1}/{replaySteps.length}
+        </span>
+      </div>
+
+      <ol className="rpLine">
+        {replaySteps.map((s, i) => (
+          <li
+            className="rpLine__item"
+            key={s.id}
+            data-result={s.result}
+            data-past={i <= cursor}
+            data-cur={i === cursor}
+            style={{ ["--i" as string]: i }}
+            onClick={() => setCursor(i)}
+          >
+            <span className="rpLine__at mono">{s.at}</span>
+            <span className="rpLine__dot" />
+            <div className="rpLine__main">
+              <header className="rpLine__top">
+                <strong>{s.stage}</strong>
+                <span className="rpLine__actor">{s.actor}</span>
+                {s.tier !== "—" && (
+                  <span className="rpLine__tier" data-tier={s.tier}>
+                    {permTierLabel[s.tier]}
+                  </span>
+                )}
+                <span className="rpLine__res" data-result={s.result}>
+                  {resultLabel[s.result]}
+                </span>
+              </header>
+              <p className="rpLine__act">{s.action}</p>
+              <span className="rpLine__mat mono">{s.materials}</span>
+            </div>
+          </li>
+        ))}
+      </ol>
+
+      <div className="rpNow">
+        <span className="kicker">当前定位</span>
+        <p>
+          <strong>{cur.stage}</strong> · {cur.actor} · {cur.action}
+          <span className="mono"> （{cur.materials}）</span>
+        </p>
+        <p className="rpNow__hint">
+          回放不依赖人的记忆：任何一次结论都能定位到具体步骤、权限层级与输入材料，
+          问题定位从「反复追问」变成「按步查证」。
+        </p>
+      </div>
+    </div>
   );
 }
 

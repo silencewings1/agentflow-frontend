@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Icon, type IconName } from "./Icons";
 import {
   agentToolCatalog,
+  archLayers,
   builtinAgents,
   callSteps,
   cloudEnvStateLabel,
@@ -14,6 +15,7 @@ import {
   envVars,
   permTierLabel,
   permTiers,
+  reworkRoutes,
   roleLabel,
   sandboxLimits,
   sandboxToggles,
@@ -21,12 +23,19 @@ import {
   type AgentRole,
   type AgentScope,
   type AgentSpec,
+  type ArchLayer,
   type Connection,
 } from "../data/settings";
 
-export type SettingsPane = "agents" | "connect" | "env";
+export type SettingsPane = "arch" | "agents" | "connect" | "env";
 
 const PANES: { id: SettingsPane; label: string; glyph: IconName; desc: string }[] = [
+  {
+    id: "arch",
+    label: "总体架构",
+    glyph: "Layers",
+    desc: "五层协同架构：每一层职责单一、边界清晰，人工、AI 与确定性程序各司其职。",
+  },
   {
     id: "agents",
     label: "智能体",
@@ -113,6 +122,7 @@ export function SettingsOverlay({
           </header>
 
           <div className="sheet__body" key={pane}>
+            {pane === "arch" && <ArchPane onToast={onToast} />}
             {pane === "agents" && <AgentsPane onToast={onToast} />}
             {pane === "connect" && <ConnectPane onToast={onToast} />}
             {pane === "env" && <EnvPane onToast={onToast} />}
@@ -124,6 +134,118 @@ export function SettingsOverlay({
 }
 
 type Toast = (t: { tone: "ok" | "warn" | "info"; title: string; body: string }) => void;
+
+/* ============================ 总体架构：五层 ============================ */
+
+/* 责任主体决定该层能否被“说服”：确定性程序不接受协商，AI 只在授权内行动 */
+const ownerNote: Record<ArchLayer["owner"], string> = {
+  平台: "由平台承载，是研发活动发生的地方",
+  AI: "由智能体判断，输出必须可被下层核验",
+  确定性程序: "由程序裁决，不接受自然语言协商",
+  人工: "由人决策，AI 只能请求、不能代替",
+};
+
+function ArchPane({ onToast }: { onToast: Toast }) {
+  const [active, setActive] = useState<string>(archLayers[1].id);
+  const layer = archLayers.find((l) => l.id === active) ?? archLayers[0];
+
+  return (
+    <div className="arch">
+      <p className="arch__lead">
+        单点辅助的问题不在模型能力，而在<b>缺少承接结构</b>
+        ：结论无从核验、责任无从界定。五层架构把「谁判断、谁核验、谁负责」拆开，
+        让 AI 的产出必须穿过确定性验证与人工决策才能落地。
+      </p>
+
+      {/* 分层栈：自上而下即一次任务的流转方向 */}
+      <ol className="archStack">
+        {archLayers.map((l, i) => {
+          const G = Icon[l.glyph];
+          return (
+            <li key={l.id} style={{ "--i": i } as CSSProperties}>
+              <button
+                className="archLayer"
+                data-tint={l.tint}
+                data-active={l.id === active}
+                onClick={() => setActive(l.id)}
+              >
+                <span className="archLayer__idx mono">{l.index}</span>
+                <span className="archLayer__glyph">
+                  <G size={15} />
+                </span>
+                <span className="archLayer__main">
+                  <span className="archLayer__top">
+                    <strong>{l.name}</strong>
+                    <em className="archLayer__owner">{l.owner}</em>
+                  </span>
+                  <span className="archLayer__duty">{l.duty}</span>
+                  <span className="archLayer__items">
+                    {l.items.map((it) => (
+                      <i key={it}>{it}</i>
+                    ))}
+                  </span>
+                </span>
+              </button>
+              {i < archLayers.length - 1 && (
+                <span className="archStack__link" aria-hidden>
+                  <Icon.Arrow size={12} className="rot90" />
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+
+      {/* 选中层的责任边界 */}
+      <div className="archFocus" data-tint={layer.tint}>
+        <div className="archFocus__head">
+          <span className="kicker">
+            {layer.index} · 责任边界
+          </span>
+          <h4 className="serif">{layer.name}</h4>
+        </div>
+        <p>{ownerNote[layer.owner]}。{layer.duty}</p>
+        <div className="archFocus__tags">
+          {layer.items.map((it) => (
+            <span key={it}>{it}</span>
+          ))}
+        </div>
+      </div>
+
+      {/* 定向返工路由：失败不推倒重来，而是回到出问题的那一层 */}
+      <section className="archRoute">
+        <header>
+          <span className="kicker">失败回退路由</span>
+          <h4 className="serif">问题回到它产生的那一层</h4>
+          <button
+            className="chipBtn"
+            onClick={() =>
+              onToast({
+                tone: "info",
+                title: "回退策略",
+                body: "命中回退路由时只重跑目标节点及其下游，已闭环证据不重复采集。",
+              })
+            }
+          >
+            <Icon.Sliders size={11} />
+            策略说明
+          </button>
+        </header>
+        <ul>
+          {reworkRoutes.map((r, i) => (
+            <li key={r.id} style={{ "--i": i } as CSSProperties}>
+              <span className="archRoute__cause">{r.cause}</span>
+              <Icon.Arrow size={11} />
+              <span className="archRoute__target">{r.target}</span>
+              <em data-human={r.handler === "人工"}>{r.handler}</em>
+              <span className="archRoute__note">{r.note}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </div>
+  );
+}
 
 /* ============================== 智能体 ================================= */
 
