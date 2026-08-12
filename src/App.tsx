@@ -1,0 +1,383 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import "./App.css";
+import {
+  conversation,
+  sessions,
+  type AgentEvent,
+  type Session,
+  type Theme,
+} from "./data/mock";
+import { Rail } from "./components/Rail";
+import { Sidebar } from "./components/Sidebar";
+import { TopBar } from "./components/TopBar";
+import { Stream } from "./components/Stream";
+import { Composer } from "./components/Composer";
+import { Inspector, type InspectorTab } from "./components/Inspector";
+import { Palette } from "./components/Palette";
+import { Toasts, type Toast } from "./components/Toasts";
+import { Welcome } from "./components/Welcome";
+import { SettingsOverlay, type SettingsPane } from "./components/Settings";
+
+export type ApprovalMode = "auto" | "ask" | "readonly";
+
+let toastSeq = 0;
+
+export default function App() {
+  const [theme, setTheme] = useState<Theme>("lumen");
+  const [activeId, setActiveId] = useState<string>("s-1");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>("files");
+  const [activeFile, setActiveFile] = useState<string>("src/auth/token-service.ts");
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [settingsPane, setSettingsPane] = useState<SettingsPane | null>(null);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [approvalMode, setApprovalMode] = useState<ApprovalMode>("ask");
+  const [model, setModel] = useState("agentflow-large");
+  const [mode, setMode] = useState<"session" | "welcome">("session");
+
+  /* --- streamed event window --------------------------------------------- */
+  const [visible, setVisible] = useState(conversation.length);
+  const [streaming, setStreaming] = useState(false);
+  const [pendingApproval, setPendingApproval] = useState<string | null>(null);
+  const [extra, setExtra] = useState<AgentEvent[]>([]);
+  const timers = useRef<number[]>([]);
+
+  const active = useMemo(
+    () => sessions.find((s) => s.id === activeId) ?? sessions[0],
+    [activeId],
+  );
+
+  const events = useMemo(
+    () => [...conversation.slice(0, visible), ...extra],
+    [visible, extra],
+  );
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+
+  const push = useCallback((t: Omit<Toast, "id">) => {
+    const id = `t${++toastSeq}`;
+    setToasts((prev) => [...prev, { ...t, id }]);
+    window.setTimeout(
+      () => setToasts((prev) => prev.filter((x) => x.id !== id)),
+      3600,
+    );
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((t) => (t === "lumen" ? "ink" : "lumen"));
+  }, []);
+
+  /* --- keyboard ----------------------------------------------------------- */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const meta = e.metaKey || e.ctrlKey;
+      if (meta && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      } else if (meta && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        toggleTheme();
+      } else if (meta && e.key === "\\") {
+        e.preventDefault();
+        setInspectorOpen((v) => !v);
+      } else if (meta && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        setSidebarOpen((v) => !v);
+      } else if (e.key === "Escape") {
+        setPaletteOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleTheme]);
+
+  /* --- simulated agent turn ---------------------------------------------- */
+  const runTurn = useCallback(
+    (prompt: string) => {
+      timers.current.forEach(clearTimeout);
+      timers.current = [];
+      setMode("session");
+
+      const uid = `u${Date.now()}`;
+      const script: AgentEvent[] = [
+        { id: `${uid}-a`, kind: "user", text: prompt },
+        {
+          id: `${uid}-b`,
+          kind: "reasoning",
+          title: "已思考 6 秒",
+          body: "先确认改动范围是否会触及公共导出。仓库根目录的 AGENTS.md 要求所有新增文件带上许可头，并且改动需附带对应的测试。据此拟定最小步骤集。",
+          ms: 6100,
+        },
+        {
+          id: `${uid}-c`,
+          kind: "plan",
+          steps: [
+            { label: "定位相关实现与调用点", status: "done" },
+            { label: "按最小改动落地修改", status: "active" },
+            { label: "补测试并跑通类型检查", status: "todo" },
+          ],
+        },
+        {
+          id: `${uid}-d`,
+          kind: "tool",
+          tool: "search",
+          label: "grep",
+          meta: "rotateSession — 2 files, 3 matches",
+          status: "ok",
+          lines: [
+            "src/auth/middleware/cookie.ts:31   await tokens.rotate(req, res)",
+            "src/auth/legacy/compat.ts:12       export { rotateSession }",
+          ],
+        },
+        {
+          id: `${uid}-e`,
+          kind: "approval",
+          command: "pnpm typecheck && pnpm vitest run test/auth",
+          rationale: "需要在沙箱内执行类型检查与测试，确认改动没有破坏既有契约。",
+          risk: "low",
+        },
+      ];
+
+      setExtra([]);
+      setStreaming(true);
+      let delay = 260;
+      script.forEach((ev, i) => {
+        const t = window.setTimeout(() => {
+          setExtra((prev) => [...prev, ev]);
+          if (ev.kind === "approval") {
+            setPendingApproval(ev.id);
+            setStreaming(false);
+          }
+          if (i === script.length - 1 && ev.kind !== "approval") setStreaming(false);
+        }, delay);
+        timers.current.push(t);
+        delay += ev.kind === "reasoning" ? 900 : ev.kind === "plan" ? 760 : 620;
+      });
+    },
+    [],
+  );
+
+  const resolveApproval = useCallback(
+    (id: string, ok: boolean) => {
+      setPendingApproval(null);
+      setExtra((prev) =>
+        prev.map((e) =>
+          e.id === id && e.kind === "approval"
+            ? ({ ...e, risk: e.risk } as AgentEvent)
+            : e,
+        ),
+      );
+      if (!ok) {
+        push({ tone: "warn", title: "已拒绝命令", body: "代理将跳过该步骤继续。" });
+        setExtra((prev) => [
+          ...prev,
+          {
+            id: `${id}-skip`,
+            kind: "text",
+            body: "好的，我跳过命令执行。改动已经落盘，你可以稍后自行运行测试；需要我把验证步骤写进 `AGENTS.md` 吗？",
+          },
+        ]);
+        return;
+      }
+      push({ tone: "ok", title: "已批准", body: "在沙箱中执行命令…" });
+      setStreaming(true);
+      setInspectorTab("terminal");
+      const tail: AgentEvent[] = [
+        {
+          id: `${id}-sh`,
+          kind: "tool",
+          tool: "shell",
+          label: "shell",
+          meta: "pnpm typecheck && pnpm vitest run test/auth",
+          status: "ok",
+          lines: [
+            "$ pnpm typecheck",
+            "> tsc --noEmit -p tsconfig.json",
+            "✔ 0 errors · 312 files · 4.1s",
+            "",
+            "$ pnpm vitest run test/auth",
+            " ✓ test/auth/token-service.spec.ts (9 tests) 208ms",
+            " ✓ test/auth/middleware.spec.ts (14 tests) 322ms",
+            " Tests  23 passed (23)",
+          ],
+        },
+        { id: `${id}-t`, kind: "tests", passed: 23, failed: 0, skipped: 1, ms: 1380 },
+        {
+          id: `${id}-w`,
+          kind: "text",
+          body: "类型检查与测试全部通过，`rotateSession` 已标注为弃用并保留再导出。可以开 PR 了。",
+        },
+      ];
+      let delay = 420;
+      tail.forEach((ev, i) => {
+        const t = window.setTimeout(() => {
+          setExtra((prev) => [...prev, ev]);
+          if (i === tail.length - 1) {
+            setStreaming(false);
+            push({ tone: "ok", title: "23 项测试通过", body: "耗时 1.38s · 覆盖率 96.4%" });
+          }
+        }, delay);
+        timers.current.push(t);
+        delay += 900;
+      });
+    },
+    [push],
+  );
+
+  const stop = useCallback(() => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+    setStreaming(false);
+    push({ tone: "warn", title: "已中断", body: "代理停在当前步骤。" });
+  }, [push]);
+
+  const selectSession = useCallback((s: Session) => {
+    setActiveId(s.id);
+    setMode("session");
+    setExtra([]);
+    setVisible(conversation.length);
+    setPendingApproval(null);
+    setStreaming(s.state === "running");
+  }, []);
+
+  const paletteAction = useCallback(
+    (label: string) => {
+      setPaletteOpen(false);
+      if (label.includes("主题")) return toggleTheme();
+      if (label.includes("新任务")) {
+        setMode("welcome");
+        setExtra([]);
+        return push({ tone: "ok", title: "新任务", body: "选择一个仓库开始。" });
+      }
+      if (label.includes("检查面板")) return setInspectorOpen((v) => !v);
+      if (label.includes("审批模式")) {
+        const next: ApprovalMode =
+          approvalMode === "ask" ? "auto" : approvalMode === "auto" ? "readonly" : "ask";
+        setApprovalMode(next);
+        return push({
+          tone: "ok",
+          title: "审批模式",
+          body: next === "auto" ? "自动执行" : next === "ask" ? "逐条确认" : "只读",
+        });
+      }
+      if (label.includes("模型")) {
+        const next = model === "agentflow-large" ? "agentflow-swift" : "agentflow-large";
+        setModel(next);
+        return push({ tone: "ok", title: "已切换模型", body: next });
+      }
+      if (label.includes("终端") || label.includes("重跑")) {
+        setInspectorTab("terminal");
+        setInspectorOpen(true);
+        return;
+      }
+      push({ tone: "ok", title: label, body: "演示动作已触发。" });
+    },
+    [approvalMode, model, push, toggleTheme],
+  );
+
+  return (
+    <div
+      className="shell"
+      data-sidebar={sidebarOpen ? "open" : "closed"}
+      data-inspector={inspectorOpen ? "open" : "closed"}
+    >
+      <div className="shell__glow" aria-hidden />
+      <Rail
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onPalette={() => setPaletteOpen(true)}
+        onNew={() => {
+          setMode("welcome");
+          setExtra([]);
+        }}
+        pane={settingsPane}
+        onPane={(p) => setSettingsPane((cur) => (cur === p ? null : p))}
+      />
+      <Sidebar
+        sessions={sessions}
+        activeId={activeId}
+        onSelect={selectSession}
+        onNew={() => {
+          setMode("welcome");
+          setExtra([]);
+        }}
+      />
+
+      <main className="main">
+        <TopBar
+          session={active}
+          model={model}
+          approvalMode={approvalMode}
+          streaming={streaming}
+          sidebarOpen={sidebarOpen}
+          inspectorOpen={inspectorOpen}
+          onToggleSidebar={() => setSidebarOpen((v) => !v)}
+          onToggleInspector={() => setInspectorOpen((v) => !v)}
+          onCycleApproval={() =>
+            setApprovalMode((m) =>
+              m === "ask" ? "auto" : m === "auto" ? "readonly" : "ask",
+            )
+          }
+          onCycleModel={() =>
+            setModel((m) => (m === "agentflow-large" ? "agentflow-swift" : "agentflow-large"))
+          }
+          onPalette={() => setPaletteOpen(true)}
+        />
+
+        {mode === "welcome" ? (
+          <Welcome onStart={runTurn} />
+        ) : (
+          <Stream
+            events={events}
+            streaming={streaming}
+            pendingApproval={pendingApproval}
+            onApprove={resolveApproval}
+            onOpenFile={(p) => {
+              setActiveFile(p);
+              setInspectorTab("diff");
+              setInspectorOpen(true);
+            }}
+            onCopy={() => push({ tone: "ok", title: "已复制", body: "内容在剪贴板中。" })}
+          />
+        )}
+
+        <Composer
+          streaming={streaming}
+          model={model}
+          approvalMode={approvalMode}
+          onSend={runTurn}
+          onStop={stop}
+          onPalette={() => setPaletteOpen(true)}
+        />
+      </main>
+
+      <Inspector
+        tab={inspectorTab}
+        onTab={setInspectorTab}
+        activeFile={activeFile}
+        onFile={setActiveFile}
+        session={active}
+        onClose={() => setInspectorOpen(false)}
+        onToast={push}
+      />
+
+      {paletteOpen && (
+        <Palette onClose={() => setPaletteOpen(false)} onRun={paletteAction} />
+      )}
+      {settingsPane && (
+        <SettingsOverlay
+          pane={settingsPane}
+          onPane={setSettingsPane}
+          onClose={() => setSettingsPane(null)}
+          onToast={push}
+        />
+      )}
+      <Toasts items={toasts} />
+    </div>
+  );
+}
