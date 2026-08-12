@@ -313,7 +313,8 @@
 
 .wfEdit {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 210px;
+  /* 侧栏用 minmax 而非固定 210px：固定宽度在中等视口会被内容顶破 */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 232px);
   gap: 12px;
   align-items: start;
 }
@@ -439,6 +440,47 @@
   border: 1px solid var(--line);
   background: var(--surface);
   min-width: 0;
+  /* 侧栏是定宽轨道，内部一切都必须服从它，否则右侧会被裁切 */
+  overflow: hidden;
+}
+
+/* 策略条目：标签定宽、取值占剩余空间并允许换行，不再溢出到容器外 */
+.wfEdit__side .kv > div {
+  /* 取值换行后 baseline 对齐会错位，改为顶对齐 */
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wfEdit__side .kv dt {
+  width: 52px;
+  /* 与换行后的首行文字对齐 */
+  line-height: 1.5;
+}
+
+/* 「适用」这类长文案改为换行显示而非单行截断：
+   截断会让人看不出适用范围，换行只多占一行但信息完整 */
+.wfEdit__side .kv dd {
+  flex: 1;
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* 数值类保持单行，避免数字被拆开 */
+.wfEdit__side .kv dd.mono {
+  white-space: nowrap;
+}
+
+/* 插入按钮：窄轨道下允许文字收缩，不撑破侧栏 */
+.wfEdit__side .btn--block {
+  min-width: 0;
+  padding: 0 8px;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .wfAdd {
