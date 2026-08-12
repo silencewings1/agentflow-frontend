@@ -19,7 +19,12 @@ import { Welcome } from "./components/Welcome";
 import { SettingsOverlay, type ArchJump, type SettingsPane } from "./components/Settings";
 import { NewTaskDialog } from "./components/NewTask";
 import { WorkflowStrip } from "./components/Workflow";
-import { workflowTemplates, type Workflow } from "./data/workflows";
+import {
+  demoMessages,
+  workflowTemplates,
+  type WfRunStates,
+  type Workflow,
+} from "./data/workflows";
 
 export type ApprovalMode = "auto" | "ask" | "readonly";
 
@@ -60,6 +65,16 @@ export default function App() {
     () => [...conversation.slice(0, visible), ...extra],
     [visible, extra],
   );
+
+  /* 节点运行态：由当前进度推导，保证换工作流或改编排后仍然自洽。
+     wfStep 之前的节点已完成，当前节点在跑，其后未开始。 */
+  const runStates = useMemo<WfRunStates>(() => {
+    const m: WfRunStates = {};
+    workflow.nodes.forEach((n, i) => {
+      m[n.id] = i < wfStep ? "done" : i === wfStep ? "running" : "todo";
+    });
+    return m;
+  }, [workflow, wfStep]);
 
   /* 五层架构的运行时切面：让「总体架构」显示当前会话在每层的实时状态 */
   const archRuntime = useMemo(
@@ -456,6 +471,8 @@ export default function App() {
               wf={workflow}
               activeIndex={wfStep}
               onOpen={() => setNewTaskOpen(true)}
+              runStates={runStates}
+              messages={demoMessages}
             />
             <Stream
             events={events}

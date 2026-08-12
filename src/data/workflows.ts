@@ -8,6 +8,63 @@ import type { AgentRole } from "./settings";
 
 export type EdgeKind = "flow" | "fail" | "approve";
 
+/* ---------------------------------------------------------------
+   主控智能体（Orchestrator）
+   每个工作流必须且只能有一个。它不是流程里的一个普通节点，
+   而是这条流程的「设计者与监工」：
+     1. 开工前 —— 为每个节点设计契约规则（输入/输出文件 + 本次任务的具体职责）
+     2. 开工后 —— 汇总各节点输出、监控偏差、辅助调度
+   契约由主控下发，因此职责描述可以超出 agent 自带提示词的范围。
+   --------------------------------------------------------------- */
+
+/** 节点契约：主控智能体为某个节点下发的输入输出与职责约定 */
+export interface NodeContract {
+  /** 该节点开工所需的输入文件（缺失即不允许启动） */
+  inputs: string[];
+  /** 该节点必须交付的输出文件（缺失即视为未完成） */
+  outputs: string[];
+  /** 与当前任务匹配的具体职责，由主控按任务上下文下发，非 agent 通用提示词 */
+  duty: string;
+  /** 完成判定：可被机器或人核验的验收条件 */
+  acceptance: string;
+  /** 被人工改写过：结构变化时不再被自动推导覆盖 */
+  manual?: boolean;
+}
+
+export interface Orchestrator {
+  id: string;
+  name: string;
+  /** 主控自身的职责说明 */
+  duty: string;
+  /** 汇总与监控策略 */
+  supervision: string[];
+  /** 按节点 id 索引的契约规则 */
+  contracts: Record<string, NodeContract>;
+}
+
+/** 节点运行态：决定节点能否被点开查看消息 */
+export type NodeRunState = "done" | "running" | "blocked" | "todo";
+
+export const nodeRunLabel: Record<NodeRunState, string> = {
+  done: "已完成",
+  running: "进行中",
+  blocked: "已阻断",
+  todo: "未开始",
+};
+
+/** 节点消息：某个智能体在执行期间产生的一条信息 */
+export interface NodeMessage {
+  id: string;
+  /** 发出这条消息的节点 id；主控自身的消息用 "orchestrator" */
+  node: string;
+  at: string;
+  tone: "plan" | "act" | "output" | "warn" | "gate";
+  title: string;
+  body: string;
+  /** 关联的产物或证据 */
+  refs?: string[];
+}
+
 export interface WfNode {
   id: string;
   name: string;
@@ -39,6 +96,8 @@ export interface Workflow {
   edges: WfEdge[];
   maxRetry: number;
   onExhaust: "人工接管" | "降级处理" | "终止任务";
+  /** 主控智能体：必须存在，由 withOrchestrator 保证 */
+  orchestrator: Orchestrator;
 }
 
 export const roleGlyph: Record<AgentRole, IconName> = {
@@ -69,9 +128,116 @@ export const edgeKindLabel: Record<EdgeKind, string> = {
   approve: "人工审批",
 };
 
+/* ------------------- 主控智能体：契约规则生成 -------------------------
+   契约按「角色 × 上游产物」推导：输入来自上游节点的输出，
+   形成一条首尾相接的产物链 —— 这正是主控存在的意义：
+   它让每个节点的开工条件与交付标准都可核验，而不依赖 agent 自觉。
+   --------------------------------------------------------------------- */
+
+/** 各角色的交付物与职责模板 */
+const roleContract: Record<
+  AgentRole,
+  { outputs: string[]; duty: string; acceptance: string }
+> = {
+  orchestrator: {
+    outputs: ["orchestration/plan.md", "orchestration/status.json"],
+    duty: "拆解任务、下发契约、汇总各节点输出并监控偏差。",
+    acceptance: "各节点契约齐备且状态可追溯。",
+  },
+  requirement: {
+    outputs: ["docs/requirement.md", "docs/acceptance.md"],
+    duty: "把任务目标拆成可测试的验收条件，标注事实、推断与待确认项。",
+    acceptance: "每条需求都有对应验收条件，无未标注的推断。",
+  },
+  architecture: {
+    outputs: ["docs/design.md", "docs/interface.md"],
+    duty: "确定模块职责与接口边界，记录关键设计决定及其理由。",
+    acceptance: "接口定义完整，变更影响范围已评估。",
+  },
+  development: {
+    outputs: ["src/**", "test/**"],
+    duty: "在隔离分支实现需求并同步补齐单元测试，保持既有契约不变。",
+    acceptance: "编译通过、单元测试全绿、无未声明的接口变更。",
+  },
+  testing: {
+    outputs: ["test/**", "reports/coverage.json"],
+    duty: "按验收条件编写用例，保留预期失败记录再补实现。",
+    acceptance: "覆盖率达阈值，关键分支均有断言。",
+  },
+  review: {
+    outputs: ["reports/review.md"],
+    duty: "独立核对实现与需求，检查安全、异常处理与影响范围。",
+    acceptance: "无阻断问题，严重问题均已整改或明确豁免。",
+  },
+  delivery: {
+    outputs: ["docs/changelog.md", "docs/rollback.md"],
+    duty: "汇总变更说明、测试报告与回滚方案，提交责任人验收。",
+    acceptance: "证据链完整，回滚方案可执行。",
+  },
+  ops: {
+    outputs: ["ops/deploy.log"],
+    duty: "执行构建与部署脚本，回写运行状态并全程留痕。",
+    acceptance: "部署成功且状态已回写，异常有告警记录。",
+  },
+};
+
+/**
+ * 为工作流补齐主控智能体。
+ * 输入 = 上游节点（按流转边）的输出并集；无上游时取任务契约本身。
+ * 这样每个节点的开工条件都能追溯到某个具体产物，而非「大概齐」。
+ */
+export function withOrchestrator(
+  wf: Omit<Workflow, "orchestrator">,
+  overrides: Partial<Record<string, Partial<NodeContract>>> = {},
+): Workflow {
+  const contracts: Record<string, NodeContract> = {};
+
+  wf.nodes.forEach((n) => {
+    const base = roleContract[n.role];
+    const upstream = wf.edges
+      .filter((e) => e.kind === "flow" && e.to === n.id)
+      .map((e) => wf.nodes.find((x) => x.id === e.from))
+      .filter((x): x is WfNode => Boolean(x));
+
+    const inputs = upstream.length
+      ? Array.from(new Set(upstream.flatMap((u) => roleContract[u.role].outputs)))
+      : ["contract/task.md"];
+
+    contracts[n.id] = {
+      inputs,
+      outputs: base.outputs,
+      /* 职责 = 角色通用职责 + 该节点在本工作流中的具体分工 */
+      duty: `${base.duty} 本节点在「${wf.name}」中负责：${n.desc}`,
+      acceptance: n.gate ? `${base.acceptance}（门禁：${n.gate}）` : base.acceptance,
+      ...overrides[n.id],
+    };
+  });
+
+  return {
+    ...wf,
+    orchestrator: {
+      id: `orch-${wf.id}`,
+      name: "主控智能体",
+      duty:
+        "开工前为每个节点下发契约规则（输入输出产物与本次任务的具体职责）；" +
+        "运行期汇总各节点输出信息流，监控偏差并辅助调度。",
+      supervision: [
+        `重试上限 ${wf.maxRetry} 次，超限后${wf.onExhaust}`,
+        "节点输入产物缺失时不允许启动，直接回退上游",
+        "输出未达验收条件时按失败回退边定向返工",
+        "汇总各节点信息流，向人工检查点提交结论与证据",
+      ],
+      contracts,
+    },
+  };
+}
+
+/** 模板声明期还没有主控智能体，由 withOrchestrator 在出口处补齐 */
+export type WfTemplate = Omit<Workflow, "orchestrator">;
+
 /* ------------------------- 1. 需求开发（默认） ------------------------- */
 
-const wfFeature: Workflow = {
+const wfFeature: WfTemplate = {
   id: "wf-feature",
   name: "需求开发",
   glyph: "Book",
@@ -133,7 +299,7 @@ const wfFeature: Workflow = {
 
 /* ------------------------- 2. 单元测试（默认） ------------------------- */
 
-const wfUnit: Workflow = {
+const wfUnit: WfTemplate = {
   id: "wf-unit",
   name: "单元测试",
   glyph: "Beaker",
@@ -183,7 +349,7 @@ const wfUnit: Workflow = {
 
 /* --------------------------- 3. 缺陷修复 ------------------------------- */
 
-const wfBugfix: Workflow = {
+const wfBugfix: WfTemplate = {
   id: "wf-bugfix",
   name: "缺陷修复",
   glyph: "Bolt",
@@ -254,7 +420,7 @@ const wfBugfix: Workflow = {
 
 /* ---------------------- 4. 存量系统逆向重构 ---------------------------- */
 
-const wfLegacy: Workflow = {
+const wfLegacy: WfTemplate = {
   id: "wf-legacy",
   name: "存量系统逆向重构",
   glyph: "Layers",
@@ -337,7 +503,7 @@ const wfLegacy: Workflow = {
 
 /* ---------------------- 5. 开源漏洞排查整改 --------------------------- */
 
-const wfCve: Workflow = {
+const wfCve: WfTemplate = {
   id: "wf-cve",
   name: "开源漏洞整改",
   glyph: "Shield",
@@ -427,7 +593,7 @@ const wfCve: Workflow = {
 
 /* ------------------------- 6. AI 代码审核 ----------------------------- */
 
-const wfReview: Workflow = {
+const wfReview: WfTemplate = {
   id: "wf-review",
   name: "AI 代码审核",
   glyph: "Merge",
@@ -504,7 +670,7 @@ const wfReview: Workflow = {
 
 /* 7. 自定义编排：从最小骨架开始，按需插入节点与失败回退 */
 
-const wfCustom: Workflow = {
+const wfCustom: WfTemplate = {
   id: "wf-custom",
   name: "自定义编排",
   glyph: "Sparkle",
@@ -541,6 +707,8 @@ const wfCustom: Workflow = {
   ],
 };
 
+/* 主控智能体对每个模板都必须存在，统一在出口处补齐，
+   避免每个模板手写一遍契约（也就无法漏写） */
 export const workflowTemplates: Workflow[] = [
   wfFeature,
   wfUnit,
@@ -549,6 +717,106 @@ export const workflowTemplates: Workflow[] = [
   wfCve,
   wfReview,
   wfCustom,
+].map((w) => withOrchestrator(w));
+
+/* ==================== 运行态：节点状态与消息流 ========================
+   这两项让「编排图」从静态配置变成可观测的运行现场：
+   点开任一已完成或进行中的节点，就能看到它当时到底做了什么。
+   ===================================================================== */
+
+/** 某次运行中各节点的状态 */
+export type WfRunStates = Record<string, NodeRunState>;
+
+/** 需求开发流程的运行现场（对应默认会话 s-1） */
+export const demoRunStates: WfRunStates = {
+  n1: "done",
+  n2: "running",
+  n3: "todo",
+  n4: "todo",
+};
+
+/**
+ * 节点消息流。主控视图 = 全部消息按时间汇总；
+ * 点开某节点 = 只看该节点自己的消息。
+ */
+export const demoMessages: NodeMessage[] = [
+  {
+    id: "m1",
+    node: "orchestrator",
+    at: "10:20:04",
+    tone: "plan",
+    title: "已下发 4 份节点契约",
+    body: "按「需求开发」编排为 4 个节点各下发输入输出与职责约定，重试上限 3 次，超限转人工接管。",
+    refs: ["orchestration/plan.md"],
+  },
+  {
+    id: "m2",
+    node: "n1",
+    at: "10:20:16",
+    tone: "act",
+    title: "读取任务契约",
+    body: "解析 contract/task.md，提取 20 条约定，识别出 3 项需要澄清的语义。",
+    refs: ["contract/task.md"],
+  },
+  {
+    id: "m3",
+    node: "n1",
+    at: "10:21:38",
+    tone: "output",
+    title: "交付需求与验收条件",
+    body: "输出 12 条可测试需求，每条附验收条件；3 项推断已显式标注待确认。",
+    refs: ["docs/requirement.md", "docs/acceptance.md"],
+  },
+  {
+    id: "m4",
+    node: "n1",
+    at: "10:21:52",
+    tone: "gate",
+    title: "门禁通过：需求可测试性",
+    body: "12/12 条需求具备可验证的验收条件，允许流转到代码开发。",
+  },
+  {
+    id: "m5",
+    node: "orchestrator",
+    at: "10:21:55",
+    tone: "plan",
+    title: "调度：需求分析 → 代码开发",
+    body: "上游产物齐备（requirement.md、acceptance.md），满足代码开发的输入契约，准许启动。",
+  },
+  {
+    id: "m6",
+    node: "n2",
+    at: "10:22:09",
+    tone: "act",
+    title: "定位改造范围",
+    body: "grep refreshToken|rotateSession 命中 4 个文件 17 处，确定以 token-service 收敛重复逻辑。",
+  },
+  {
+    id: "m7",
+    node: "n2",
+    at: "10:23:41",
+    tone: "output",
+    title: "提交实现与单元测试",
+    body: "新增 token-service.ts（+94），改造 3 个中间件，补 26 行用例；累计 +148 −62。",
+    refs: ["src/auth/token-service.ts", "test/auth/token-service.spec.ts"],
+  },
+  {
+    id: "m8",
+    node: "n2",
+    at: "10:24:02",
+    tone: "warn",
+    title: "偏差提示：遗留弃用注释",
+    body: "legacy/compat.ts 的再导出仍保留，但缺少 @deprecated 注释，未违反契约但建议补齐。",
+    refs: ["legacy/compat.ts"],
+  },
+  {
+    id: "m9",
+    node: "orchestrator",
+    at: "10:24:05",
+    tone: "warn",
+    title: "监控：1 项非阻断偏差待决",
+    body: "代码开发输出满足验收条件，弃用注释属建议项。已记入证据链，交由人工检查点判定。",
+  },
 ];
 
 /* ============================ 布局与编辑 ============================== */
@@ -607,6 +875,24 @@ export function failLabelPos(a: WfNode, b: WfNode, depth: number, baseY: number)
   return { x: (x1 + x2) / 2, y: (y1 + y2) / 2 * 0.25 + dip * 0.75 };
 }
 
+/**
+ * 结构变化后重建主控契约。
+ * 节点或边一变，「上游产物 → 本节点输入」的推导结果就变了，
+ * 因此每次编辑都必须重算，否则契约会指向已不存在的上游。
+ * 人工改写过的契约（overrides）予以保留。
+ */
+function rebuild(wf: Workflow, keep: Record<string, NodeContract>): Workflow {
+  const { orchestrator: _drop, ...rest } = wf;
+  const next = withOrchestrator(rest);
+  /* 保留仍然存在的节点上、被人工改过的契约字段 */
+  Object.keys(keep).forEach((id) => {
+    if (next.orchestrator.contracts[id] && keep[id].manual) {
+      next.orchestrator.contracts[id] = keep[id];
+    }
+  });
+  return next;
+}
+
 /** 在指定节点之后插入一个节点，自动重连流转边并补一条回退边 */
 export function insertAfter(wf: Workflow, afterId: string, role: AgentRole, name: string): Workflow {
   const anchor = wf.nodes.find((n) => n.id === afterId);
@@ -628,7 +914,10 @@ export function insertAfter(wf: Workflow, afterId: string, role: AgentRole, name
   );
   edges.push({ id: `e${id}`, from: afterId, to: id, kind: "flow" });
   edges.push({ id: `f${id}`, from: id, to: afterId, kind: "fail", label: "校验未过" });
-  return { ...wf, nodes, edges, builtin: false };
+  return rebuild(
+    { ...wf, nodes, edges, builtin: false },
+    wf.orchestrator.contracts,
+  );
 }
 
 /** 删除节点，把它的前驱直接接到后继 */
@@ -650,7 +939,10 @@ export function removeNode(wf: Workflow, id: string): Workflow {
   const nodes = wf.nodes
     .filter((n) => n.id !== id)
     .map((n) => (n.col > target.col ? { ...n, col: n.col - 1 } : n));
-  return { ...wf, nodes, edges: [...kept, ...bridged], builtin: false };
+  return rebuild(
+    { ...wf, nodes, edges: [...kept, ...bridged], builtin: false },
+    wf.orchestrator.contracts,
+  );
 }
 
 /** 切换某节点的失败回退目标 */
@@ -665,13 +957,37 @@ export function setFailTarget(wf: Workflow, nodeId: string, targetId: string | n
       label: "校验未过",
     });
   }
-  return { ...wf, edges, builtin: false };
+  return rebuild({ ...wf, edges, builtin: false }, wf.orchestrator.contracts);
 }
 
 export function patchNode(wf: Workflow, id: string, patch: Partial<WfNode>): Workflow {
+  return rebuild(
+    {
+      ...wf,
+      builtin: false,
+      nodes: wf.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
+    },
+    wf.orchestrator.contracts,
+  );
+}
+
+/** 人工改写某节点的契约：标记 manual，后续结构变化不再覆盖它 */
+export function patchContract(
+  wf: Workflow,
+  nodeId: string,
+  patch: Partial<NodeContract>,
+): Workflow {
+  const cur = wf.orchestrator.contracts[nodeId];
+  if (!cur) return wf;
   return {
     ...wf,
     builtin: false,
-    nodes: wf.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
+    orchestrator: {
+      ...wf.orchestrator,
+      contracts: {
+        ...wf.orchestrator.contracts,
+        [nodeId]: { ...cur, ...patch, manual: true },
+      },
+    },
   };
 }

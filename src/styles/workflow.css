@@ -9,6 +9,177 @@
   min-width: 0;
 }
 
+/* --------------------------- 主控智能体 --------------------------------
+   它是编排的设计者而非其中一环，因此用强调色描边与顶部高光把它
+   与下方的普通节点卡片区分开：视觉层级 = 职责层级。
+   ---------------------------------------------------------------------- */
+
+.wfOrch {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.wfOrch::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  background: linear-gradient(90deg, var(--cyan), var(--accent) 60%, transparent);
+}
+
+.wfOrch__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.wfOrch__glyph {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 8px;
+  color: #fff;
+  background: linear-gradient(150deg, var(--cyan), var(--accent) 62%);
+}
+
+.wfOrch__id {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+}
+
+.wfOrch__id strong {
+  font-size: var(--step-0);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* 「必需」不是普通标签，用锁定语义表达不可删除 */
+.tag--lock {
+  color: var(--accent-text);
+  border-color: var(--accent-line);
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+}
+
+.wfOrch__hint {
+  font-size: 9.5px;
+  color: var(--text-4);
+  flex: none;
+}
+
+.wfOrch__duty {
+  font-size: var(--step--1);
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.wfOrch__sup {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 0 0;
+  border-top: 1px dashed var(--accent-line);
+  list-style: none;
+}
+
+.wfOrch__sup li {
+  position: relative;
+  padding-left: 13px;
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--text-3);
+}
+
+.wfOrch__sup li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 7px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ------------------------- 节点契约（主控下发） ------------------------- */
+
+.wfCtr {
+  display: grid;
+  gap: 8px;
+  padding: 10px 11px;
+  border-radius: var(--r-sm);
+  border: 1px dashed var(--accent-line);
+  background: color-mix(in oklab, var(--accent) 5%, transparent);
+  min-width: 0;
+}
+
+.wfCtr__top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+}
+
+.wfCtr__duty {
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+/* 输入与输出并置：一眼看出这个节点「吃什么、产什么」 */
+.wfCtr__io {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 9px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+}
+
+.wfCtr__col {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.wfCtr__col ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wfCtr__col li {
+  font-size: 9.5px;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+
+.wfCtr__acc {
+  display: grid;
+  gap: 3px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
 /* ------------------------------ 模板选择 -------------------------------- */
 
 .wfTpl {
@@ -264,6 +435,40 @@
   stroke: var(--accent);
   stroke-width: 1.6;
   fill: var(--accent-soft);
+}
+
+/* --------- 运行态：让静态编排图变成可读的运行现场 --------- */
+
+/* 已完成：实底描边表示「这一步已经有结论」 */
+.dagNode[data-run="done"] .dagNode__box {
+  stroke: color-mix(in oklab, var(--sage) 55%, var(--line-strong));
+}
+
+/* 进行中：强调色 + 呼吸动画，是当前唯一在动的节点 */
+.dagNode[data-run="running"] .dagNode__box {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  animation: dagBreath 2.4s var(--ease-in-out) infinite;
+}
+
+@keyframes dagBreath {
+  0%, 100% { stroke-opacity: 1; }
+  50% { stroke-opacity: 0.45; }
+}
+
+.dagNode[data-run="blocked"] .dagNode__box {
+  stroke: var(--rose);
+  stroke-width: 1.6;
+}
+
+/* 未开始：压低存在感并去掉点击预期 —— 它没有消息可看 */
+.dagNode[data-mute="true"] {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.dagNode[data-mute="true"]:hover .dagNode__box {
+  stroke: var(--line-strong);
 }
 
 .dagNode__icon {
@@ -683,9 +888,10 @@
   left: 0;
   right: 0;
   z-index: 6;
-  /* 紧凑优先：浮层只占必要高度，尽量少侵占会话内容区域 */
-  max-height: 30vh;
-  padding: 4px 20px 6px;
+  /* 紧凑优先：浮层只占必要高度，尽量少侵占会话内容区域。
+     展开后同时容纳编排图与消息流，故留出更多余量但仍限高 */
+  max-height: 62vh;
+  padding: 4px 20px 8px;
   overflow: auto;
   border-top: 1px dashed var(--line);
   border-bottom: 1px solid var(--line-strong);
@@ -695,14 +901,263 @@
   animation: wfDagIn 0.26s var(--ease-out) both;
 }
 
-/* 紧凑模式下压缩画布自身留白，并限制等比缩放后的高度 */
+/* 紧凑模式下压缩画布自身留白，并限制等比缩放后的高度。
+   展开后画布是「定位器」，消息流才是主体，故画布限得更紧 */
 .wfStrip__dag .dag__svg {
-  max-height: 26vh;
+  max-height: 20vh;
 }
 
 @keyframes wfDagIn {
   from { opacity: 0; transform: translateY(-6px); }
   to   { opacity: 1; transform: none; }
+}
+
+/* ==================== 节点消息面板（运行期可观测） ==================== */
+
+.nodeMsg {
+  display: grid;
+  gap: 9px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+
+/* 视图切换：主控在最左，是默认落点 */
+.nodeMsg__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.nodeMsg__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 25px;
+  padding: 0 9px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 10px;
+  color: var(--text-3);
+  transition: color 0.18s, border-color 0.18s, background 0.18s;
+}
+
+.nodeMsg__tab:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.nodeMsg__tab[data-on="true"] {
+  color: var(--accent-text);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.nodeMsg__count {
+  font-size: 9px;
+  color: var(--text-4);
+}
+
+.nodeMsg__tab[data-on="true"] .nodeMsg__count {
+  color: var(--accent-text);
+}
+
+/* 实时指示点：只出现在进行中的节点上 */
+.nodeMsg__live {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+  animation: msgPulse 1.5s var(--ease-in-out) infinite;
+}
+
+@keyframes msgPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.75); }
+}
+
+/* 当前视图的身份与职责 */
+.nodeMsg__ctx {
+  display: grid;
+  gap: 5px;
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.nodeMsg__ctxHead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.nodeMsg__ctxHead strong {
+  font-size: var(--step--1);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.nodeMsg__state {
+  height: 17px;
+  padding: 0 7px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  font-size: 9px;
+  line-height: 15px;
+  color: var(--text-3);
+}
+
+.nodeMsg__state[data-run="done"] {
+  color: var(--sage);
+  border-color: color-mix(in oklab, var(--sage) 32%, var(--line));
+  background: color-mix(in oklab, var(--sage) 10%, transparent);
+}
+
+.nodeMsg__state[data-run="running"] {
+  color: var(--accent-text);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.nodeMsg__role {
+  font-size: 9.5px;
+  color: var(--text-4);
+}
+
+.nodeMsg__duty {
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+
+/* 消息流：时间轴形式，左侧竖线串起整条流程 */
+.nodeMsg__list {
+  position: relative;
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0 0 0 13px;
+  list-style: none;
+  max-height: 34vh;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+.nodeMsg__list::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: var(--line);
+}
+
+.nodeMsg__item {
+  position: relative;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  animation: msgIn 0.32s var(--ease-out) both;
+  animation-delay: calc(var(--i) * 40ms);
+}
+
+@keyframes msgIn {
+  from { opacity: 0; transform: translateX(-4px); }
+}
+
+/* 每条消息左侧的类型色点：调度/执行/产出/偏差/门禁一眼可分 */
+.nodeMsg__item::before {
+  content: "";
+  position: absolute;
+  left: -13px;
+  top: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--bg);
+  background: var(--text-4);
+}
+
+.nodeMsg__item[data-tone="plan"]::before { background: var(--accent); }
+.nodeMsg__item[data-tone="act"]::before { background: var(--azure); }
+.nodeMsg__item[data-tone="output"]::before { background: var(--sage); }
+.nodeMsg__item[data-tone="warn"]::before { background: var(--gold); }
+.nodeMsg__item[data-tone="gate"]::before { background: var(--plum); }
+
+.nodeMsg__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.nodeMsg__tone {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--text-4);
+}
+
+.nodeMsg__item[data-tone="warn"] .nodeMsg__tone { color: var(--gold); }
+.nodeMsg__item[data-tone="gate"] .nodeMsg__tone { color: var(--plum); }
+.nodeMsg__item[data-tone="output"] .nodeMsg__tone { color: var(--sage); }
+
+.nodeMsg__from {
+  font-size: 9px;
+  color: var(--text-3);
+}
+
+.nodeMsg__at {
+  font-size: 9px;
+  color: var(--text-4);
+}
+
+.nodeMsg__title {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.nodeMsg__body {
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.nodeMsg__refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.nodeMsg__ref {
+  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+  font-size: 9px;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+
+.nodeMsg__empty,
+.nodeMsg__tail {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9.5px;
+  color: var(--text-4);
 }
 
 /* ------------------------------ 响应式 --------------------------------- */

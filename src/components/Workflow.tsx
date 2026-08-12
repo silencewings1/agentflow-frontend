@@ -9,13 +9,16 @@ import {
   flowPath,
   insertAfter,
   nodePos,
+  nodeRunLabel,
   patchNode,
   removeNode,
   roleGlyph,
   roleTint,
   setFailTarget,
   workflowTemplates,
+  type NodeMessage,
   type WfNode,
+  type WfRunStates,
   type Workflow,
 } from "../data/workflows";
 import { roleLabel, type AgentRole } from "../data/settings";
@@ -27,11 +30,14 @@ export function DagCanvas({
   selected,
   onSelect,
   compact,
+  runStates,
 }: {
   wf: Workflow;
   selected?: string | null;
   onSelect?: (id: string) => void;
   compact?: boolean;
+  /** 运行态：传入后节点显示状态环，仅已完成/进行中可点开查看消息 */
+  runStates?: WfRunStates;
 }) {
   const size = dagSize(wf.nodes);
   const flows = wf.edges.filter((e) => e.kind === "flow");
@@ -96,15 +102,20 @@ export function DagCanvas({
         {wf.nodes.map((n, i) => {
           const p = nodePos(n);
           const G = Icon[roleGlyph[n.role]];
+          const run = runStates?.[n.id];
+          /* 只有跑过或正在跑的节点才有消息可看，未开始的不给点击预期 */
+          const inspectable = !runStates || run === "done" || run === "running";
           return (
             <g
               key={n.id}
               className="dagNode"
               data-active={selected === n.id ? "true" : undefined}
               data-tint={roleTint[n.role]}
+              data-run={run}
+              data-mute={inspectable ? undefined : "true"}
               style={{ ["--i" as string]: i }}
               transform={`translate(${p.x} ${p.y})`}
-              onClick={() => onSelect?.(n.id)}
+              onClick={() => inspectable && onSelect?.(n.id)}
             >
               <rect className="dagNode__box" width={NODE_W} height={NODE_H} rx="10" />
               <g className="dagNode__icon" transform="translate(11 12)">
@@ -146,13 +157,20 @@ export function WorkflowStrip({
   wf,
   activeIndex,
   onOpen,
+  runStates,
+  messages,
 }: {
   wf: Workflow;
   activeIndex: number;
   onOpen?: () => void;
+  runStates?: WfRunStates;
+  messages?: NodeMessage[];
 }) {
   const [open, setOpen] = useState(false);
+  /* null = 主控汇总视图，这是默认停留的位置 */
+  const [focus, setFocus] = useState<string | null>(null);
   const G = Icon[wf.glyph];
+  const live = Boolean(runStates && messages);
 
   return (
     <div className="wfStrip" data-open={open ? "true" : undefined}>
@@ -163,18 +181,32 @@ export function WorkflowStrip({
         <span className="wfStrip__name">{wf.name}</span>
         <span className="wfStrip__rule" />
         <ol className="wfStrip__steps">
-          {wf.nodes.map((n, i) => (
-            <li
-              key={n.id}
-              className="wfStrip__step"
-              data-state={i < activeIndex ? "done" : i === activeIndex ? "active" : "todo"}
-              style={{ ["--i" as string]: i }}
-              title={n.desc}
-            >
-              <i />
-              {n.name}
-            </li>
-          ))}
+          {wf.nodes.map((n, i) => {
+            /* 有运行态时以真实状态为准，否则退回按索引推断 */
+            const st = runStates?.[n.id]
+              ? runStates[n.id] === "done"
+                ? "done"
+                : runStates[n.id] === "running"
+                  ? "active"
+                  : "todo"
+              : i < activeIndex
+                ? "done"
+                : i === activeIndex
+                  ? "active"
+                  : "todo";
+            return (
+              <li
+                key={n.id}
+                className="wfStrip__step"
+                data-state={st}
+                style={{ ["--i" as string]: i }}
+                title={n.desc}
+              >
+                <i />
+                {n.name}
+              </li>
+            );
+          })}
         </ol>
         <button className="wfStrip__more" onClick={() => setOpen((v) => !v)}>
           {open ? "收起编排" : "查看编排"}
@@ -189,9 +221,175 @@ export function WorkflowStrip({
       </div>
       {open && (
         <div className="wfStrip__dag">
-          <DagCanvas wf={wf} selected={wf.nodes[activeIndex]?.id ?? null} compact />
+          <DagCanvas
+            wf={wf}
+            selected={focus ?? (live ? null : wf.nodes[activeIndex]?.id ?? null)}
+            onSelect={live ? (id) => setFocus((f) => (f === id ? null : id)) : undefined}
+            runStates={runStates}
+            compact
+          />
+          {/* 运行期才有消息可看；默认展示主控汇总的信息流 */}
+          {live && (
+            <NodeMessages
+              wf={wf}
+              runStates={runStates!}
+              messages={messages!}
+              focus={focus}
+              onFocus={setFocus}
+            />
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ==================== 节点消息面板（运行期可观测） ====================
+   默认停在主控视图：看到的是所有智能体汇总后的信息流。
+   点某个节点则收敛为该节点自己的消息 —— 从「全局结论」下钻到「谁干了什么」。
+   ===================================================================== */
+
+const toneLabel: Record<NodeMessage["tone"], string> = {
+  plan: "调度",
+  act: "执行",
+  output: "产出",
+  warn: "偏差",
+  gate: "门禁",
+};
+
+export function NodeMessages({
+  wf,
+  runStates,
+  messages,
+  /** null = 主控视图（汇总） */
+  focus,
+  onFocus,
+}: {
+  wf: Workflow;
+  runStates: WfRunStates;
+  messages: NodeMessage[];
+  focus: string | null;
+  onFocus: (id: string | null) => void;
+}) {
+  const node = focus ? wf.nodes.find((n) => n.id === focus) ?? null : null;
+  const run = focus ? runStates[focus] : undefined;
+  const contract = focus ? wf.orchestrator.contracts[focus] : null;
+
+  /* 主控视图汇总全部消息；节点视图只保留该节点自己的 */
+  const list = focus ? messages.filter((m) => m.node === focus) : messages;
+
+  /* 可点开的节点：已完成或进行中 */
+  const openable = wf.nodes.filter(
+    (n) => runStates[n.id] === "done" || runStates[n.id] === "running",
+  );
+
+  return (
+    <div className="nodeMsg">
+      {/* 视图切换：主控 + 各已运行节点 */}
+      <div className="nodeMsg__tabs">
+        <button
+          className="nodeMsg__tab"
+          data-on={focus === null}
+          onClick={() => onFocus(null)}
+        >
+          <Icon.Nodes size={12} />
+          主控汇总
+          <span className="nodeMsg__count mono">{messages.length}</span>
+        </button>
+        {openable.map((n) => {
+          const G = Icon[roleGlyph[n.role]];
+          const c = messages.filter((m) => m.node === n.id).length;
+          return (
+            <button
+              key={n.id}
+              className="nodeMsg__tab"
+              data-on={focus === n.id}
+              data-run={runStates[n.id]}
+              onClick={() => onFocus(n.id)}
+            >
+              <G size={12} />
+              {n.name}
+              {runStates[n.id] === "running" && <i className="nodeMsg__live" />}
+              <span className="nodeMsg__count mono">{c}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 当前视图的说明：主控说“我在监什么”，节点说“我被要求做什么” */}
+      <div className="nodeMsg__ctx">
+        {node ? (
+          <>
+            <div className="nodeMsg__ctxHead">
+              <strong>{node.name}</strong>
+              <span className="nodeMsg__state" data-run={run}>
+                {run ? nodeRunLabel[run] : ""}
+              </span>
+              <span className="nodeMsg__role">{roleLabel[node.role]}</span>
+            </div>
+            {contract && <p className="nodeMsg__duty">{contract.duty}</p>}
+          </>
+        ) : (
+          <>
+            <div className="nodeMsg__ctxHead">
+              <strong>{wf.orchestrator.name}</strong>
+              <span className="nodeMsg__state" data-run="running">
+                监控中
+              </span>
+            </div>
+            <p className="nodeMsg__duty">
+              汇总 {openable.length} 个已启动节点的输出信息流，按契约核验并调度下一步。
+            </p>
+          </>
+        )}
+      </div>
+
+      {/* 消息流 */}
+      <ol className="nodeMsg__list">
+        {list.map((m, i) => {
+          const owner = wf.nodes.find((n) => n.id === m.node);
+          return (
+            <li
+              key={m.id}
+              className="nodeMsg__item"
+              data-tone={m.tone}
+              style={{ ["--i" as string]: i }}
+            >
+              <div className="nodeMsg__meta">
+                <span className="nodeMsg__tone">{toneLabel[m.tone]}</span>
+                {/* 汇总视图要标明消息来源，节点视图里来源是恒定的就不重复 */}
+                {!focus && (
+                  <span className="nodeMsg__from">
+                    {owner ? owner.name : wf.orchestrator.name}
+                  </span>
+                )}
+                <span className="nodeMsg__at mono">{m.at}</span>
+              </div>
+              <strong className="nodeMsg__title">{m.title}</strong>
+              <p className="nodeMsg__body">{m.body}</p>
+              {m.refs && (
+                <div className="nodeMsg__refs">
+                  {m.refs.map((r) => (
+                    <span key={r} className="nodeMsg__ref mono">
+                      {r}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </li>
+          );
+        })}
+        {!list.length && (
+          <li className="nodeMsg__empty">该节点尚未产生消息。</li>
+        )}
+        {/* 进行中的节点：明确告知流仍在增长，而不是让人误以为已结束 */}
+        {(focus ? run === "running" : true) && (
+          <li className="nodeMsg__tail">
+            <i className="nodeMsg__live" />
+            实时接收中
+          </li>
+        )}
+      </ol>
     </div>
   );
 }
@@ -213,6 +411,7 @@ export function WorkflowPicker({
   const [newName, setNewName] = useState("");
 
   const node = value.nodes.find((n) => n.id === sel) ?? null;
+  const contract = node ? value.orchestrator.contracts[node.id] : null;
   const failEdge = value.edges.find((e) => e.kind === "fail" && e.from === sel);
   const upstream = value.nodes.filter((n) => n.col < (node?.col ?? 0));
 
@@ -250,6 +449,29 @@ export function WorkflowPicker({
             </button>
           );
         })}
+      </div>
+
+      {/* 主控智能体：每个编排必须有且仅有一个，先于画布出现，
+          因为它是这条流程的设计者而非其中一环 */}
+      <div className="wfOrch">
+        <div className="wfOrch__head">
+          <span className="wfOrch__glyph">
+            <Icon.Nodes size={15} />
+          </span>
+          <div className="wfOrch__id">
+            <strong>{value.orchestrator.name}</strong>
+            <span className="tag tag--xs tag--lock">必需</span>
+          </div>
+          <span className="wfOrch__hint mono">
+            已下发 {Object.keys(value.orchestrator.contracts).length} 份契约
+          </span>
+        </div>
+        <p className="wfOrch__duty">{value.orchestrator.duty}</p>
+        <ul className="wfOrch__sup">
+          {value.orchestrator.supervision.map((s) => (
+            <li key={s}>{s}</li>
+          ))}
+        </ul>
       </div>
 
       {/* 画布 */}
@@ -318,6 +540,41 @@ export function WorkflowPicker({
               </div>
 
               <p className="wfEdit__desc">{node.desc}</p>
+
+              {/* 主控为该节点下发的契约：输入输出产物 + 本次任务的具体职责。
+                  这是「不仅仅是 agent 自带提示词」的落点。 */}
+              {contract && (
+                <div className="wfCtr">
+                  <div className="wfCtr__top">
+                    <Icon.Nodes size={12} />
+                    <span>主控下发的契约</span>
+                    {contract.manual && <span className="tag tag--xs">已人工改写</span>}
+                  </div>
+                  <p className="wfCtr__duty">{contract.duty}</p>
+                  <div className="wfCtr__io">
+                    <div className="wfCtr__col">
+                      <span className="kicker">输入产物</span>
+                      <ul>
+                        {contract.inputs.map((f) => (
+                          <li key={f} className="mono">{f}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="wfCtr__col">
+                      <span className="kicker">输出产物</span>
+                      <ul>
+                        {contract.outputs.map((f) => (
+                          <li key={f} className="mono">{f}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                  <p className="wfCtr__acc">
+                    <span className="kicker">完成判定</span>
+                    {contract.acceptance}
+                  </p>
+                </div>
+              )}
 
               <div className="wfEdit__row">
                 <label>承接角色</label>
