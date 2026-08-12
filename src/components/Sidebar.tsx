@@ -14,11 +14,13 @@ export function Sidebar({
   sessions,
   activeId,
   onSelect,
+  onDelete,
   onNew,
 }: {
   sessions: Session[];
   activeId: string;
   onSelect: (s: Session) => void;
+  onDelete: (id: string) => void;
   onNew: () => void;
 }) {
   const [q, setQ] = useState("");
@@ -76,7 +78,7 @@ export function Sidebar({
             <h2 className="grp__label kicker">{g.bucket}</h2>
             <ul>
               {g.items.map((s, i) => (
-                <li key={s.id}>
+                <li key={s.id} className="sessItem">
                   <button
                     className="sess"
                     data-active={s.id === activeId}
@@ -106,6 +108,16 @@ export function Sidebar({
                         <i>−{s.diff.removed}</i>
                       </span>
                     </span>
+                  </button>
+                  <button
+                    className="sess__del"
+                    aria-label="删除会话"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(s.id);
+                    }}
+                  >
+                    <Icon.Trash size={12} />
                   </button>
                 </li>
               ))}

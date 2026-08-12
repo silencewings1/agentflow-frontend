@@ -28,6 +28,8 @@ let toastSeq = 0;
 export default function App() {
   const [theme, setTheme] = useState<Theme>("lumen");
   const [activeId, setActiveId] = useState<string>("s-1");
+  /* 会话列表为运行时状态：新建任务会追加，删除会移除，不再只读自静态数据 */
+  const [sessionList, setSessionList] = useState<Session[]>(sessions);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("files");
@@ -50,8 +52,8 @@ export default function App() {
   const timers = useRef<number[]>([]);
 
   const active = useMemo(
-    () => sessions.find((s) => s.id === activeId) ?? sessions[0],
-    [activeId],
+    () => sessionList.find((s) => s.id === activeId) ?? sessionList[0],
+    [activeId, sessionList],
   );
 
   const events = useMemo(
@@ -175,6 +177,30 @@ export default function App() {
       setWfStep(0);
       setNewTaskOpen(false);
       setVisible(0);
+      /* 新建任务落地为一条会话，进入侧栏「今天」分组并成为当前会话 */
+      const repoLabel = contract.kind === "contract" ? contract.repo : "";
+      const slug = prompt
+        .replace(/[^\p{L}\p{N}\s]/gu, "")
+        .trim()
+        .toLowerCase()
+        .split(/\s+/)
+        .slice(0, 3)
+        .join("-")
+        .slice(0, 24);
+      const sid = `s-${Date.now()}`;
+      const newSession: Session = {
+        id: sid,
+        title: prompt.length > 28 ? `${prompt.slice(0, 28)}…` : prompt,
+        repo: repoLabel,
+        branch: `feat/${slug || "task"}`,
+        state: "running",
+        time: "刚刚",
+        bucket: "今天",
+        diff: { added: 0, removed: 0, files: 0 },
+        turns: 1,
+      };
+      setSessionList((prev) => [newSession, ...prev.filter((s) => s.id !== sid)]);
+      setActiveId(sid);
       runTurn(prompt, contract);
       push({
         tone: "ok",
@@ -188,6 +214,31 @@ export default function App() {
       });
     },
     [push, runTurn],
+  );
+
+  const deleteSession = useCallback(
+    (id: string) => {
+      const next = sessionList.filter((s) => s.id !== id);
+      setSessionList(next);
+      /* 删除当前会话时切到首条；若已无会话则回到空态 */
+      if (id === activeId) {
+        if (next.length) {
+          const pick = next[0];
+          setActiveId(pick.id);
+          setMode("session");
+          setExtra([]);
+          setVisible(conversation.length);
+          setPendingApproval(null);
+          setStreaming(pick.state === "running");
+        } else {
+          setMode("welcome");
+          setStreaming(false);
+          setPendingApproval(null);
+        }
+      }
+      push({ tone: "warn", title: "已删除会话", body: "相关演示记录已从侧栏移除。" });
+    },
+    [activeId, push, sessionList],
   );
 
   const resolveApproval = useCallback(
@@ -323,9 +374,10 @@ export default function App() {
         onPane={(p) => setSettingsPane((cur) => (cur === p ? null : p))}
       />
       <Sidebar
-        sessions={sessions}
+        sessions={sessionList}
         activeId={activeId}
         onSelect={selectSession}
+        onDelete={deleteSession}
         onNew={() => setNewTaskOpen(true)}
       />
 

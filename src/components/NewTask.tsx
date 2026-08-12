@@ -5,11 +5,14 @@ import { workflowTemplates, type Workflow } from "../data/workflows";
 import { taskContract } from "../data/settings";
 import type { AgentEvent } from "../data/mock";
 
+/* 目标仓库：按团队前缀组织，支持多选；越界改动会被门禁按契约范围拦截 */
 const repos = [
-  { name: "atlas-api", lang: "TypeScript", branch: "main", dot: "var(--azure)" },
-  { name: "atlas-web", lang: "TypeScript", branch: "main", dot: "var(--gold)" },
-  { name: "settle-core", lang: "Java", branch: "release", dot: "var(--sage)" },
-  { name: "infra", lang: "HCL", branch: "prod", dot: "var(--plum)" },
+  { name: "pay-platform/settlement", lang: "Java", branch: "main", dot: "var(--azure)" },
+  { name: "pay-platform/gateway", lang: "Go", branch: "main", dot: "var(--cyan)" },
+  { name: "web-team/customer-portal", lang: "TypeScript", branch: "release", dot: "var(--gold)" },
+  { name: "web-team/admin-console", lang: "TypeScript", branch: "main", dot: "var(--accent)" },
+  { name: "data-team/risk-engine", lang: "Python", branch: "main", dot: "var(--plum)" },
+  { name: "infra/terraform-live", lang: "HCL", branch: "prod", dot: "var(--sage)" },
 ];
 
 type Step = "intent" | "contract" | "workflow";
@@ -48,7 +51,8 @@ export function NewTaskDialog({
 }) {
   const [step, setStep] = useState<Step>("intent");
   const [prompt, setPrompt] = useState("");
-  const [repo, setRepo] = useState(repos[0].name);
+  /* 目标仓库可多选：契约范围以此为界，跨仓库改动需在契约中显式声明 */
+  const [picked, setPicked] = useState<string[]>([repos[0].name]);
   const [wf, setWf] = useState<Workflow>(workflowTemplates[0]);
 
   /* 契约清单：默认取自体系内置模板，允许逐条裁剪 */
@@ -77,7 +81,16 @@ export function NewTaskDialog({
     () => fieldMeta.reduce((n, f) => n + lists[f.key].length, 0),
     [lists],
   );
-  const ready = prompt.trim().length > 0 && lists.scope.length > 0 && lists.doneCriteria.length > 0;
+  const ready =
+    prompt.trim().length > 0 &&
+    lists.scope.length > 0 &&
+    lists.doneCriteria.length > 0 &&
+    picked.length > 0;
+
+  const toggleRepo = (name: string) =>
+    setPicked((p) =>
+      p.includes(name) ? p.filter((x) => x !== name) : [...p, name],
+    );
 
   const add = (k: ListField) => {
     const v = (draft[k] ?? "").trim();
@@ -107,7 +120,12 @@ export function NewTaskDialog({
       kind: "contract",
       title: text.length > 22 ? `${text.slice(0, 22)}…` : text,
       problem: text,
-      repo: `agentflow/${repo} · ${repos.find((r) => r.name === repo)?.branch}`,
+      repo: picked
+        .map((n) => {
+          const r = repos.find((x) => x.name === n);
+          return r ? `${r.name} · ${r.branch}` : n;
+        })
+        .join("、"),
       workflow: wf.name,
       scope: lists.scope,
       doneCriteria: lists.doneCriteria,
@@ -164,25 +182,37 @@ export function NewTaskDialog({
               </div>
 
               <div className="taskField">
-                <span className="kicker">目标仓库</span>
+                <span className="kicker">
+                  目标仓库
+                  <i className="repoCount mono">已选 {picked.length}</i>
+                </span>
                 <div className="repoGrid">
-                  {repos.map((r, i) => (
-                    <button
-                      key={r.name}
-                      className="repo repo--pick"
-                      data-on={repo === r.name}
-                      style={{ ["--i" as string]: i }}
-                      onClick={() => setRepo(r.name)}
-                    >
-                      <i className="repo__dot" style={{ background: r.dot }} />
-                      <span className="repo__name mono">agentflow/{r.name}</span>
-                      <span className="repo__lang">{r.lang}</span>
-                      <span className="repo__branch mono">
-                        <Icon.Branch size={11} />
-                        {r.branch}
-                      </span>
-                    </button>
-                  ))}
+                  {repos.map((r, i) => {
+                    const on = picked.includes(r.name);
+                    return (
+                      <button
+                        key={r.name}
+                        className="repo repo--pick"
+                        data-on={on}
+                        style={{ ["--i" as string]: i }}
+                        onClick={() => toggleRepo(r.name)}
+                        aria-pressed={on}
+                      >
+                        <i className="repo__dot" style={{ background: r.dot }} />
+                        <span className="repo__name mono">{r.name}</span>
+                        <span className="repo__lang">{r.lang}</span>
+                        <span className="repo__branch mono">
+                          <Icon.Branch size={11} />
+                          {r.branch}
+                        </span>
+                        {on && (
+                          <i className="repo__tick" aria-hidden>
+                            <Icon.Check size={11} />
+                          </i>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -270,8 +300,9 @@ export function NewTaskDialog({
 
         <footer className="sheet__foot">
           <span className="sheet__footHint">
-            契约 <strong>{total}</strong> 条约定 · 将由 <strong>{wf.name}</strong> 编排 ·{" "}
-            {wf.nodes.length} 个节点 · {wf.nodes.filter((n) => n.gate).length} 道门禁 ·{" "}
+            {picked.length} 个仓库 · 契约 <strong>{total}</strong> 条约定 · 将由{" "}
+            <strong>{wf.name}</strong> 编排 · {wf.nodes.length} 个节点 ·{" "}
+            {wf.nodes.filter((n) => n.gate).length} 道门禁 ·{" "}
             {wf.nodes.filter((n) => n.approval).length} 个人工检查点
           </span>
           {step === "intent" && (

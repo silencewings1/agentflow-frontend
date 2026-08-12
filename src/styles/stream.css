@@ -1064,6 +1064,10 @@ code.inline {
   font-size: var(--step--1);
   color: var(--text-2);
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .repo:hover .repo__name {

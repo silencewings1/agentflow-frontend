@@ -502,6 +502,45 @@ const wfReview: Workflow = {
   ],
 };
 
+/* 7. 自定义编排：从最小骨架开始，按需插入节点与失败回退 */
+
+const wfCustom: Workflow = {
+  id: "wf-custom",
+  name: "自定义编排",
+  glyph: "Sparkle",
+  tint: "accent",
+  builtin: true,
+  summary: "从最小骨架开始，按需插入节点、连接失败回退，组合多角色流程。",
+  scene: "非典型场景、需要自行组合角色的自定义流程",
+  maxRetry: 2,
+  onExhaust: "人工接管",
+  nodes: [
+    {
+      id: "cu1",
+      name: "需求分析",
+      role: "requirement",
+      col: 0,
+      lane: 0,
+      desc: "拆解需求语义与验收条件，标注事实、推断与待确认项。",
+      gate: "需求可测试性",
+      approval: true,
+    },
+    {
+      id: "cu2",
+      name: "交付",
+      role: "delivery",
+      col: 1,
+      lane: 0,
+      desc: "汇总变更说明、测试报告与回滚方案，提交责任人验收。",
+      gate: "证据链完整",
+    },
+  ],
+  edges: [
+    { id: "cu-e1", from: "cu1", to: "cu2", kind: "flow" },
+    { id: "cu-f1", from: "cu2", to: "cu1", kind: "fail", label: "校验未过" },
+  ],
+};
+
 export const workflowTemplates: Workflow[] = [
   wfFeature,
   wfUnit,
@@ -509,6 +548,7 @@ export const workflowTemplates: Workflow[] = [
   wfLegacy,
   wfCve,
   wfReview,
+  wfCustom,
 ];
 
 /* ============================ 布局与编辑 ============================== */

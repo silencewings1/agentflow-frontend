@@ -421,6 +421,38 @@
   border-color: var(--line-strong);
 }
 
+.sessItem {
+  position: relative;
+}
+
+.sess__del {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-4);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.18s, color 0.18s, border-color 0.18s, background 0.18s;
+}
+
+.sessItem:hover > .sess__del,
+.sessItem:focus-within > .sess__del {
+  opacity: 1;
+}
+
+.sess__del:hover {
+  color: var(--rose);
+  border-color: color-mix(in oklab, var(--rose) 40%, var(--line));
+  background: color-mix(in oklab, var(--rose) 10%, transparent);
+}
+
 .sess__bar {
   position: absolute;
   left: 0;
