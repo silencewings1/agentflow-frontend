@@ -1,18 +1,11 @@
 import { Icon } from "./Icons";
 import type { Session } from "../data/mock";
-import type { ApprovalMode } from "../App";
 import {
   evidenceChain,
   gateStateLabel,
   qualityGates,
   type GateState,
 } from "../data/settings";
-
-const approvalCopy: Record<ApprovalMode, { label: string; hint: string }> = {
-  auto: { label: "自动执行", hint: "代理可直接运行命令" },
-  ask: { label: "逐条确认", hint: "每条命令需你批准" },
-  readonly: { label: "只读", hint: "仅分析，不写入" },
-};
 
 /* 门禁状态到视觉语义的映射：门禁是流程的必经节点，而非可跳过的提醒 */
 const gateGlyph: Record<GateState, "Check" | "Dot" | "X"> = {
@@ -24,28 +17,20 @@ const gateGlyph: Record<GateState, "Check" | "Dot" | "X"> = {
 
 export function TopBar({
   session,
-  model,
-  approvalMode,
   streaming,
   sidebarOpen,
   inspectorOpen,
   onToggleSidebar,
   onToggleInspector,
-  onCycleApproval,
-  onCycleModel,
   onPalette,
   onOpenEvidence,
 }: {
   session: Session;
-  model: string;
-  approvalMode: ApprovalMode;
   streaming: boolean;
   sidebarOpen: boolean;
   inspectorOpen: boolean;
   onToggleSidebar: () => void;
   onToggleInspector: () => void;
-  onCycleApproval: () => void;
-  onCycleModel: () => void;
   onPalette: () => void;
   onOpenEvidence: () => void;
 }) {
@@ -115,19 +100,7 @@ export function TopBar({
       </button>
 
       <div className="topbar__right">
-        <button className="chip" onClick={onCycleModel} title="切换模型">
-          <Icon.Cpu size={13} />
-          <span className="mono">{model}</span>
-        </button>
-        <button
-          className="chip"
-          onClick={onCycleApproval}
-          data-mode={approvalMode}
-          title={approvalCopy[approvalMode].hint}
-        >
-          <Icon.Shield size={13} />
-          <span>{approvalCopy[approvalMode].label}</span>
-        </button>
+        {/* 模型与审批模式已下移至输入框底部：决策点紧邻输入 */}
         <button className="chip chip--ghost" onClick={onPalette} title="命令面板">
           <Icon.Search size={13} />
           <span className="kbd">⌘</span>

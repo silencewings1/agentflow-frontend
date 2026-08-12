@@ -436,21 +436,11 @@ export default function App() {
       <main className="main">
         <TopBar
           session={active}
-          model={model}
-          approvalMode={approvalMode}
           streaming={streaming}
           sidebarOpen={sidebarOpen}
           inspectorOpen={inspectorOpen}
           onToggleSidebar={() => setSidebarOpen((v) => !v)}
           onToggleInspector={() => setInspectorOpen((v) => !v)}
-          onCycleApproval={() =>
-            setApprovalMode((m) =>
-              m === "ask" ? "auto" : m === "auto" ? "readonly" : "ask",
-            )
-          }
-          onCycleModel={() =>
-            setModel((m) => (m === "agentflow-large" ? "agentflow-swift" : "agentflow-large"))
-          }
           onPalette={() => setPaletteOpen(true)}
           onOpenEvidence={() => {
             setInspectorTab("evidence");
@@ -489,6 +479,26 @@ export default function App() {
           onSend={runTurn}
           onStop={stop}
           onPalette={() => setPaletteOpen(true)}
+          onCycleModel={() => {
+            const next = model === "agentflow-large" ? "agentflow-swift" : "agentflow-large";
+            setModel(next);
+            push({ tone: "ok", title: "已切换模型", body: next });
+          }}
+          onCycleApproval={() => {
+            const next: ApprovalMode =
+              approvalMode === "ask" ? "auto" : approvalMode === "auto" ? "readonly" : "ask";
+            setApprovalMode(next);
+            push({
+              tone: next === "auto" ? "warn" : "ok",
+              title: "审批模式",
+              body:
+                next === "auto"
+                  ? "自动执行：低风险命令直接运行，高风险仍需放行"
+                  : next === "ask"
+                    ? "逐条确认：每条命令执行前请求你批准"
+                    : "只读：只做分析，不产生任何写入",
+            });
+          }}
         />
       </main>
 

@@ -128,7 +128,7 @@ export function SettingsOverlay({
               </button>
             );
           })}
-          <div className="sheet__navFoot mono">v0.9.4 · sandbox</div>
+          <div className="sheet__navFoot mono">v1.0.1 · sandbox</div>
         </nav>
 
         <div className="sheet__main">

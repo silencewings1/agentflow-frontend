@@ -27,7 +27,7 @@ export function Rail({
   return (
     <aside className="rail">
       <button className="rail__mark" onClick={onNew} title="AgentFlow">
-        <span className="rail__markGlyph serif">A</span>
+        <Icon.Logo size={19} className="rail__markGlyph" />
       </button>
 
       <div className="rail__group">

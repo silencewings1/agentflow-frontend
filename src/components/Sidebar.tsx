@@ -44,11 +44,8 @@ export function Sidebar({
       <header className="sidebar__head">
         <div className="sidebar__brandRow">
           <h1 className="sidebar__brand serif">AgentFlow</h1>
-          <span className="sidebar__ver mono">0.9.4</span>
+          <span className="sidebar__ver mono">1.0.1</span>
         </div>
-        <p className="sidebar__tagline">
-          委派任务，<em>审阅</em>每一次改动。
-        </p>
       </header>
 
       <div className="sidebar__tools">
@@ -128,19 +125,6 @@ export function Sidebar({
           <p className="sidebar__empty mono">没有匹配 “{q}” 的会话</p>
         )}
       </nav>
-
-      <footer className="sidebar__foot">
-        <div className="usage">
-          <div className="usage__row">
-            <span className="kicker">本周额度</span>
-            <span className="mono usage__num">62%</span>
-          </div>
-          <div className="usage__track">
-            <div className="usage__fill" style={{ width: "62%" }} />
-          </div>
-          <span className="usage__hint mono">3,120 / 5,000 次代理调用</span>
-        </div>
-      </footer>
     </aside>
   );
 }

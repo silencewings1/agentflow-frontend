@@ -8,6 +8,12 @@ const quick = [
   "把它改成幂等实现",
 ];
 
+const approvalCopy: Record<ApprovalMode, { label: string; hint: string }> = {
+  auto: { label: "自动执行", hint: "自动执行：低风险命令直接运行，高风险仍需放行" },
+  ask: { label: "逐条确认", hint: "逐条确认：每条命令执行前请求你批准" },
+  readonly: { label: "只读", hint: "只读：只做分析，不产生任何写入" },
+};
+
 export function Composer({
   streaming,
   model,
@@ -15,6 +21,8 @@ export function Composer({
   onSend,
   onStop,
   onPalette,
+  onCycleModel,
+  onCycleApproval,
 }: {
   streaming: boolean;
   model: string;
@@ -22,6 +30,8 @@ export function Composer({
   onSend: (v: string) => void;
   onStop: () => void;
   onPalette: () => void;
+  onCycleModel: () => void;
+  onCycleApproval: () => void;
 }) {
   const [value, setValue] = useState("");
   const [focus, setFocus] = useState(false);
@@ -95,15 +105,21 @@ export function Composer({
             ))}
           </div>
           <div className="composer__status mono">
-            <span>{model}</span>
+            {/* 模型与审批模式在此处直接切换：决策点紧邻输入，不必回到顶栏 */}
+            <button className="composer__toggle" onClick={onCycleModel} title="切换模型">
+              <Icon.Sparkle size={11} />
+              <span>{model}</span>
+            </button>
             <span className="composer__sep">·</span>
-            <span>
-              {approvalMode === "auto"
-                ? "自动执行"
-                : approvalMode === "ask"
-                  ? "逐条确认"
-                  : "只读"}
-            </span>
+            <button
+              className="composer__toggle"
+              onClick={onCycleApproval}
+              data-mode={approvalMode}
+              title={approvalCopy[approvalMode].hint}
+            >
+              <Icon.Shield size={11} />
+              <span>{approvalCopy[approvalMode].label}</span>
+            </button>
             <span className="composer__sep">·</span>
             <span>
               <span className="kbd">⏎</span> 发送 <span className="kbd">⇧⏎</span> 换行

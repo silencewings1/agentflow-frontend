@@ -14,6 +14,15 @@ const base = (size: number): SVGProps<SVGSVGElement> => ({
 });
 
 export const Icon = {
+  /* 品牌标志：两道逐层收窄的门禁 + 一个通过标记。
+     语义即产品内核 —— AI 的产出必须穿过验证关卡才算落地。 */
+  Logo: ({ size = 16, ...r }: P) => (
+    <svg {...base(size)} strokeWidth={1.8} {...r}>
+      <path d="M3.5 5.5h17" />
+      <path d="M6.5 11h11" />
+      <path d="M8 16.5l3 3 5.5-6" />
+    </svg>
+  ),
   Plus: ({ size = 16, ...r }: P) => (
     <svg {...base(size)} {...r}>
       <path d="M12 5v14M5 12h14" />

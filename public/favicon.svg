@@ -5,7 +5,17 @@
       <stop offset="0.62" stop-color="#0d6efd" />
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="14" fill="#ffffff" />
-  <rect x="1" y="1" width="62" height="62" rx="13" fill="none" stroke="#dbe6f5" stroke-width="2" />
-  <path d="M28 15h8l13 34h-8.6l-2.6-7.4H26.2L23.6 49H15Zm4 9.6-3.4 10h6.8Z" fill="url(#g)" />
+  <rect width="64" height="64" rx="14" fill="url(#g)" />
+  <!-- 两道逐层收窄的门禁 + 通过标记：AI 的产出必须穿过验证关卡才算落地 -->
+  <g
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="4.4"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M15 20h34" />
+    <path d="M21 32h22" />
+    <path d="M24 43.5l6 6 11-12" />
+  </g>
 </svg>

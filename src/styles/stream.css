@@ -984,6 +984,42 @@ code.inline {
   opacity: 0.5;
 }
 
+/* 模型与审批模式：可点击切换，静默呈现、悬停才显形，不与发送按钮争夺注意力 */
+.composer__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 99px;
+  border: 1px solid transparent;
+  background: transparent;
+  font-family: inherit;
+  font-size: 9.5px;
+  color: var(--text-4);
+  cursor: pointer;
+  transition: color 0.18s, border-color 0.18s, background 0.18s;
+}
+
+.composer__toggle:hover {
+  color: var(--text-2);
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+/* 自动执行是放宽约束，用警示色提示当前处于低摩擦模式 */
+.composer__toggle[data-mode="auto"] {
+  color: var(--gold);
+  border-color: color-mix(in oklab, var(--gold) 30%, var(--line));
+  background: color-mix(in oklab, var(--gold) 9%, transparent);
+}
+
+/* 只读是最强约束，用已闭环色表示安全 */
+.composer__toggle[data-mode="readonly"] {
+  color: var(--sage);
+  border-color: color-mix(in oklab, var(--sage) 30%, var(--line));
+  background: color-mix(in oklab, var(--sage) 9%, transparent);
+}
+
 /* =============================== WELCOME ================================ */
 
 .welcome {
