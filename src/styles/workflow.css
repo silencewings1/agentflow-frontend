@@ -13,7 +13,7 @@
 
 .wfTpl {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
   gap: 7px;
 }
 
@@ -631,6 +631,35 @@
 
 @media (max-width: 1080px) {
   .wfEdit {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 窄屏优先牺牲装饰与并排，保证状态与结论仍然完整可见 */
+@media (max-width: 760px) {
+  .wfStage__scroll {
+    max-height: 260px;
+    padding: 12px 10px 8px;
+  }
+
+  .wfLegend {
+    gap: 8px 12px;
+  }
+
+  .wfEdit__row {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .wfEdit__row > label {
+    width: auto;
+    padding-top: 0;
+  }
+}
+
+/* 极窄屏才降为单列：双列在 600px 级宽度仍然更省纵向空间 */
+@media (max-width: 520px) {
+  .wfTpl {
     grid-template-columns: minmax(0, 1fr);
   }
 }
