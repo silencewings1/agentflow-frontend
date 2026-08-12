@@ -122,6 +122,161 @@
   animation: fadeUp 0.36s var(--ease-out) both;
 }
 
+/* ---------------------------- 新建任务对话框 ---------------------------- */
+
+.sheet--task {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(1100px, calc(100vw - 48px));
+}
+
+.taskSteps {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.taskSteps__rule {
+  width: 26px;
+  height: 1px;
+  background: var(--line-strong);
+}
+
+.taskStep {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 11px 0 5px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: var(--step--2);
+  color: var(--text-3);
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.taskStep:hover {
+  color: var(--text);
+}
+
+.taskStep[data-on="true"] {
+  color: var(--accent-text);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.taskStep__n {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 9px;
+  background: var(--surface-3);
+  color: var(--text-3);
+}
+
+.taskStep[data-on="true"] .taskStep__n {
+  background: var(--accent);
+  color: #fff;
+}
+
+.sheet__foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px 12px 20px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.sheet__footHint {
+  flex: 1;
+  min-width: 0;
+  font-size: 10.5px;
+  color: var(--text-4);
+}
+
+.sheet__footHint strong {
+  font-weight: 500;
+  color: var(--accent-text);
+}
+
+.rot90 {
+  transform: rotate(90deg);
+}
+
+.taskField {
+  display: grid;
+  gap: 7px;
+}
+
+.taskInput {
+  padding: 11px 13px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  font-family: inherit;
+  font-size: var(--step-0);
+  line-height: 1.6;
+  color: var(--text);
+  outline: none;
+  resize: vertical;
+  transition: border-color 0.22s;
+}
+
+.taskInput:focus {
+  border-color: var(--accent-line);
+}
+
+.taskInput::placeholder {
+  color: var(--text-4);
+}
+
+.repoGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
+  gap: 6px;
+}
+
+.repo--pick {
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  animation: fadeUp 0.4s var(--ease-out) both;
+  animation-delay: calc(var(--i) * 36ms);
+}
+
+.repo--pick[data-on="true"] {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.seedRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.seedChip {
+  padding: 6px 11px;
+  border-radius: 99px;
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  font-size: 10.5px;
+  color: var(--text-3);
+  text-align: left;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.seedChip:hover {
+  color: var(--accent-text);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
 .stack {
   display: grid;
   gap: 14px;
@@ -935,6 +1090,131 @@
 }
 
 /* ------------------------------ responsive ------------------------------ */
+
+/* --------------------- 受控调用七步 / 权限分级 -------------------------- */
+
+.callFlow {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(228px, 1fr));
+  gap: 6px;
+}
+
+.callStep {
+  display: grid;
+  grid-template-columns: 20px 22px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  animation: fadeUp 0.4s var(--ease-out) both;
+  animation-delay: calc(var(--i) * 34ms);
+}
+
+.callStep__n {
+  grid-row: span 2;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 9.5px;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+.callStep__glyph {
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+}
+
+.callStep strong {
+  font-size: var(--step--1);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.callStep em {
+  grid-column: 2 / -1;
+  font-style: normal;
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: var(--text-4);
+}
+
+.tierGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
+  gap: 8px;
+}
+
+.tier {
+  display: grid;
+  gap: 7px;
+  padding: 12px 13px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--sage);
+  background: var(--surface);
+  animation: fadeUp 0.4s var(--ease-out) both;
+  animation-delay: calc(var(--i) * 44ms);
+}
+
+.tier[data-tier="write"] {
+  border-left-color: var(--accent);
+}
+
+.tier[data-tier="highrisk"] {
+  border-left-color: var(--gold);
+}
+
+.tier__top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.tier__top strong {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--step-0);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.tier__gate {
+  font-size: 9.5px;
+  color: var(--text-4);
+}
+
+.tier p {
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--text-3);
+}
+
+.conn__deny {
+  font-size: 9.5px;
+  color: var(--text-4);
+}
+
+.lockTag {
+  margin-left: 7px;
+  padding: 1px 6px;
+  border-radius: 99px;
+  font-size: 8.5px;
+  font-weight: 400;
+  color: var(--gold);
+  background: color-mix(in oklab, var(--gold) 14%, transparent);
+}
+
+.switch[data-locked] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 
 @media (max-width: 1080px) {
   .split {

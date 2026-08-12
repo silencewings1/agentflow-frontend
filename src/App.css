@@ -1,6 +1,7 @@
 @import "./styles/stream.css";
 @import "./styles/panels.css";
 @import "./styles/settings.css";
+@import "./styles/workflow.css";
 
 /* ============================================================
    AGENTFLOW — Shell layout, rail, sidebar, topbar

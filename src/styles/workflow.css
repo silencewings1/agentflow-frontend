@@ -1,0 +1,630 @@
+/* ============================================================
+   AGENTFLOW — 工作流编排 DAG
+   ============================================================ */
+
+.wfConf {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* ------------------------------ 模板选择 -------------------------------- */
+
+.wfTpl {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  gap: 7px;
+}
+
+.wfTpl__item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 11px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  text-align: left;
+  animation: fadeUp 0.4s var(--ease-out) both;
+  animation-delay: calc(var(--i) * 36ms);
+  transition: border-color 0.2s, background 0.2s, transform 0.2s var(--ease-out);
+}
+
+.wfTpl__item:hover {
+  transform: translateY(-1px);
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+.wfTpl__item[data-on="true"] {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.wfTpl__glyph {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.wfTpl__glyph[data-tint="cyan"] { color: var(--cyan); }
+.wfTpl__glyph[data-tint="sage"] { color: var(--sage); }
+.wfTpl__glyph[data-tint="gold"] { color: var(--gold); }
+.wfTpl__glyph[data-tint="plum"] { color: var(--plum); }
+.wfTpl__glyph[data-tint="azure"] { color: var(--azure); }
+
+.wfTpl__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.wfTpl__text strong {
+  font-size: var(--step-0);
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wfTpl__text em {
+  font-style: normal;
+  font-size: 9.5px;
+  color: var(--text-4);
+}
+
+.wfTpl__tick {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+/* -------------------------------- 画布区 -------------------------------- */
+
+.wfStage {
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.wfStage__bar {
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.wfStage__id {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wfStage__id strong {
+  font-size: var(--step-1);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.wfStage__sum {
+  font-size: var(--step--1);
+  color: var(--text-3);
+}
+
+.wfLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 3px;
+}
+
+.wfLegend__i {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9.5px;
+  color: var(--text-4);
+}
+
+.wfLegend__i i {
+  width: 16px;
+  height: 0;
+  border-top: 1.5px solid var(--accent);
+}
+
+.wfLegend__i[data-k="fail"] i {
+  border-top: 1.5px dashed var(--gold);
+}
+
+.wfLegend__i b {
+  width: 13px;
+  height: 13px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 8px;
+  font-weight: 500;
+  color: var(--sage);
+  background: color-mix(in oklab, var(--sage) 18%, transparent);
+}
+
+.wfLegend__i[data-k="appr"] b {
+  color: var(--gold);
+  background: color-mix(in oklab, var(--gold) 18%, transparent);
+}
+
+.wfStage__scroll {
+  overflow-x: auto;
+  padding: 16px 14px 10px;
+  background:
+    linear-gradient(color-mix(in oklab, var(--line) 42%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in oklab, var(--line) 42%, transparent) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* --------------------------------- DAG --------------------------------- */
+
+.dag {
+  min-width: 0;
+}
+
+.dag__svg {
+  display: block;
+  height: auto;
+  overflow: visible;
+}
+
+.dag[data-compact="true"] .dag__svg {
+  width: 100%;
+}
+
+/* 边 */
+
+.dagEdge path {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.dagEdge--flow path {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  opacity: 0.85;
+  stroke-dasharray: 300;
+  animation: dagDraw 0.7s var(--ease-out) both;
+  animation-delay: calc(var(--i) * 90ms + 200ms);
+}
+
+.dagEdge--fail path {
+  stroke: var(--gold);
+  stroke-width: 1.3;
+  stroke-dasharray: 4 3;
+  opacity: 0.72;
+  animation: dagFade 0.5s var(--ease-out) both;
+  animation-delay: calc(var(--i) * 70ms + 520ms);
+}
+
+@keyframes dagDraw {
+  from { stroke-dashoffset: 300; opacity: 0; }
+  to { stroke-dashoffset: 0; opacity: 0.85; }
+}
+
+@keyframes dagFade {
+  from { opacity: 0; }
+  to { opacity: 0.72; }
+}
+
+.dagEdge__label {
+  fill: var(--gold);
+  font-family: var(--font-ui);
+  font-size: 8.5px;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3.5px;
+  stroke-linejoin: round;
+}
+
+/* 节点 */
+
+.dagNode {
+  cursor: pointer;
+  animation: dagPop 0.44s var(--ease-spring) both;
+  animation-delay: calc(var(--i) * 60ms);
+}
+
+@keyframes dagPop {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+}
+
+.dagNode__box {
+  fill: var(--bg);
+  stroke: var(--line-strong);
+  stroke-width: 1;
+  transition: stroke 0.22s, fill 0.22s;
+}
+
+.dagNode:hover .dagNode__box {
+  stroke: var(--accent-line);
+}
+
+.dagNode[data-active="true"] .dagNode__box {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  fill: var(--accent-soft);
+}
+
+.dagNode__icon {
+  color: var(--accent);
+}
+
+.dagNode[data-tint="cyan"] .dagNode__icon { color: var(--cyan); }
+.dagNode[data-tint="sage"] .dagNode__icon { color: var(--sage); }
+.dagNode[data-tint="gold"] .dagNode__icon { color: var(--gold); }
+.dagNode[data-tint="plum"] .dagNode__icon { color: var(--plum); }
+.dagNode[data-tint="azure"] .dagNode__icon { color: var(--azure); }
+
+.dagNode__role {
+  fill: var(--text-4);
+  font-family: var(--font-ui);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+.dagNode__name {
+  fill: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.dagNode__gate {
+  fill: color-mix(in oklab, var(--sage) 18%, var(--bg));
+  stroke: color-mix(in oklab, var(--sage) 46%, transparent);
+  stroke-width: 1;
+}
+
+.dagNode__appr {
+  fill: color-mix(in oklab, var(--gold) 18%, var(--bg));
+  stroke: color-mix(in oklab, var(--gold) 46%, transparent);
+  stroke-width: 1;
+}
+
+.dagNode__gateGlyph {
+  fill: var(--text-2);
+  font-family: var(--font-ui);
+  font-size: 7.5px;
+  text-anchor: middle;
+}
+
+/* ------------------------------ 节点编辑 ------------------------------- */
+
+.wfEdit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 210px;
+  gap: 12px;
+  align-items: start;
+}
+
+.wfEdit__main {
+  display: grid;
+  gap: 10px;
+  padding: 13px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.wfEdit__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.wfEdit__glyph {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.wfEdit__glyph[data-tint="cyan"] { color: var(--cyan); }
+.wfEdit__glyph[data-tint="sage"] { color: var(--sage); }
+.wfEdit__glyph[data-tint="gold"] { color: var(--gold); }
+.wfEdit__glyph[data-tint="plum"] { color: var(--plum); }
+.wfEdit__glyph[data-tint="azure"] { color: var(--azure); }
+
+.wfEdit__name {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 9px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: var(--step-1);
+  font-weight: 500;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.wfEdit__name:hover {
+  border-color: var(--line);
+}
+
+.wfEdit__name:focus {
+  border-color: var(--accent-line);
+  background: var(--bg);
+}
+
+.wfEdit__desc {
+  font-size: var(--step--1);
+  line-height: 1.6;
+  color: var(--text-3);
+}
+
+.wfEdit__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+
+.wfEdit__row > label {
+  width: 68px;
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--text-4);
+  padding-top: 3px;
+}
+
+.wfEdit__row--flags {
+  gap: 7px;
+}
+
+.wfEdit__none {
+  font-size: var(--step--1);
+  color: var(--text-4);
+}
+
+.flagBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: var(--step--2);
+  color: var(--text-3);
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.flagBtn:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.flagBtn[data-on="true"] {
+  color: var(--accent-text);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.wfEdit__side {
+  display: grid;
+  gap: 9px;
+  padding: 13px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.wfAdd {
+  display: grid;
+  gap: 7px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+
+.wfAdd input {
+  padding: 6px 9px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  font-size: var(--step--1);
+  color: var(--text);
+  outline: none;
+}
+
+.wfAdd input:focus {
+  border-color: var(--accent-line);
+}
+
+.wfAdd__act {
+  display: flex;
+  gap: 6px;
+}
+
+.wfAdd__act .btn {
+  flex: 1;
+  justify-content: center;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* ------------------------- 会话内编排状态条 ---------------------------- */
+
+.wfStrip {
+  flex: none;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--surface) 60%, transparent);
+  animation: wfStripIn 0.5s var(--ease-out) both;
+}
+
+@keyframes wfStripIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.wfStrip__bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 20px;
+  min-width: 0;
+}
+
+.wfStrip__glyph {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  flex: none;
+  color: var(--accent);
+  background: color-mix(in oklab, currentColor 14%, transparent);
+}
+
+.wfStrip__glyph[data-tint="cyan"]  { color: var(--cyan); }
+.wfStrip__glyph[data-tint="sage"]  { color: var(--sage); }
+.wfStrip__glyph[data-tint="gold"]  { color: var(--gold); }
+.wfStrip__glyph[data-tint="plum"]  { color: var(--plum); }
+.wfStrip__glyph[data-tint="azure"] { color: var(--azure); }
+
+.wfStrip__name {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  flex: none;
+}
+
+.wfStrip__rule {
+  width: 1px;
+  height: 14px;
+  background: var(--line);
+  flex: none;
+}
+
+.wfStrip__steps {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.wfStrip__steps::-webkit-scrollbar { display: none; }
+
+.wfStrip__step {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 3px 9px 3px 7px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  border: 1px solid transparent;
+  animation: wfStepIn 0.4s var(--ease-out) both;
+  animation-delay: calc(var(--i) * 70ms + 120ms);
+}
+
+@keyframes wfStepIn {
+  from { opacity: 0; transform: translateX(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.wfStrip__step i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  flex: none;
+}
+
+.wfStrip__step[data-state="done"] {
+  color: var(--text-2);
+}
+
+.wfStrip__step[data-state="done"] i {
+  background: var(--sage);
+}
+
+.wfStrip__step[data-state="active"] {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  font-weight: 550;
+}
+
+.wfStrip__step[data-state="active"] i {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 22%, transparent);
+  animation: wfPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes wfPulse {
+  50% { box-shadow: 0 0 0 5px color-mix(in oklab, var(--accent) 6%, transparent); }
+}
+
+.wfStrip__more {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+
+.wfStrip__more + .wfStrip__more { margin-left: 0; }
+
+.wfStrip__more:hover {
+  color: var(--text-1);
+  border-color: var(--line-strong);
+}
+
+.wfStrip__more .rotUp { transform: rotate(180deg); }
+
+.wfStrip__dag {
+  padding: 10px 20px 14px;
+  overflow-x: auto;
+  border-top: 1px dashed var(--line);
+}
+
+/* ------------------------------ 响应式 --------------------------------- */
+
+@media (max-width: 1080px) {
+  .wfEdit {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

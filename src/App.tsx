@@ -17,6 +17,9 @@ import { Palette } from "./components/Palette";
 import { Toasts, type Toast } from "./components/Toasts";
 import { Welcome } from "./components/Welcome";
 import { SettingsOverlay, type SettingsPane } from "./components/Settings";
+import { NewTaskDialog } from "./components/NewTask";
+import { WorkflowStrip } from "./components/Workflow";
+import { workflowTemplates, type Workflow } from "./data/workflows";
 
 export type ApprovalMode = "auto" | "ask" | "readonly";
 
@@ -31,6 +34,9 @@ export default function App() {
   const [activeFile, setActiveFile] = useState<string>("src/auth/token-service.ts");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsPane, setSettingsPane] = useState<SettingsPane | null>(null);
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [workflow, setWorkflow] = useState<Workflow>(workflowTemplates[0]);
+  const [wfStep, setWfStep] = useState(1);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>("ask");
   const [model, setModel] = useState("agentflow-large");
@@ -162,6 +168,27 @@ export default function App() {
     [],
   );
 
+  const startTask = useCallback(
+    (prompt: string, wf: Workflow) => {
+      setWorkflow(wf);
+      setWfStep(0);
+      setNewTaskOpen(false);
+      setVisible(0);
+      runTurn(prompt);
+      push({
+        tone: "ok",
+        title: `已按「${wf.name}」启动`,
+        body: `${wf.nodes.length} 个节点 · ${wf.edges.filter((e) => e.kind === "fail").length} 条失败回退边`,
+      });
+      wf.nodes.forEach((_, i) => {
+        if (i === 0) return;
+        const t = window.setTimeout(() => setWfStep(i), 1400 + i * 1600);
+        timers.current.push(t);
+      });
+    },
+    [push, runTurn],
+  );
+
   const resolveApproval = useCallback(
     (id: string, ok: boolean) => {
       setPendingApproval(null);
@@ -250,9 +277,8 @@ export default function App() {
       setPaletteOpen(false);
       if (label.includes("主题")) return toggleTheme();
       if (label.includes("新任务")) {
-        setMode("welcome");
-        setExtra([]);
-        return push({ tone: "ok", title: "新任务", body: "选择一个仓库开始。" });
+        setNewTaskOpen(true);
+        return;
       }
       if (label.includes("检查面板")) return setInspectorOpen((v) => !v);
       if (label.includes("审批模式")) {
@@ -291,10 +317,7 @@ export default function App() {
         theme={theme}
         onToggleTheme={toggleTheme}
         onPalette={() => setPaletteOpen(true)}
-        onNew={() => {
-          setMode("welcome");
-          setExtra([]);
-        }}
+        onNew={() => setNewTaskOpen(true)}
         pane={settingsPane}
         onPane={(p) => setSettingsPane((cur) => (cur === p ? null : p))}
       />
@@ -302,10 +325,7 @@ export default function App() {
         sessions={sessions}
         activeId={activeId}
         onSelect={selectSession}
-        onNew={() => {
-          setMode("welcome");
-          setExtra([]);
-        }}
+        onNew={() => setNewTaskOpen(true)}
       />
 
       <main className="main">
@@ -332,7 +352,13 @@ export default function App() {
         {mode === "welcome" ? (
           <Welcome onStart={runTurn} />
         ) : (
-          <Stream
+          <>
+            <WorkflowStrip
+              wf={workflow}
+              activeIndex={wfStep}
+              onOpen={() => setNewTaskOpen(true)}
+            />
+            <Stream
             events={events}
             streaming={streaming}
             pendingApproval={pendingApproval}
@@ -344,6 +370,7 @@ export default function App() {
             }}
             onCopy={() => push({ tone: "ok", title: "已复制", body: "内容在剪贴板中。" })}
           />
+          </>
         )}
 
         <Composer
@@ -374,6 +401,13 @@ export default function App() {
           pane={settingsPane}
           onPane={setSettingsPane}
           onClose={() => setSettingsPane(null)}
+          onToast={push}
+        />
+      )}
+      {newTaskOpen && (
+        <NewTaskDialog
+          onClose={() => setNewTaskOpen(false)}
+          onStart={startTask}
           onToast={push}
         />
       )}
