@@ -13,8 +13,11 @@ import {
   connections,
   customAgents,
   envVars,
+  evidenceChain,
   permTierLabel,
   permTiers,
+  qualityGates,
+  replaySteps,
   reworkRoutes,
   roleLabel,
   sandboxLimits,
@@ -29,12 +32,26 @@ import {
 
 export type SettingsPane = "arch" | "agents" | "connect" | "env";
 
+/* 架构层的跳转落点：点击直达承载该层证据的界面，而不是让用户自己去找 */
+export type ArchJump = "workflow" | "agents" | "replay" | "evidence" | "checkpoint";
+
+/** 当前会话在五层架构上的运行时切面，由 App 下传 —— 架构图因此变成分层监控 */
+export interface ArchRuntime {
+  workflowName: string;
+  wfStep: number;
+  wfTotal: number;
+  currentNode: string;
+  eventCount: number;
+  streaming: boolean;
+  awaitingApproval: boolean;
+}
+
 const PANES: { id: SettingsPane; label: string; glyph: IconName; desc: string }[] = [
   {
     id: "arch",
     label: "总体架构",
     glyph: "Layers",
-    desc: "五层协同架构：每一层职责单一、边界清晰，人工、AI 与确定性程序各司其职。",
+    desc: "五层协同架构：每一层职责单一、边界清晰，并显示当前会话在该层的实时状态。",
   },
   {
     id: "agents",
@@ -61,11 +78,15 @@ export function SettingsOverlay({
   onPane,
   onClose,
   onToast,
+  runtime,
+  onJump,
 }: {
   pane: SettingsPane;
   onPane: (p: SettingsPane) => void;
   onClose: () => void;
   onToast: (t: { tone: "ok" | "warn" | "info"; title: string; body: string }) => void;
+  runtime: ArchRuntime;
+  onJump: (target: ArchJump) => void;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -122,7 +143,9 @@ export function SettingsOverlay({
           </header>
 
           <div className="sheet__body" key={pane}>
-            {pane === "arch" && <ArchPane onToast={onToast} />}
+            {pane === "arch" && (
+              <ArchPane onToast={onToast} runtime={runtime} onJump={onJump} />
+            )}
             {pane === "agents" && <AgentsPane onToast={onToast} />}
             {pane === "connect" && <ConnectPane onToast={onToast} />}
             {pane === "env" && <EnvPane onToast={onToast} />}
@@ -145,9 +168,136 @@ const ownerNote: Record<ArchLayer["owner"], string> = {
   人工: "由人决策，AI 只能请求、不能代替",
 };
 
-function ArchPane({ onToast }: { onToast: Toast }) {
+/* ---- 反向联动：把运行时事实按层归位 ----
+   每层的状态只允许由该层真实的裁决材料推导：
+   L1 取编排进度与环境，L2 取智能体与事件，L3 取受控调用审计，
+   L4 取门禁与证据链，L5 取人工审批。语义色沿用全局约定：
+   sage 已闭环 / accent 进行中 / gold 待人工或未闭环 / rose 失败或被拒。 */
+
+type LayerTone = "sage" | "accent" | "gold" | "rose" | "idle";
+
+interface LayerLive {
+  tone: LayerTone;
+  /** 一句话结论：这一层现在卡在哪 */
+  headline: string;
+  /** 可核验的量，而不是评语 */
+  metrics: { label: string; value: string }[];
+  jump: ArchJump;
+  jumpLabel: string;
+}
+
+const toneLabel: Record<LayerTone, string> = {
+  sage: "已闭环",
+  accent: "进行中",
+  gold: "待人工",
+  rose: "已阻断",
+  idle: "未开始",
+};
+
+function deriveLayerLive(runtime: ArchRuntime): Record<string, LayerLive> {
+  /* L3：受控连接层的裁决记录在回放里 —— 调用次数与被拒次数都是审计事实 */
+  const calls = replaySteps.filter((s) => s.tier !== "—").length;
+  const denied = replaySteps.filter((s) => s.result === "denied").length;
+  const pausedConn = connections.filter((c) => c.state !== "linked").length;
+
+  /* L4：门禁由确定性程序裁决，证据链决定结论能否被核验 */
+  const blocking = qualityGates.find((g) => g.state === "blocked");
+  const activeGate = qualityGates.find((g) => g.state === "active");
+  const passedGates = qualityGates.filter((g) => g.state === "passed").length;
+  const failedChecks = (activeGate ?? blocking)?.checks.filter((c) => !c.ok).length ?? 0;
+  const evConfirmed = evidenceChain.filter((e) => e.confirmed).length;
+  const evRequired = evidenceChain.filter((e) => e.required).length;
+
+  /* L5：人工检查层只认「谁在等谁」 */
+  const waiting = replaySteps.filter((s) => s.result === "wait").length;
+  const approvalEv = evidenceChain.find((e) => e.kind === "approval");
+  const env = cloudEnvs.find((e) => e.active);
+
+  return {
+    "l-biz": {
+      tone: runtime.wfStep + 1 >= runtime.wfTotal ? "sage" : "accent",
+      headline: `「${runtime.workflowName}」推进至第 ${Math.min(runtime.wfStep + 1, runtime.wfTotal)} / ${runtime.wfTotal} 个节点`,
+      metrics: [
+        { label: "当前节点", value: runtime.currentNode || "—" },
+        { label: "运行环境", value: env ? env.name : "未指派" },
+      ],
+      jump: "workflow",
+      jumpLabel: "查看编排进度",
+    },
+    "l-exec": {
+      tone: runtime.streaming ? "accent" : "sage",
+      headline: runtime.streaming
+        ? "智能体正在生成，产出尚未进入下层核验"
+        : "本轮产出已交付下层核验，等待门禁裁决",
+      metrics: [
+        { label: "本轮事件", value: `${runtime.eventCount} 条` },
+        { label: "调度智能体", value: `${builtinAgents.length + customAgents.length} 个` },
+      ],
+      jump: "agents",
+      jumpLabel: "查看智能体职责",
+    },
+    "l-conn": {
+      tone: denied > 0 ? "rose" : pausedConn > 0 ? "gold" : "sage",
+      headline:
+        denied > 0
+          ? `本次运行 ${calls} 次受控调用 · ${denied} 次被拒绝`
+          : `本次运行 ${calls} 次受控调用 · 全部通过校验`,
+      metrics: [
+        { label: "高风险调用", value: `${replaySteps.filter((s) => s.tier === "highrisk").length} 次` },
+        { label: "非正常连接", value: `${pausedConn} 个` },
+      ],
+      jump: "replay",
+      jumpLabel: "按步查证调用",
+    },
+    "l-qa": {
+      tone: blocking ? "rose" : failedChecks > 0 ? "gold" : activeGate ? "accent" : "sage",
+      headline: blocking
+        ? `${blocking.index} ${blocking.name} 已阻断`
+        : activeGate
+          ? `${activeGate.index} ${activeGate.name} 进行中 · ${failedChecks} 项检查未过`
+          : "四道门禁全部通过",
+      metrics: [
+        { label: "门禁通过", value: `${passedGates} / ${qualityGates.length}` },
+        { label: "证据闭环", value: `${evConfirmed} / ${evRequired}` },
+      ],
+      jump: "evidence",
+      jumpLabel: "核验证据链",
+    },
+    "l-human": {
+      tone: runtime.awaitingApproval || waiting > 0 ? "gold" : approvalEv?.confirmed ? "sage" : "idle",
+      headline:
+        runtime.awaitingApproval || waiting > 0
+          ? "有决策在等人：AI 只能请求，不能代替签批"
+          : approvalEv?.confirmed
+            ? "关键决策已由责任人签批"
+            : "尚无待人工放行的决策",
+      metrics: [
+        { label: "等待决策", value: `${waiting + (runtime.awaitingApproval ? 1 : 0)} 项` },
+        { label: "审批证据", value: approvalEv?.confirmed ? "已闭环" : "待提交" },
+      ],
+      jump: "checkpoint",
+      jumpLabel: "前往人工检查点",
+    },
+  };
+}
+
+function ArchPane({
+  onToast,
+  runtime,
+  onJump,
+}: {
+  onToast: Toast;
+  runtime: ArchRuntime;
+  onJump: (target: ArchJump) => void;
+}) {
   const [active, setActive] = useState<string>(archLayers[1].id);
   const layer = archLayers.find((l) => l.id === active) ?? archLayers[0];
+  const live = useMemo(() => deriveLayerLive(runtime), [runtime]);
+  const focusLive = live[layer.id];
+  /* 当前最需要处理的层：优先阻断，其次待人工 */
+  const attention =
+    archLayers.find((l) => live[l.id]?.tone === "rose") ??
+    archLayers.find((l) => live[l.id]?.tone === "gold");
 
   return (
     <div className="arch">
@@ -157,10 +307,34 @@ function ArchPane({ onToast }: { onToast: Toast }) {
         让 AI 的产出必须穿过确定性验证与人工决策才能落地。
       </p>
 
+      {/* 分层监控条：架构不只声明责任，还要显示这一刻谁在负责 */}
+      <div className="archNow" data-tone={attention ? live[attention.id].tone : "sage"}>
+        <span className="kicker">此刻</span>
+        <p>
+          {attention ? (
+            <>
+              <b>
+                {attention.index} {attention.name}
+              </b>
+              {live[attention.id].headline}，责任主体为 <b>{attention.owner}</b>。
+            </>
+          ) : (
+            <>五层均已闭环，等待责任人签批交付。</>
+          )}
+        </p>
+        {attention && (
+          <button className="chipBtn" onClick={() => onJump(live[attention.id].jump)}>
+            {live[attention.id].jumpLabel}
+            <Icon.Arrow size={11} />
+          </button>
+        )}
+      </div>
+
       {/* 分层栈：自上而下即一次任务的流转方向 */}
       <ol className="archStack">
         {archLayers.map((l, i) => {
           const G = Icon[l.glyph];
+          const st = live[l.id];
           return (
             <li key={l.id} style={{ "--i": i } as CSSProperties}>
               <button
@@ -177,8 +351,24 @@ function ArchPane({ onToast }: { onToast: Toast }) {
                   <span className="archLayer__top">
                     <strong>{l.name}</strong>
                     <em className="archLayer__owner">{l.owner}</em>
+                    {/* 实时状态：形态（点的虚实）先于颜色，便于色觉障碍识别 */}
+                    <em className="archLive" data-tone={st.tone}>
+                      <i />
+                      {toneLabel[st.tone]}
+                    </em>
                   </span>
                   <span className="archLayer__duty">{l.duty}</span>
+                  <span className="archLive__now" data-tone={st.tone}>
+                    {st.headline}
+                  </span>
+                  <span className="archLive__metrics">
+                    {st.metrics.map((m) => (
+                      <i key={m.label}>
+                        {m.label}
+                        <b className="mono">{m.value}</b>
+                      </i>
+                    ))}
+                  </span>
                   <span className="archLayer__items">
                     {l.items.map((it) => (
                       <i key={it}>{it}</i>
@@ -196,7 +386,7 @@ function ArchPane({ onToast }: { onToast: Toast }) {
         })}
       </ol>
 
-      {/* 选中层的责任边界 */}
+      {/* 选中层的责任边界 + 直达该层证据 */}
       <div className="archFocus" data-tint={layer.tint}>
         <div className="archFocus__head">
           <span className="kicker">
@@ -209,6 +399,15 @@ function ArchPane({ onToast }: { onToast: Toast }) {
           {layer.items.map((it) => (
             <span key={it}>{it}</span>
           ))}
+        </div>
+        <div className="archFocus__act">
+          <span className="archFocus__state" data-tone={focusLive.tone}>
+            {focusLive.headline}
+          </span>
+          <button className="chipBtn" onClick={() => onJump(focusLive.jump)}>
+            {focusLive.jumpLabel}
+            <Icon.Arrow size={11} />
+          </button>
         </div>
       </div>
 

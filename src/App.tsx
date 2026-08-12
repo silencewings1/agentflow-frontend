@@ -16,7 +16,7 @@ import { Inspector, type InspectorTab } from "./components/Inspector";
 import { Palette } from "./components/Palette";
 import { Toasts, type Toast } from "./components/Toasts";
 import { Welcome } from "./components/Welcome";
-import { SettingsOverlay, type SettingsPane } from "./components/Settings";
+import { SettingsOverlay, type ArchJump, type SettingsPane } from "./components/Settings";
 import { NewTaskDialog } from "./components/NewTask";
 import { WorkflowStrip } from "./components/Workflow";
 import { workflowTemplates, type Workflow } from "./data/workflows";
@@ -59,6 +59,20 @@ export default function App() {
   const events = useMemo(
     () => [...conversation.slice(0, visible), ...extra],
     [visible, extra],
+  );
+
+  /* 五层架构的运行时切面：让「总体架构」显示当前会话在每层的实时状态 */
+  const archRuntime = useMemo(
+    () => ({
+      workflowName: workflow.name,
+      wfStep,
+      wfTotal: workflow.nodes.length,
+      currentNode: workflow.nodes[Math.min(wfStep, workflow.nodes.length - 1)]?.name ?? "",
+      eventCount: events.length,
+      streaming,
+      awaitingApproval: pendingApproval !== null,
+    }),
+    [workflow, wfStep, events.length, streaming, pendingApproval],
   );
 
   useEffect(() => {
@@ -324,6 +338,44 @@ export default function App() {
     setStreaming(s.state === "running");
   }, []);
 
+  /* 架构层 → 承载该层证据的界面，一次点击到位，不让用户自己去找 */
+  const archJump = useCallback(
+    (target: ArchJump) => {
+      if (target === "agents") {
+        setSettingsPane("agents");
+        return;
+      }
+      setSettingsPane(null);
+      if (target === "workflow") {
+        setMode("session");
+        push({
+          tone: "info",
+          title: "编排进度",
+          body: "已定位到会话顶部的编排进度条。",
+        });
+        return;
+      }
+      if (target === "replay") {
+        setInspectorTab("replay");
+        setInspectorOpen(true);
+        return;
+      }
+      if (target === "evidence") {
+        setInspectorTab("evidence");
+        setInspectorOpen(true);
+        return;
+      }
+      /* 人工检查点：回到事件流，待放行的决策就在其中 */
+      setMode("session");
+      push({
+        tone: "warn",
+        title: "等待人工决策",
+        body: "人工检查点在事件流中，AI 只能请求、不能代替签批。",
+      });
+    },
+    [push],
+  );
+
   const paletteAction = useCallback(
     (label: string) => {
       setPaletteOpen(false);
@@ -459,6 +511,8 @@ export default function App() {
           onPane={setSettingsPane}
           onClose={() => setSettingsPane(null)}
           onToast={push}
+          runtime={archRuntime}
+          onJump={archJump}
         />
       )}
       {newTaskOpen && (

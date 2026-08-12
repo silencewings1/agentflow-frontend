@@ -1758,6 +1758,140 @@
   background: var(--surface-2);
 }
 
+/* ---- 分层监控：架构不止声明责任，还要显示这一刻谁在负责 ---- */
+.archNow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in oklab, var(--now, var(--accent)) 30%, var(--line));
+  border-left: 2px solid var(--now, var(--accent));
+  border-radius: var(--r-md);
+  background: color-mix(in oklab, var(--now, var(--accent)) 7%, var(--surface-1));
+  animation: fadeUp 0.4s var(--ease-out) both;
+}
+
+.archNow[data-tone="sage"] { --now: var(--sage); }
+.archNow[data-tone="accent"] { --now: var(--accent); }
+.archNow[data-tone="gold"] { --now: var(--gold); }
+.archNow[data-tone="rose"] { --now: var(--rose); }
+.archNow[data-tone="idle"] { --now: var(--text-4); }
+
+.archNow .kicker {
+  flex-shrink: 0;
+  color: var(--now, var(--accent));
+}
+
+.archNow p {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--step--1);
+  line-height: 1.62;
+  color: var(--text-2);
+}
+.archNow p b {
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* ---- 每层的实时状态徽标：形态差异先于颜色差异 ---- */
+.archLive {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 99px;
+  border: 1px solid color-mix(in oklab, var(--now, var(--accent)) 34%, var(--line));
+  font-size: 10px;
+  font-style: normal;
+  color: var(--now, var(--accent));
+  background: color-mix(in oklab, var(--now, var(--accent)) 10%, transparent);
+}
+
+.archLive[data-tone="sage"] { --now: var(--sage); }
+.archLive[data-tone="accent"] { --now: var(--accent); }
+.archLive[data-tone="gold"] { --now: var(--gold); }
+.archLive[data-tone="rose"] { --now: var(--rose); }
+.archLive[data-tone="idle"] {
+  --now: var(--text-4);
+  border-style: dashed;
+}
+
+.archLive i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--now, var(--accent));
+}
+
+/* 进行中的层用脉冲表达「正在发生」，而非静态标签 */
+.archLive[data-tone="accent"] i {
+  animation: gatePulse 1.6s var(--ease-in-out) infinite;
+}
+
+/* 待人工与已阻断用空心点：不靠颜色也能区分 */
+.archLive[data-tone="gold"] i,
+.archLive[data-tone="idle"] i {
+  background: transparent;
+  border: 1.5px solid var(--now, var(--accent));
+}
+
+/* ---- 该层此刻的结论与可核验的量 ---- */
+.archLive__now {
+  font-size: var(--step--1);
+  line-height: 1.56;
+  color: color-mix(in oklab, var(--now, var(--accent)) 76%, var(--text-2));
+}
+
+.archLive__now[data-tone="sage"] { --now: var(--sage); }
+.archLive__now[data-tone="accent"] { --now: var(--accent); }
+.archLive__now[data-tone="gold"] { --now: var(--gold); }
+.archLive__now[data-tone="rose"] { --now: var(--rose); }
+.archLive__now[data-tone="idle"] { --now: var(--text-4); }
+
+.archLive__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-top: 1px;
+}
+
+.archLive__metrics i {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  font-size: 10px;
+  font-style: normal;
+  color: var(--text-4);
+  background: var(--bg);
+}
+
+.archLive__metrics b {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+/* ---- 选中层的直达入口：跨面板跳转一次到位 ---- */
+.archFocus__act {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in oklab, var(--layer, var(--accent)) 18%, var(--line));
+}
+
+.archFocus__state {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--step--1);
+  color: var(--text-3);
+}
+
 /* ---- 选中层的责任边界 ---- */
 .archFocus {
   display: flex;
