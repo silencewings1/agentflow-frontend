@@ -642,12 +642,21 @@
 .main {
   position: relative;
   display: grid;
-  grid-template-rows: var(--topbar) minmax(0, 1fr) auto;
+  /* 顶栏 / 编排条 / 事件流 / 输入区：编排条按内容高度占一行，
+     只有事件流吃掉剩余空间，避免它被挤进隐式行而盖住上方说明 */
+  grid-template-rows: var(--topbar) auto minmax(0, 1fr) auto;
   min-width: 0;
   overflow: hidden;
 }
 
+/* 空态（Welcome）时没有编排条，回到三行 */
+.main:has(> .welcome) {
+  grid-template-rows: var(--topbar) minmax(0, 1fr) auto;
+}
+
 .topbar {
+  position: relative;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 10px;

@@ -40,7 +40,10 @@
   --accent-s: 92%;
 }
 
-/* ---------------- LUMEN (white, default) ---------------- */
+/* ---------------- LUMEN (white, default) ----------------
+   同时写入 :root 作为兜底：data-theme 缺失或取到未知值时
+   颜色令牌仍然成立，否则整个界面会退化成透明背景。 */
+:root,
 [data-theme="lumen"] {
   --bg: #ffffff;
   --bg-deep: #f4f7fb;

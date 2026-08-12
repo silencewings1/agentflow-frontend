@@ -480,10 +480,19 @@
 /* ------------------------- 会话内编排状态条 ---------------------------- */
 
 .wfStrip {
+  position: relative;
+  /* 编排条位于事件流之上：展开的 DAG 要覆盖会话内容而不是被其穿透 */
+  z-index: 2;
   flex: none;
   border-bottom: 1px solid var(--line);
   background: color-mix(in oklab, var(--surface) 60%, transparent);
   animation: wfStripIn 0.5s var(--ease-out) both;
+}
+
+/* 展开时提升层级并给出实底，避免与下方会话内容视觉混叠 */
+.wfStrip[data-open="true"] {
+  z-index: 6;
+  background: var(--bg);
 }
 
 @keyframes wfStripIn {
@@ -492,11 +501,15 @@
 }
 
 .wfStrip__bar {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 9px 20px;
   min-width: 0;
+  /* 实底：状态条不能让下方会话内容透上来 */
+  background: var(--bg);
 }
 
 .wfStrip__glyph {
@@ -615,16 +628,39 @@
 .wfStrip__more + .wfStrip__more { margin-left: 0; }
 
 .wfStrip__more:hover {
-  color: var(--text-1);
+  color: var(--text);
   border-color: var(--line-strong);
 }
 
 .wfStrip__more .rotUp { transform: rotate(180deg); }
 
+/* 展开的编排图作为浮层覆盖会话内容：不参与 grid 高度，完全不透明遮盖 */
 .wfStrip__dag {
-  padding: 10px 20px 14px;
-  overflow-x: auto;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 6;
+  /* 紧凑优先：浮层只占必要高度，尽量少侵占会话内容区域 */
+  max-height: 30vh;
+  padding: 4px 20px 6px;
+  overflow: auto;
   border-top: 1px dashed var(--line);
+  border-bottom: 1px solid var(--line-strong);
+  /* 实底，不使用透明度：下方会话内容必须被完全遮住 */
+  background: var(--bg);
+  box-shadow: var(--shadow-lift);
+  animation: wfDagIn 0.26s var(--ease-out) both;
+}
+
+/* 紧凑模式下压缩画布自身留白，并限制等比缩放后的高度 */
+.wfStrip__dag .dag__svg {
+  max-height: 26vh;
+}
+
+@keyframes wfDagIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
 }
 
 /* ------------------------------ 响应式 --------------------------------- */
