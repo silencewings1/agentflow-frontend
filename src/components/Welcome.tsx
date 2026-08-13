@@ -1,21 +1,27 @@
 import { Icon } from "./Icons";
+import { repoOptions } from "../data/settings";
 
 const seeds = [
   {
     tag: "重构",
-    text: "把 `useDashboard` 里的数据获取逻辑抽成独立 hook，并保持 SSR 行为一致",
+    text: "把 sseinternetvote 的征集时间窗判定重构进 `internal/collect/window.go`，与周边系统架构关系保持不变",
   },
-  { tag: "排障", text: "CI 上 `snapshot.spec.ts` 偶发失败，定位根因并给出最小修复" },
-  { tag: "测试", text: "为 billing 的退款分支补齐边界用例，覆盖率提到 90% 以上" },
-  { tag: "阅读", text: "画出 auth 模块的调用链，并指出可能的循环依赖" },
+  {
+    tag: "排障",
+    text: "多通道重复投票未按「时间优先」以第一次为准，定位 `internal/collect` 的判定根因并给出最小修复",
+  },
+  {
+    tag: "测试",
+    text: "为股东名册上传补齐边界用例，覆盖 `internal/upload/roster.go` 的格式与越权分支",
+  },
+  {
+    tag: "阅读",
+    text: "画出会议查询到通行证校验的调用链，指出 `internal/auth/ekey.go` 的权限与审计缺口",
+  },
 ];
 
-const repos = [
-  { name: "atlas-api", lang: "TypeScript", branch: "main", dot: "var(--azure)" },
-  { name: "atlas-web", lang: "TypeScript", branch: "main", dot: "var(--gold)" },
-  { name: "infra", lang: "HCL", branch: "prod", dot: "var(--sage)" },
-  { name: "design-kit", lang: "CSS", branch: "main", dot: "var(--plum)" },
-];
+/* 仓库清单直接引用领域模型：源仓库与目标仓库的角色由数据层界定，界面不重复声明 */
+const repos = repoOptions;
 
 export function Welcome({ onStart }: { onStart: (v: string) => void }) {
   return (
@@ -39,7 +45,7 @@ export function Welcome({ onStart }: { onStart: (v: string) => void }) {
               <li key={r.name} style={{ ["--i" as string]: i }}>
                 <button className="repo">
                   <i className="repo__dot" style={{ background: r.dot }} />
-                  <span className="repo__name mono">agentflow/{r.name}</span>
+                  <span className="repo__name mono">sse/{r.name}</span>
                   <span className="repo__lang">{r.lang}</span>
                   <span className="repo__branch mono">
                     <Icon.Branch size={11} />

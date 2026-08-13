@@ -755,7 +755,7 @@ const runFeature: WfRun = {
       at: "10:20:04",
       tone: "plan",
       title: "已下发 4 份节点契约",
-      body: "按「需求开发」编排为 4 个节点各下发输入输出与职责约定，重试上限 3 次，超限转人工接管。",
+      body: "按「需求开发」编排为需求分析、代码开发、评审、交付 4 个节点各下发输入输出与职责约定：需求来自 sseinternetvote（Java），实现落在 vote_org_qfii（Go），周边系统接口契约不得变动。重试上限 3 次，超限转人工接管。",
       refs: ["orchestration/plan.md"],
     },
     {
@@ -763,9 +763,9 @@ const runFeature: WfRun = {
       node: "n1",
       at: "10:20:16",
       tone: "act",
-      title: "读取任务契约",
-      body: "解析 contract/task.md，提取 20 条约定，识别出 3 项需要澄清的语义。",
-      refs: ["contract/task.md"],
+      title: "读取任务契约与源仓库范围",
+      body: "解析 contract/task.md 并扫描 Java 侧 QFII 征集相关调用点，提取 20 条约定，识别出 3 项需要澄清的语义（征集日跨节假日回推口径、多通道重复投票裁决依据、名册文件编码）。",
+      refs: ["contract/task.md", "reports/source-scan-java.md"],
     },
     {
       id: "f-m3",
@@ -773,8 +773,8 @@ const runFeature: WfRun = {
       at: "10:21:38",
       tone: "output",
       title: "交付需求与验收条件",
-      body: "输出 12 条可测试需求，每条附验收条件；3 项推断已显式标注待确认。",
-      refs: ["docs/requirement.md", "docs/acceptance.md"],
+      body: "输出 12 条可测试需求，覆盖征集窗口时点校验、重复投票时间优先判定、名册与征集结果上传、Ekey 通行证对接与审计留痕；每条附验收条件；3 项推断已显式标注待确认。",
+      refs: ["docs/qfii-requirement.md", "docs/qfii-acceptance.md"],
     },
     {
       id: "f-m4",
@@ -782,7 +782,7 @@ const runFeature: WfRun = {
       at: "10:21:52",
       tone: "gate",
       title: "门禁通过：需求可测试性",
-      body: "12/12 条需求具备可验证的验收条件，允许流转到代码开发。",
+      body: "12/12 条需求具备可验证的验收条件，含征集日（投票起始日前一交易日）9:15–15:00 的首尾边界与跨节假日回推场景，允许流转到代码开发。",
     },
     {
       id: "f-m5",
@@ -790,7 +790,7 @@ const runFeature: WfRun = {
       at: "10:21:55",
       tone: "plan",
       title: "调度：需求分析 → 代码开发",
-      body: "上游产物齐备（requirement.md、acceptance.md），满足代码开发的输入契约，准许启动。",
+      body: "上游产物齐备（qfii-requirement.md、qfii-acceptance.md），满足代码开发的输入契约，准许启动；交易日历口径以 internal/meeting 单点提供为准，不得各处自算。",
     },
     {
       id: "f-m6",
@@ -798,7 +798,7 @@ const runFeature: WfRun = {
       at: "10:22:09",
       tone: "act",
       title: "定位改造范围（第 1 轮）",
-      body: "grep refreshToken|rotateSession 命中 4 个文件 17 处，确定以 token-service 收敛重复逻辑。",
+      body: "grep checkCollectWindow|isDuplicateVote 在 Java 侧命中 4 个文件 17 处（会议查询、投票提交、结果导出各写一遍），确定在 internal/collect 收敛为征集域服务，会议查询与上传降为薄适配层。",
     },
     {
       id: "f-m7",
@@ -806,8 +806,8 @@ const runFeature: WfRun = {
       at: "10:23:41",
       tone: "output",
       title: "提交实现与单元测试",
-      body: "新增 token-service.ts（+94），改造 3 个中间件，补 26 行用例；累计 +148 −62。",
-      refs: ["src/auth/token-service.ts", "test/auth/token-service.spec.ts"],
+      body: "新增 internal/collect/window.go（+94）与 duplicate.go，改写 internal/meeting/query.go、internal/upload/roster.go 为薄适配层，补 26 行用例；累计 +148 −62。",
+      refs: ["internal/collect/window.go", "internal/collect/window_test.go"],
     },
     {
       id: "f-m8",
@@ -815,7 +815,7 @@ const runFeature: WfRun = {
       at: "10:23:58",
       tone: "gate",
       title: "门禁通过：编译与单元测试",
-      body: "tsc 0 error；vitest 23 passed / 0 failed，覆盖率 96.4%。流转到评审。",
+      body: "go build / go vet 0 issue；go test -race 23 passed / 0 failed，internal/collect 覆盖率 96.4%。流转到评审。",
     },
     {
       id: "f-m9",
@@ -823,16 +823,16 @@ const runFeature: WfRun = {
       at: "10:24:30",
       tone: "act",
       title: "独立核对实现与需求（第 1 轮）",
-      body: "逐条比对 12 条需求与实现，重点检查并发刷新路径与异常分支。",
+      body: "逐条比对 12 条需求与实现，重点检查征集窗口时点判定、重复投票冲突分支，以及向 vote.sseinfo.com 报送的字段与响应码是否保持不变。",
     },
     {
       id: "f-m10",
       node: "n3",
       at: "10:25:12",
       tone: "warn",
-      title: "门禁未过：并发刷新缺互斥",
-      body: "两个请求同时命中过期 token 时会并发写 Redis，与验收条件「并发刷新有互斥保护」不符。判定为阻断问题，按失败回退边退回代码开发。",
-      refs: ["src/auth/token-service.ts:58"],
+      title: "门禁未过：重复投票未按时间优先裁决",
+      body: "vote_record 唯一约束冲突后直接以后到记录覆盖，多通道同秒提交会保留后到的一条，与验收条件「多通道重复投票按时间优先，以第一次提交为准」不符。判定为阻断问题，按失败回退边退回代码开发。",
+      refs: ["internal/collect/duplicate.go:58"],
     },
     {
       id: "f-m11",
@@ -840,7 +840,7 @@ const runFeature: WfRun = {
       at: "10:25:15",
       tone: "plan",
       title: "回退：评审 → 代码开发（第 2 轮）",
-      body: "沿「实现问题」回退边定向返工，已将评审结论与命中位置作为附加输入下发。重试计数 1/3。",
+      body: "沿「实现问题」回退边定向返工，已将评审结论与命中位置作为附加输入下发；征集域抽取与平台报送契约比对结论保留，不重复采集。重试计数 1/3。",
       refs: ["reports/review-r1.md"],
     },
     {
@@ -849,7 +849,7 @@ const runFeature: WfRun = {
       at: "10:26:04",
       tone: "act",
       title: "按评审意见返工（第 2 轮）",
-      body: "改用 Redis SETNX 分布式锁保护刷新临界区，锁超时 3s，失败方等待复用结果而非重复刷新。",
+      body: "冲突分支改为比对 vote_time 后保留最早一条，同秒时以平台受理序号兜底；写入失败在 defer 中回滚事务，不留脏记录。",
     },
     {
       id: "f-m13",
@@ -857,8 +857,8 @@ const runFeature: WfRun = {
       at: "10:27:20",
       tone: "output",
       title: "提交返工实现与并发用例",
-      body: "token-service.ts +38 −6，新增 4 条并发场景用例（含 50 并发压测）；累计 +186 −68。",
-      refs: ["src/auth/token-service.ts", "test/auth/concurrent-refresh.spec.ts"],
+      body: "internal/collect/duplicate.go +38 −6，新增 4 条并发场景用例（含 50 并发多通道同秒提交），断言留存记录为最早提交而非最后写入；累计 +186 −68。",
+      refs: ["internal/collect/duplicate.go", "internal/collect/duplicate_test.go"],
     },
     {
       id: "f-m14",
@@ -866,7 +866,7 @@ const runFeature: WfRun = {
       at: "10:27:41",
       tone: "gate",
       title: "门禁通过：编译与单元测试（第 2 轮）",
-      body: "tsc 0 error；vitest 27 passed / 0 failed，并发用例全绿。",
+      body: "go build / go vet 0 issue；go test -race 27 passed / 0 failed，internal/collect 覆盖率 97.1%，并发用例全绿。",
     },
     {
       id: "f-m15",
@@ -874,7 +874,7 @@ const runFeature: WfRun = {
       at: "10:28:16",
       tone: "act",
       title: "复核返工结果（第 2 轮）",
-      body: "确认互斥保护覆盖全部刷新入口，检查锁超时与异常释放路径无死锁风险。",
+      body: "确认三处调用点均改走 WindowChecker 与统一冲突裁决，检查同秒受理序号兜底与事务回滚路径不残留脏记录。",
     },
     {
       id: "f-m16",
@@ -882,7 +882,7 @@ const runFeature: WfRun = {
       at: "10:29:02",
       tone: "output",
       title: "评审通过，出具审查报告",
-      body: "6 个维度全部通过；1 项非阻断建议：legacy/compat.ts 的再导出缺少 @deprecated 注释。",
+      body: "6 个维度全部通过；1 项非阻断建议：internal/upload/roster.go 尚未兼容 GBK 编码的股东名册，建议单列需求处理。",
       refs: ["reports/review-r2.md"],
     },
     {
@@ -891,7 +891,7 @@ const runFeature: WfRun = {
       at: "10:29:10",
       tone: "gate",
       title: "门禁通过：无阻断与严重问题",
-      body: "阻断问题 0 项，严重问题 0 项，建议项 1 项不拦截流转。",
+      body: "阻断问题 0 项，严重问题 0 项，建议项 1 项（名册编码兼容）不拦截流转。",
     },
     {
       id: "f-m18",
@@ -899,7 +899,7 @@ const runFeature: WfRun = {
       at: "10:29:14",
       tone: "plan",
       title: "调度：评审 → 交付",
-      body: "返工闭环已完成（1 次回退，2 轮实现）。审查报告齐备，准许进入交付。",
+      body: "返工闭环已完成（1 次回退，2 轮实现）。审查报告齐备，平台报送契约比对无字段增删，准许进入交付。",
     },
     {
       id: "f-m19",
@@ -907,7 +907,7 @@ const runFeature: WfRun = {
       at: "10:29:48",
       tone: "act",
       title: "汇总交付材料",
-      body: "收集变更说明、测试报告、返工记录与回滚方案，核对证据链完整性。",
+      body: "收集变更说明、测试与覆盖率报告、返工记录与回滚方案，核对证据链完整性，并比对 openapi/vote_org.yaml 与周边系统的调用关系是否保持不变。",
     },
     {
       id: "f-m20",
@@ -915,8 +915,8 @@ const runFeature: WfRun = {
       at: "10:30:26",
       tone: "output",
       title: "交付包已就绪，待人工验收",
-      body: "变更说明含本次返工原因与修正方式；回滚方案已验证可执行（保留 rotateSession 再导出）。",
-      refs: ["docs/changelog.md", "docs/rollback.md"],
+      body: "变更说明含本次返工原因（重复投票未按时间优先）与修正方式；回滚方案已验证可执行（Java 侧原实现保留一个发布周期，可按会议编号灰度切回）。",
+      refs: ["docs/changelog.md", "docs/rollback.md", "openapi/vote_org.yaml"],
     },
     {
       id: "f-m21",
@@ -924,8 +924,8 @@ const runFeature: WfRun = {
       at: "10:30:30",
       tone: "warn",
       title: "监控：1 项非阻断偏差待决",
-      body: "弃用注释属建议项，不影响验收条件。已记入证据链，交由人工检查点判定。",
-      refs: ["legacy/compat.ts"],
+      body: "股东名册 GBK 编码兼容属建议项，不影响本次验收条件。已记入证据链，交由人工检查点判定是否本次一并处理。",
+      refs: ["internal/upload/roster.go"],
     },
   ],
 };

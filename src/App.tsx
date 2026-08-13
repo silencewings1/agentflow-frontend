@@ -40,7 +40,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("files");
-  const [activeFile, setActiveFile] = useState<string>("src/auth/token-service.ts");
+  const [activeFile, setActiveFile] = useState<string>("internal/collect/window.go");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsPane, setSettingsPane] = useState<SettingsPane | null>(null);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
@@ -222,16 +222,16 @@ export default function App() {
           id: `${uid}-b`,
           kind: "reasoning",
           title: "已思考 6 秒",
-          body: "先确认改动范围是否会触及公共导出。仓库根目录的 AGENTS.md 要求所有新增文件带上许可头，并且改动需附带对应的测试。据此拟定最小步骤集。",
+          body: "先确认改动范围是否会触及对外报送接口。仓库根目录的 AGENTS.md 要求征集规则的判定必须与源仓库语义逐条对齐，并且改动需附带对应的测试。据此拟定最小步骤集。",
           ms: 6100,
         },
         {
           id: `${uid}-c`,
           kind: "plan",
           steps: [
-            { label: "定位相关实现与调用点", status: "done" },
-            { label: "按最小改动落地修改", status: "active" },
-            { label: "补测试并跑通类型检查", status: "todo" },
+            { label: "在源仓库定位征集规则实现与调用点", status: "done" },
+            { label: "在目标仓库按最小改动落地重构", status: "active" },
+            { label: "补 go test 并跑通编译检查", status: "todo" },
           ],
         },
         {
@@ -239,18 +239,18 @@ export default function App() {
           kind: "tool",
           tool: "search",
           label: "grep",
-          meta: "rotateSession — 2 files, 3 matches",
+          meta: "checkCollectWindow — 2 files, 3 matches",
           status: "ok",
           lines: [
-            "src/auth/middleware/cookie.ts:31   await tokens.rotate(req, res)",
-            "src/auth/legacy/compat.ts:12       export { rotateSession }",
+            "src/main/java/com/sse/vote/collect/CollectWindowService.java:31   checkCollectWindow(meetingId, tradeDate)",
+            "src/main/java/com/sse/vote/collect/DuplicateVoteChecker.java:12   public boolean isDuplicateVote(holderId, channel)",
           ],
         },
         {
           id: `${uid}-e`,
           kind: "approval",
-          command: "pnpm typecheck && pnpm vitest run test/auth",
-          rationale: "需要在沙箱内执行类型检查与测试，确认改动没有破坏既有契约。",
+          command: "go build ./... && go test ./internal/collect",
+          rationale: "需要在沙箱内执行编译与测试，确认征集时间窗与重复投票判定没有偏离源仓库语义。",
           risk: "low",
         },
       ];
@@ -431,24 +431,24 @@ export default function App() {
           kind: "tool",
           tool: "shell",
           label: "shell",
-          meta: "pnpm typecheck && pnpm vitest run test/auth",
+          meta: "go build ./... && go test ./internal/collect",
           status: "ok",
           lines: [
-            "$ pnpm typecheck",
-            "> tsc --noEmit -p tsconfig.json",
+            "$ go build ./...",
+            "> go vet ./internal/...",
             "✔ 0 errors · 312 files · 4.1s",
             "",
-            "$ pnpm vitest run test/auth",
-            " ✓ test/auth/token-service.spec.ts (9 tests) 208ms",
-            " ✓ test/auth/middleware.spec.ts (14 tests) 322ms",
+            "$ go test ./internal/collect",
+            " ✓ internal/collect/window_test.go (9 tests) 208ms",
+            " ✓ internal/collect/duplicate_test.go (14 tests) 322ms",
             " Tests  23 passed (23)",
           ],
         },
-        { id: `${id}-t`, kind: "tests", passed: 23, failed: 0, skipped: 1, ms: 1380 },
+        { id: `$502976064786_AWS_us-east-2-t`, kind: "tests", passed: 23, failed: 0, skipped: 1, ms: 1380 },
         {
-          id: `${id}-w`,
+          id: `$502976064786_AWS_us-east-2-w`,
           kind: "text",
-          body: "类型检查与测试全部通过，`rotateSession` 已标注为弃用并保留再导出。可以开 PR 了。",
+          body: "编译与测试全部通过，征集时间窗（投票起始日前一交易日 9:15–15:00）与「时间优先」去重规则已覆盖；报送字段已与 `openapi/vote_org.yaml` 契约比对一致。可以开 PR 了。",
         },
       ];
       let delay = 420;

@@ -2,18 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Icon } from "./Icons";
 import { WorkflowPicker } from "./Workflow";
 import { workflowTemplates, type Workflow } from "../data/workflows";
-import { taskContract } from "../data/settings";
+import { taskContract, repoOptions } from "../data/settings";
 import type { AgentEvent } from "../data/mock";
 
-/* 目标仓库：按团队前缀组织，支持多选；越界改动会被门禁按契约范围拦截 */
-const repos = [
-  { name: "pay-platform/settlement", lang: "Java", branch: "main", dot: "var(--azure)" },
-  { name: "pay-platform/gateway", lang: "Go", branch: "main", dot: "var(--cyan)" },
-  { name: "web-team/customer-portal", lang: "TypeScript", branch: "release", dot: "var(--gold)" },
-  { name: "web-team/admin-console", lang: "TypeScript", branch: "main", dot: "var(--accent)" },
-  { name: "data-team/risk-engine", lang: "Python", branch: "main", dot: "var(--plum)" },
-  { name: "infra/terraform-live", lang: "HCL", branch: "prod", dot: "var(--sage)" },
-];
+/* 目标仓库清单已下沉到 data/settings.ts */
+const repos = repoOptions;
 
 type Step = "intent" | "contract" | "workflow";
 
@@ -50,9 +43,13 @@ export function NewTaskDialog({
   onToast: (t: { tone: "ok" | "warn" | "info"; title: string; body: string }) => void;
 }) {
   const [step, setStep] = useState<Step>("intent");
-  const [prompt, setPrompt] = useState("");
-  /* 目标仓库可多选：契约范围以此为界，跨仓库改动需在契约中显式声明 */
-  const [picked, setPicked] = useState<string[]>([repos[0].name]);
+  /* 预填本次任务目标：重构落在 vote_org_qfii，需求来自 sseinternetvote */
+  const [prompt, setPrompt] = useState(taskContract.problem);
+  /* 目标仓库可多选：契约范围以此为界，跨仓库改动需在契约中显式声明。
+     默认选中目标仓库 —— 改动落在它上面，源仓库只作为需求来源被读取 */
+  const [picked, setPicked] = useState<string[]>(
+    [repos.find((r) => r.role === "目标仓库")?.name ?? repos[0].name],
+  );
   const [wf, setWf] = useState<Workflow>(workflowTemplates[0]);
 
   /* 契约清单：默认取自体系内置模板，允许逐条裁剪 */
@@ -200,6 +197,10 @@ export function NewTaskDialog({
                       >
                         <i className="repo__dot" style={{ background: r.dot }} />
                         <span className="repo__name mono">{r.name}</span>
+                        {/* 角色标签：让「需求从哪来、改动落在哪」不必靠猜 */}
+                        <span className="repo__role" data-role={r.role}>
+                          {r.role}
+                        </span>
                         <span className="repo__lang">{r.lang}</span>
                         <span className="repo__branch mono">
                           <Icon.Branch size={11} />
@@ -220,9 +221,9 @@ export function NewTaskDialog({
                 <span className="kicker">从模板起草</span>
                 <div className="seedRow">
                   {[
-                    "为 billing 退款分支补齐边界用例，覆盖率提到 90% 以上",
-                    "CI 上 snapshot.spec.ts 偶发失败，定位根因并给出最小修复",
-                    "排查 log4j 组件影响范围并在试点项目完成升级",
+                    "提取 QFII 投票征集的业务规则，标注事实、推断与待确认项",
+                    "核对 vote_org_qfii 与上证信息投票平台的接口契约是否保持不变",
+                    "为名册与征集结果的文件上传补齐边界用例，覆盖格式与时点校验",
                   ].map((s) => (
                     <button key={s} className="seedChip" onClick={() => setPrompt(s)}>
                       {s}

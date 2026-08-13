@@ -83,16 +83,47 @@ export interface TaskContract {
   deliverables: string[];
 }
 
+/* 目标仓库：本次只涉及两个 —— 源仓库（需求所在）与目标仓库（重构落地）。
+   越界改动会被门禁按契约范围拦截，故这里不放无关仓库。 */
+export interface RepoOption {
+  name: string;
+  lang: string;
+  branch: string;
+  dot: string;
+  /** 该仓库在本次任务中的角色，让人一眼看出谁是源、谁是目标 */
+  role: "源仓库" | "目标仓库";
+}
+
+export const repoOptions: RepoOption[] = [
+  {
+    name: "sseinternetvote",
+    lang: "Java",
+    branch: "main",
+    dot: "var(--azure)",
+    role: "源仓库",
+  },
+  {
+    name: "vote_org_qfii",
+    lang: "Go",
+    branch: "main",
+    dot: "var(--cyan)",
+    role: "目标仓库",
+  },
+];
+
 export const taskContract: TaskContract = {
-  problem: "从源码逆向恢复可核实的需求，并在确认后重新设计与重写整系统。",
-  scope: ["核心交易模块", "对账模块", "权限与审计"],
+  problem:
+    "将 sseinternetvote 项目中 QFII 投票相关的需求提取出来，并在 vote_org_qfii 项目中重构。与周边系统的架构关系需要保持不变。",
+  /* 改动范围按业务模块划分：QFII 作为股票名义持有人，需向实际持有人征集
+     投票意见，故涉及会议查询、文件上传（名册与征集结果）、权限审计与通行证对接 */
+  scope: ["会议查询模块", "文件上传模块", "权限与审计", "通行证对接"],
   doneCriteria: [
     "需求条目全部标注事实 / 推断 / 待确认",
     "单元测试与集成测试通过且覆盖率达门禁阈值",
     "独立审查无阻断与严重问题",
   ],
   approvals: ["关键业务语义确认", "代码合并", "生产发布"],
-  materials: ["项目源码", "少量历史文档", "依赖扫描结果"],
+  materials: ["项目源码", "依赖扫描结果"],
   tools: ["repo.read", "repo.patch", "test.run", "scan.sast"],
   deliverables: ["需求与规则材料", "设计材料", "实现与验证材料", "交付与运维材料"],
 };
@@ -611,7 +642,7 @@ export const evidenceChain: EvidenceItem[] = [
     id: "ev-1",
     kind: "change",
     title: "5 个文件变更 · +302 −187",
-    source: "git.corp/agentflow/atlas-api",
+    source: "git.corp/sse/vote_org_qfii",
     version: "fix/flaky-snapshot@a1c9f42",
     at: "10:12",
     actor: "开发智能体",
@@ -745,7 +776,7 @@ export interface ReplayStep {
 
 export const replaySteps: ReplayStep[] = [
   { id: "rp-1", at: "10:02", stage: "任务契约", actor: "责任人", action: "确认范围、完成标准与审批点", materials: "contract@v3", tier: "—", result: "ok" },
-  { id: "rp-2", at: "10:04", stage: "资料读取", actor: "受控连接层", action: "按权限读取需求与源码", materials: "atlas-api@a1c9f42", tier: "readonly", result: "ok" },
+  { id: "rp-2", at: "10:04", stage: "资料读取", actor: "受控连接层", action: "按权限读取需求与源码", materials: "sseinternetvote@a1c9f42", tier: "readonly", result: "ok" },
   { id: "rp-3", at: "10:06", stage: "需求分析", actor: "需求智能体", action: "抽取业务规则并标注事实/推断", materials: "req@v2", tier: "readonly", result: "ok" },
   { id: "rp-4", at: "10:09", stage: "门禁 G1", actor: "需求审查智能体", action: "核对完整性与可测试性", materials: "review#438", tier: "—", result: "ok" },
   { id: "rp-5", at: "10:12", stage: "开发", actor: "开发智能体", action: "隔离分支修改 5 个文件", materials: "diff@302/187", tier: "write", result: "ok" },

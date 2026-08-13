@@ -1224,6 +1224,28 @@ code.inline {
   color: var(--text-4);
 }
 
+/* 仓库角色：源仓库只被读取，目标仓库承接改动 —— 用色区分读与写 */
+.repo__role {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  font-size: 9px;
+  color: var(--text-3);
+}
+
+.repo__role[data-role="源仓库"] {
+  color: var(--azure);
+  border-color: color-mix(in oklab, var(--azure) 30%, var(--line));
+  background: color-mix(in oklab, var(--azure) 9%, transparent);
+}
+
+.repo__role[data-role="目标仓库"] {
+  color: var(--accent-text);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
 .repo__branch {
   display: inline-flex;
   align-items: center;
