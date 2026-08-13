@@ -14,6 +14,10 @@ export interface Session {
   bucket: "今天" | "昨天" | "更早";
   diff: { added: number; removed: number; files: number };
   turns: number;
+  /** 该会话所用的编排（workflowTemplates 的 id）。
+      不同类型的任务本就该走不同流水线：全都是「需求开发」会让人以为
+      这套编排只有一条路径。切换会话时顶部流水线要跟着换。 */
+  workflow: string;
 }
 
 /* 会话只保留本次 QFII 投票重构相关的任务：无关项目会稀释注意力，
@@ -29,6 +33,7 @@ export const sessions: Session[] = [
     bucket: "今天",
     diff: { added: 148, removed: 62, files: 5 },
     turns: 7,
+    workflow: "wf-feature",
   },
   {
     id: "s-2",
@@ -40,6 +45,7 @@ export const sessions: Session[] = [
     bucket: "今天",
     diff: { added: 302, removed: 0, files: 6 },
     turns: 12,
+    workflow: "wf-legacy",
   },
   {
     id: "s-3",
@@ -51,6 +57,7 @@ export const sessions: Session[] = [
     bucket: "今天",
     diff: { added: 24, removed: 31, files: 3 },
     turns: 4,
+    workflow: "wf-review",
   },
   {
     id: "s-4",
@@ -62,6 +69,7 @@ export const sessions: Session[] = [
     bucket: "昨天",
     diff: { added: 96, removed: 4, files: 2 },
     turns: 9,
+    workflow: "wf-unit",
   },
   {
     id: "s-5",
@@ -73,6 +81,31 @@ export const sessions: Session[] = [
     bucket: "昨天",
     diff: { added: 41, removed: 0, files: 4 },
     turns: 5,
+    workflow: "wf-review",
+  },
+  {
+    id: "s-6",
+    title: "修复多通道重复投票未按时间优先裁决",
+    repo: "vote_org_qfii",
+    branch: "fix/duplicate-vote-order",
+    state: "done",
+    time: "8 月 11 日",
+    bucket: "更早",
+    diff: { added: 38, removed: 6, files: 2 },
+    turns: 11,
+    workflow: "wf-bugfix",
+  },
+  {
+    id: "s-7",
+    title: "整改 fastjson 与 commons-io 的已知漏洞",
+    repo: "vote_org_qfii",
+    branch: "chore/cve-upgrade",
+    state: "done",
+    time: "8 月 8 日",
+    bucket: "更早",
+    diff: { added: 27, removed: 43, files: 6 },
+    turns: 8,
+    workflow: "wf-cve",
   },
 ];
 
@@ -470,6 +503,131 @@ export const conversation: AgentEvent[] = [
     body: "全部通过。与周边系统的接口契约没有变化：向 vote.sseinfo.com 报送的字段与响应码逐一比对一致，`src/main/resources/vote-org-api.yaml` 也未改动。要我顺手把名册上传的 GBK 编码兼容补上，并开一个 PR 吗？",
   },
 ];
+
+/* --------------------- 各编排的开场（用户消息 + 任务契约） ---------------------
+   同一套演示执行细节可以复用，但「任务是什么、契约怎么定」必须跟着会话变：
+   否则会出现标题写着「整改 fastjson 漏洞」、正文却在讲 QFII 重构的自相矛盾。
+   这里只覆盖开头两条，后续 e2 起的执行过程沿用共享演示流。
+   ------------------------------------------------------------------------- */
+type Opening = { user: Extract<AgentEvent, { kind: "user" }>; contract: Extract<AgentEvent, { kind: "contract" }> };
+
+const openings: Record<string, Opening> = {
+  "wf-bugfix": {
+    user: {
+      id: "e1",
+      kind: "user",
+      text: "多通道重复投票没有按「时间优先」以第一次为准，交易系统与互联网平台同秒提交时会保留后到的一条。帮我定位根因并给出最小修复。",
+      attachments: ["duplicate-vote-case.log"],
+    },
+    contract: {
+      id: "e1b",
+      kind: "contract",
+      title: "重复投票时间优先裁决缺陷修复",
+      problem:
+        "同一实际持有人经交易系统与互联网投票平台重复表决时，应以第一次提交为准。现有实现在唯一约束冲突后直接以后到记录覆盖，未比较 vote_time，同秒提交会保留错误的一条，直接影响表决结果统计。",
+      repo: "vote_org_qfii · main",
+      workflow: "缺陷修复",
+      scope: ["collect 包：重复投票裁决", "vote_record 唯一约束与事务边界"],
+      doneCriteria: [
+        "冲突分支按 vote_time 保留最早一条，同秒时以平台受理序号兜底",
+        "并发提交用例断言留存记录的提交时间为最早，而非仅断言记录条数",
+        "缺陷可复现用例先失败、修复后通过",
+      ],
+      approvals: ["缺陷根因确认", "代码合并到 main"],
+      materials: ["缺陷现场日志", "vote_record 建表脚本"],
+      tools: ["repo.read", "repo.patch", "test.run"],
+      deliverables: ["复现用例", "根因分析", "修复与回归材料"],
+    },
+  },
+  "wf-cve": {
+    user: {
+      id: "e1",
+      kind: "user",
+      text: "排查 `pom.xml` 里 fastjson 与 commons-io 的已知漏洞影响范围，给出升级方案与回归清单，注意别动对外报送的接口行为。",
+      attachments: ["dependency-scan.json"],
+    },
+    contract: {
+      id: "e1b",
+      kind: "contract",
+      title: "开源组件已知漏洞整改",
+      problem:
+        "依赖扫描报出 fastjson 反序列化与 commons-io 路径遍历两类已知漏洞。需确认实际调用路径是否可达、评估升级的兼容性影响，并在不改变对外报送行为的前提下完成整改。",
+      repo: "vote_org_qfii · main",
+      workflow: "开源漏洞整改",
+      scope: ["pom.xml 依赖版本", "名册与征集结果的文件解析调用点"],
+      doneCriteria: [
+        "逐条给出漏洞可达性判定：可达 / 不可达 / 需改造，并附调用链证据",
+        "升级后 mvn test 全绿，报送字段与响应码零变更",
+        "安全复核确认无新增高危项",
+      ],
+      approvals: ["升级方案确认", "代码合并到 main", "生产发布"],
+      materials: ["依赖扫描结果", "组件安全公告"],
+      tools: ["repo.read", "repo.patch", "test.run", "scan.sast"],
+      deliverables: ["影响范围评估", "升级与回归材料", "安全复核结论"],
+    },
+  },
+  "wf-unit": {
+    user: {
+      id: "e1",
+      kind: "user",
+      text: "为股东名册上传补齐边界用例，覆盖 `RosterParser` 的编码、字段格式与越权分支，覆盖率要过门禁阈值。",
+      attachments: ["roster-sample.xlsx"],
+    },
+    contract: {
+      id: "e1b",
+      kind: "contract",
+      title: "股东名册上传边界用例补齐",
+      problem:
+        "名册上传目前只有主流程用例，GBK 编码、证件号字段缺列、非持有人越权上传等分支均无覆盖。缺陷一旦流到生产将直接影响征集对象的准确性。",
+      repo: "vote_org_qfii · main",
+      workflow: "单元测试",
+      scope: ["upload 包：RosterParser 与越权校验", "对应测试包"],
+      doneCriteria: [
+        "先写出会失败的用例，确认它们确实暴露了缺陷",
+        "编码、字段格式、越权三类分支均有用例覆盖",
+        "行覆盖率不低于 90% 且不靠无断言用例充数",
+      ],
+      approvals: ["沙箱内执行 mvn test"],
+      materials: ["名册样例文件", "上交所名册字段规范"],
+      tools: ["repo.read", "repo.patch", "test.run"],
+      deliverables: ["用例清单", "覆盖率报告", "缺陷记录"],
+    },
+  },
+  "wf-review": {
+    user: {
+      id: "e1",
+      kind: "user",
+      text: "审核 `EkeyAuthenticator` 的通行证校验与审计留痕，指出越权风险与日志脱敏缺口。",
+      attachments: ["auth-callgraph.png"],
+    },
+    contract: {
+      id: "e1b",
+      kind: "contract",
+      title: "通行证校验与审计留痕代码审核",
+      problem:
+        "通行证（Ekey）登录与权限校验分散在多个入口，审计留痕字段不统一。需独立审查是否存在越权可达路径，以及名册中的证件号是否在日志中被脱敏。",
+      repo: "vote_org_qfii · main",
+      workflow: "AI 代码审核",
+      scope: ["auth 包：通行证校验与审计留痕", "会议查询与上传入口的权限判定"],
+      doneCriteria: [
+        "逐个入口给出权限判定结论，越权可达路径必须附调用链",
+        "敏感字段（证件号、持股数）在日志与异常栈中均已掩码",
+        "审查结论区分阻断项与建议项，阻断项必须有回退目标",
+      ],
+      approvals: ["审查结论确认"],
+      materials: ["项目源码", "权限矩阵", "审计日志样例"],
+      tools: ["repo.read", "scan.sast"],
+      deliverables: ["审查报告", "问题清单与定级", "整改建议"],
+    },
+  },
+};
+
+/** 按会话所属编排取事件流：开场随任务变化，执行细节复用共享演示流 */
+export function conversationOf(wfId: string | undefined): AgentEvent[] {
+  const o = wfId ? openings[wfId] : undefined;
+  if (!o) return conversation;
+  return [o.user, o.contract, ...conversation.slice(2)];
+}
 
 /* --------------------------------- file tree -------------------------------- */
 

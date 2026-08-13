@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import {
-  conversation,
+  conversationOf,
   sessions,
   type AgentEvent,
   type Session,
@@ -31,6 +31,12 @@ import {
 
 export type ApprovalMode = "auto" | "ask" | "readonly";
 
+/* 会话 → 编排：每条会话记着自己走哪条流水线，切换会话时顶部要跟着换。
+   找不到时回落到第一套，保证界面不会因为数据缺字段而空掉。 */
+function wfOf(id: string | undefined): Workflow {
+  return workflowTemplates.find((w) => w.id === id) ?? workflowTemplates[0];
+}
+
 let toastSeq = 0;
 
 export default function App() {
@@ -45,7 +51,8 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsPane, setSettingsPane] = useState<SettingsPane | null>(null);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
-  const [workflow, setWorkflow] = useState<Workflow>(workflowTemplates[0]);
+  /* 初始编排取首条会话自己的编排，而不是写死第一套模板 */
+  const [workflow, setWorkflow] = useState<Workflow>(() => wfOf(sessions[0]?.workflow));
   const [wfStep, setWfStep] = useState(1);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>("ask");
@@ -53,7 +60,7 @@ export default function App() {
   const [mode, setMode] = useState<"session" | "welcome">("session");
 
   /* --- streamed event window --------------------------------------------- */
-  const [visible, setVisible] = useState(conversation.length);
+  const [visible, setVisible] = useState(() => conversationOf(sessions[0]?.workflow).length);
   const [streaming, setStreaming] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<string | null>(null);
   const [extra, setExtra] = useState<AgentEvent[]>([]);
@@ -82,9 +89,16 @@ export default function App() {
     [activeId, sessionList],
   );
 
+  /* 事件流的开场随会话所属编排变化：缺陷修复的会话不该显示需求开发的契约。
+     执行细节（e2 起）沿用共享演示流。 */
+  const baseConversation = useMemo(
+    () => conversationOf(active?.workflow),
+    [active?.workflow],
+  );
+
   const events = useMemo(
-    () => [...conversation.slice(0, visible), ...extra],
-    [visible, extra],
+    () => [...baseConversation.slice(0, visible), ...extra],
+    [baseConversation, visible, extra],
   );
 
   /* 当前模板的模拟运行现场：换编排即换整套消息与最终态 */
@@ -317,6 +331,8 @@ export default function App() {
         bucket: "今天",
         diff: { added: 0, removed: 0, files: 0 },
         turns: 1,
+        /* 记住这条任务选的编排，之后切回来仍能显示对应流水线 */
+        workflow: wf.id,
       };
       setSessionList((prev) => [newSession, ...prev.filter((s) => s.id !== sid)]);
       setActiveId(sid);
@@ -389,9 +405,12 @@ export default function App() {
           setActiveId(pick.id);
           setMode("session");
           setExtra([]);
-          setVisible(conversation.length);
+          setVisible(conversationOf(pick.workflow).length);
           setPendingApproval(null);
           setStreaming(pick.state === "running");
+          /* 顶部流水线也要跟着切到接手的这条会话，否则会残留上一条的编排 */
+          setWorkflow(wfOf(pick.workflow));
+          setWfStep(1);
         } else {
           setMode("welcome");
           setStreaming(false);
@@ -488,7 +507,7 @@ export default function App() {
     setActiveId(s.id);
     setMode("session");
     setExtra([]);
-    setVisible(conversation.length);
+    setVisible(conversationOf(s.workflow).length);
     setPendingApproval(null);
     setStreaming(s.state === "running");
     /* 规划态与节点聚焦态属于单条会话，切换时必须清掉，否则会串台 */
@@ -497,6 +516,8 @@ export default function App() {
     planPendingRef.current = false;
     setFocusNode(null);
     setWfStep(1);
+    /* 编排随会话切换：这条任务是缺陷修复就该显示缺陷修复的流水线 */
+    setWorkflow(wfOf(s.workflow));
   }, []);
 
   /* 架构层 → 承载该层证据的界面，一次点击到位，不让用户自己去找 */
