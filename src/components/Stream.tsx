@@ -167,8 +167,11 @@ function Event({
                   <button className="fileRow" onClick={() => onOpenFile(f.path)}>
                     <Icon.File size={13} className="fileRow__icon" />
                     <span className="fileRow__path mono">
-                      {f.path.replace(/\/([^/]+)$/, "/")}
-                      <b>{f.path.split("/").pop()}</b>
+                      {/* 目录部分弱化、文件名加粗。注意根目录文件（如 pom.xml）
+                          不含斜杠，此时目录部分必须为空 —— 早先用 replace 取
+                          目录，不匹配时会原样返回整个路径，渲染成 pom.xmlpom.xml */}
+                      {f.path.includes("/") ? `${f.path.slice(0, f.path.lastIndexOf("/") + 1)}` : ""}
+                      <b>{f.path.slice(f.path.lastIndexOf("/") + 1)}</b>
                     </span>
                     <span className="bars" aria-hidden>
                       {bars(f.added, f.removed).map((t, bi) => (

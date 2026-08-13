@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import {
-  conversationOf,
   sessions,
   type AgentEvent,
   type Session,
   type Theme,
 } from "./data/mock";
+import { conversationOf } from "./data/streams";
 import { Rail } from "./components/Rail";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";

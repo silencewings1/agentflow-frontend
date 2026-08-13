@@ -622,11 +622,12 @@ const openings: Record<string, Opening> = {
   },
 };
 
-/** 按会话所属编排取事件流：开场随任务变化，执行细节复用共享演示流 */
-export function conversationOf(wfId: string | undefined): AgentEvent[] {
+/** 按编排取开场两条（用户消息 + 任务契约）；未登记则返回 undefined。
+    整条正文的装配在 data/streams/index.ts —— 放在那里是为了避免与各
+    stream 文件的类型导入形成循环引用。 */
+export function openingOf(wfId: string | undefined): AgentEvent[] | undefined {
   const o = wfId ? openings[wfId] : undefined;
-  if (!o) return conversation;
-  return [o.user, o.contract, ...conversation.slice(2)];
+  return o ? [o.user, o.contract] : undefined;
 }
 
 /* --------------------------------- file tree -------------------------------- */
