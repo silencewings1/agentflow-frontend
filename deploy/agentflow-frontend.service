@@ -1,0 +1,31 @@
+# AgentFlow 前端 · systemd 用户级服务
+#
+# 安装：
+#   cp deploy/agentflow-frontend.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now agentflow-frontend.service
+#   sudo loginctl enable-linger ospacer   # 退出 SSH 后仍保持运行
+#
+# 注意服务名带 -frontend 后缀：服务器上另有一个 agentflow 的 Python 后端进程，
+# 重名会让 systemd 误认主进程从而不真正启动本服务。
+
+[Unit]
+Description=AgentFlow Frontend (vite preview on 5176)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+WorkingDirectory=/home/ospacer/project/agentflow-frontend
+# systemd 不加载 shell profile，必须显式给出 node 所在路径
+Environment=PATH=/home/ospacer/.local/opt/node-v24.17.0-linux-x64/bin:/usr/local/bin:/usr/bin:/bin
+Environment=NODE_ENV=production
+# 直接调 vite 而非经 npm：少一层 shell 包装，systemd 能准确跟踪主进程
+ExecStart=/home/ospacer/.local/opt/node-v24.17.0-linux-x64/bin/node node_modules/vite/bin/vite.js preview
+Restart=always
+RestartSec=3
+# 与服务器上既有的 agentflow(python) 区分日志标识
+SyslogIdentifier=agentflow-frontend
+
+[Install]
+WantedBy=default.target
