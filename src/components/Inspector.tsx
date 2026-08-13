@@ -450,7 +450,7 @@ function Terminal() {
       `$ ${c}`,
       c.startsWith("git")
         ? "已同步 · 工作区干净"
-        : c.includes("test") || c.includes("vitest")
+        : c.includes("test") || c.includes("mvn")
           ? " Tests  23 passed (23)"
           : `agentflow: 演示沙箱不执行真实命令 (${c.split(" ")[0]})`,
       "",

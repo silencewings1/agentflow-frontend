@@ -790,7 +790,7 @@ const runFeature: WfRun = {
       at: "10:21:55",
       tone: "plan",
       title: "调度：需求分析 → 代码开发",
-      body: "上游产物齐备（qfii-requirement.md、qfii-acceptance.md），满足代码开发的输入契约，准许启动；交易日历口径以 internal/meeting 单点提供为准，不得各处自算。",
+      body: "上游产物齐备（qfii-requirement.md、qfii-acceptance.md），满足代码开发的输入契约，准许启动；交易日历口径以 meeting 包 单点提供为准，不得各处自算。",
     },
     {
       id: "f-m6",
@@ -798,7 +798,7 @@ const runFeature: WfRun = {
       at: "10:22:09",
       tone: "act",
       title: "定位改造范围（第 1 轮）",
-      body: "grep checkCollectWindow|isDuplicateVote 在 Java 侧命中 4 个文件 17 处（会议查询、投票提交、结果导出各写一遍），确定在 internal/collect 收敛为征集域服务，会议查询与上传降为薄适配层。",
+      body: "grep checkCollectWindow|isDuplicateVote 在 Java 侧命中 4 个文件 17 处（会议查询、投票提交、结果导出各写一遍），确定在 collect 包收敛为征集域服务，会议查询与上传降为薄适配层。",
     },
     {
       id: "f-m7",
@@ -806,8 +806,8 @@ const runFeature: WfRun = {
       at: "10:23:41",
       tone: "output",
       title: "提交实现与单元测试",
-      body: "新增 internal/collect/window.go（+94）与 duplicate.go，改写 internal/meeting/query.go、internal/upload/roster.go 为薄适配层，补 26 行用例；累计 +148 −62。",
-      refs: ["internal/collect/window.go", "internal/collect/window_test.go"],
+      body: "新增 CollectWindowService（+94）与 DuplicateVoteChecker，改写 MeetingQueryService、RosterParser 为薄适配层，补 26 行用例；累计 +148 −62。",
+      refs: ["src/main/java/com/sse/vote/qfii/collect/CollectWindowService.java", "src/test/java/com/sse/vote/qfii/collect/CollectWindowServiceTest.java"],
     },
     {
       id: "f-m8",
@@ -815,7 +815,7 @@ const runFeature: WfRun = {
       at: "10:23:58",
       tone: "gate",
       title: "门禁通过：编译与单元测试",
-      body: "go build / go vet 0 issue；go test -race 23 passed / 0 failed，internal/collect 覆盖率 96.4%。流转到评审。",
+      body: "mvn compile 与 spotbugs 0 issue；mvn test 23 passed / 0 failed，collect 包覆盖率 96.4%。流转到评审。",
     },
     {
       id: "f-m9",
@@ -832,7 +832,7 @@ const runFeature: WfRun = {
       tone: "warn",
       title: "门禁未过：重复投票未按时间优先裁决",
       body: "vote_record 唯一约束冲突后直接以后到记录覆盖，多通道同秒提交会保留后到的一条，与验收条件「多通道重复投票按时间优先，以第一次提交为准」不符。判定为阻断问题，按失败回退边退回代码开发。",
-      refs: ["internal/collect/duplicate.go:58"],
+      refs: ["src/main/java/com/sse/vote/qfii/collect/DuplicateVoteChecker.java:58"],
     },
     {
       id: "f-m11",
@@ -857,8 +857,8 @@ const runFeature: WfRun = {
       at: "10:27:20",
       tone: "output",
       title: "提交返工实现与并发用例",
-      body: "internal/collect/duplicate.go +38 −6，新增 4 条并发场景用例（含 50 并发多通道同秒提交），断言留存记录为最早提交而非最后写入；累计 +186 −68。",
-      refs: ["internal/collect/duplicate.go", "internal/collect/duplicate_test.go"],
+      body: "src/main/java/com/sse/vote/qfii/collect/DuplicateVoteChecker.java +38 −6，新增 4 条并发场景用例（含 50 并发多通道同秒提交），断言留存记录为最早提交而非最后写入；累计 +186 −68。",
+      refs: ["src/main/java/com/sse/vote/qfii/collect/DuplicateVoteChecker.java", "src/test/java/com/sse/vote/qfii/collect/DuplicateVoteCheckerTest.java"],
     },
     {
       id: "f-m14",
@@ -866,7 +866,7 @@ const runFeature: WfRun = {
       at: "10:27:41",
       tone: "gate",
       title: "门禁通过：编译与单元测试（第 2 轮）",
-      body: "go build / go vet 0 issue；go test -race 27 passed / 0 failed，internal/collect 覆盖率 97.1%，并发用例全绿。",
+      body: "mvn compile 与 spotbugs 0 issue；mvn test 27 passed / 0 failed，collect 包覆盖率 97.1%，并发用例全绿。",
     },
     {
       id: "f-m15",
@@ -882,7 +882,7 @@ const runFeature: WfRun = {
       at: "10:29:02",
       tone: "output",
       title: "评审通过，出具审查报告",
-      body: "6 个维度全部通过；1 项非阻断建议：internal/upload/roster.go 尚未兼容 GBK 编码的股东名册，建议单列需求处理。",
+      body: "6 个维度全部通过；1 项非阻断建议：src/main/java/com/sse/vote/qfii/upload/RosterParser.java 尚未兼容 GBK 编码的股东名册，建议单列需求处理。",
       refs: ["reports/review-r2.md"],
     },
     {
@@ -907,7 +907,7 @@ const runFeature: WfRun = {
       at: "10:29:48",
       tone: "act",
       title: "汇总交付材料",
-      body: "收集变更说明、测试与覆盖率报告、返工记录与回滚方案，核对证据链完整性，并比对 openapi/vote_org.yaml 与周边系统的调用关系是否保持不变。",
+      body: "收集变更说明、测试与覆盖率报告、返工记录与回滚方案，核对证据链完整性，并比对 src/main/resources/vote-org-api.yaml 与周边系统的调用关系是否保持不变。",
     },
     {
       id: "f-m20",
@@ -916,7 +916,7 @@ const runFeature: WfRun = {
       tone: "output",
       title: "交付包已就绪，待人工验收",
       body: "变更说明含本次返工原因（重复投票未按时间优先）与修正方式；回滚方案已验证可执行（Java 侧原实现保留一个发布周期，可按会议编号灰度切回）。",
-      refs: ["docs/changelog.md", "docs/rollback.md", "openapi/vote_org.yaml"],
+      refs: ["docs/changelog.md", "docs/rollback.md", "src/main/resources/vote-org-api.yaml"],
     },
     {
       id: "f-m21",
@@ -925,7 +925,7 @@ const runFeature: WfRun = {
       tone: "warn",
       title: "监控：1 项非阻断偏差待决",
       body: "股东名册 GBK 编码兼容属建议项，不影响本次验收条件。已记入证据链，交由人工检查点判定是否本次一并处理。",
-      refs: ["internal/upload/roster.go"],
+      refs: ["src/main/java/com/sse/vote/qfii/upload/RosterParser.java"],
     },
   ],
 };

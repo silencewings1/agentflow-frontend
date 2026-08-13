@@ -4,19 +4,19 @@ import { repoOptions } from "../data/settings";
 const seeds = [
   {
     tag: "重构",
-    text: "把 sseinternetvote 的征集时间窗判定重构进 `internal/collect/window.go`，与周边系统架构关系保持不变",
+    text: "把 sseinternetvote 的征集时间窗判定重构进 `src/main/java/com/sse/vote/qfii/collect/CollectWindowService.java`，与周边系统架构关系保持不变",
   },
   {
     tag: "排障",
-    text: "多通道重复投票未按「时间优先」以第一次为准，定位 `internal/collect` 的判定根因并给出最小修复",
+    text: "多通道重复投票未按「时间优先」以第一次为准，定位 `collect 包` 的判定根因并给出最小修复",
   },
   {
     tag: "测试",
-    text: "为股东名册上传补齐边界用例，覆盖 `internal/upload/roster.go` 的格式与越权分支",
+    text: "为股东名册上传补齐边界用例，覆盖 `src/main/java/com/sse/vote/qfii/upload/RosterParser.java` 的格式与越权分支",
   },
   {
     tag: "阅读",
-    text: "画出会议查询到通行证校验的调用链，指出 `internal/auth/ekey.go` 的权限与审计缺口",
+    text: "画出会议查询到通行证校验的调用链，指出 `src/main/java/com/sse/vote/qfii/auth/EkeyAuthenticator.java` 的权限与审计缺口",
   },
 ];
 

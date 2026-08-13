@@ -104,7 +104,7 @@ export const repoOptions: RepoOption[] = [
   },
   {
     name: "vote_org_qfii",
-    lang: "Go",
+    lang: "Java",
     branch: "main",
     dot: "var(--cyan)",
     role: "目标仓库",
