@@ -10,4 +10,13 @@ export default defineConfig({
     port: 5176,
     strictPort: true,
   },
+  preview: {
+    // 部署形态：构建产物由 vite preview 提供，与 dev 同占 5176
+    port: 5176,
+    strictPort: true,
+    // 服务器上需对外可访问，故监听所有网卡（本地开发不受影响）
+    host: true,
+    // 通过域名访问时 vite 会校验 Host 头，显式放行部署域名
+    allowedHosts: ['snowflow.cloud'],
+  },
 })
