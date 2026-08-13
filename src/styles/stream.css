@@ -1094,7 +1094,9 @@ code.inline {
 }
 
 /* 模型与审批模式：可点击切换，静默呈现、悬停才显形，不与发送按钮争夺注意力 */
-.composer__toggle {
+/* 模型与审批模式：用原生 select 承载，胶囊外观由 label 提供。
+   原生下拉的好处是弹出层由系统绘制，不会被面板裁切，键盘可达也是现成的。 */
+.composer__pick {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1102,28 +1104,52 @@ code.inline {
   border-radius: 99px;
   border: 1px solid transparent;
   background: transparent;
-  font-family: inherit;
   font-size: 9.5px;
   color: var(--text-4);
   cursor: pointer;
   transition: color 0.18s, border-color 0.18s, background 0.18s;
 }
 
-.composer__toggle:hover {
+.composer__pick:hover {
   color: var(--text-2);
   border-color: var(--line);
   background: var(--surface);
 }
 
+/* select 本体去壳：外观交给 label，这里只保留可点区域与文字 */
+.composer__pick select {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 2px;
+  max-width: 132px;
+}
+
+.composer__pick select:focus-visible {
+  outline: 1px solid var(--accent-line);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* 选项列表由系统绘制，需显式给底色，否则暗色主题下会是白底黑字 */
+.composer__pick option {
+  background: var(--surface);
+  color: var(--text);
+}
+
 /* 自动执行是放宽约束，用警示色提示当前处于低摩擦模式 */
-.composer__toggle[data-mode="auto"] {
+.composer__pick[data-mode="auto"] {
   color: var(--gold);
   border-color: color-mix(in oklab, var(--gold) 30%, var(--line));
   background: color-mix(in oklab, var(--gold) 9%, transparent);
 }
 
 /* 只读是最强约束，用已闭环色表示安全 */
-.composer__toggle[data-mode="readonly"] {
+.composer__pick[data-mode="readonly"] {
   color: var(--sage);
   border-color: color-mix(in oklab, var(--sage) 30%, var(--line));
   background: color-mix(in oklab, var(--sage) 9%, transparent);

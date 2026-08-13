@@ -107,10 +107,6 @@ export function TopBar({
           <span className="kbd">K</span>
         </button>
         <span className="topbar__rule" />
-        <button className="btn btn--outline btn--sm" data-blocked={evBlocking > 0}>
-          <Icon.Merge size={13} />
-          开 PR
-        </button>
         <button
           className="iconBtn"
           onClick={onToggleInspector}

@@ -19,6 +19,7 @@ import { Welcome } from "./components/Welcome";
 import { SettingsOverlay, type ArchJump, type SettingsPane } from "./components/Settings";
 import { NewTaskDialog } from "./components/NewTask";
 import { WorkflowStrip, NodeConversation } from "./components/Workflow";
+import { defaultModel, modelOptions } from "./data/settings";
 import {
   buildOrchestratorPlan,
   runOf,
@@ -48,7 +49,7 @@ export default function App() {
   const [wfStep, setWfStep] = useState(1);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>("ask");
-  const [model, setModel] = useState("agentflow-large");
+  const [model, setModel] = useState(defaultModel);
   const [mode, setMode] = useState<"session" | "welcome">("session");
 
   /* --- streamed event window --------------------------------------------- */
@@ -543,20 +544,20 @@ export default function App() {
         return;
       }
       if (label.includes("检查面板")) return setInspectorOpen((v) => !v);
+      /* 这两项不再弹提示：输入框底部的下拉框已经常驻显示当前选中值，
+         再弹 toast 属于重复告知 */
       if (label.includes("审批模式")) {
         const next: ApprovalMode =
           approvalMode === "ask" ? "auto" : approvalMode === "auto" ? "readonly" : "ask";
         setApprovalMode(next);
-        return push({
-          tone: "ok",
-          title: "审批模式",
-          body: next === "auto" ? "自动执行" : next === "ask" ? "逐条确认" : "只读",
-        });
+        return;
       }
       if (label.includes("模型")) {
-        const next = model === "agentflow-large" ? "agentflow-swift" : "agentflow-large";
-        setModel(next);
-        return push({ tone: "ok", title: "已切换模型", body: next });
+        /* 按目录顺序轮换，而不是在两个写死的名字之间跳 */
+        const ids = modelOptions.map((m) => m.id);
+        const i = ids.indexOf(model);
+        setModel(ids[(i + 1) % ids.length]);
+        return;
       }
       if (label.includes("终端") || label.includes("重跑")) {
         setInspectorTab("terminal");
@@ -655,26 +656,10 @@ export default function App() {
           onSend={runTurn}
           onStop={stop}
           onPalette={() => setPaletteOpen(true)}
-          onCycleModel={() => {
-            const next = model === "agentflow-large" ? "agentflow-swift" : "agentflow-large";
-            setModel(next);
-            push({ tone: "ok", title: "已切换模型", body: next });
-          }}
-          onCycleApproval={() => {
-            const next: ApprovalMode =
-              approvalMode === "ask" ? "auto" : approvalMode === "auto" ? "readonly" : "ask";
-            setApprovalMode(next);
-            push({
-              tone: next === "auto" ? "warn" : "ok",
-              title: "审批模式",
-              body:
-                next === "auto"
-                  ? "自动执行：低风险命令直接运行，高风险仍需放行"
-                  : next === "ask"
-                    ? "逐条确认：每条命令执行前请求你批准"
-                    : "只读：只做分析，不产生任何写入",
-            });
-          }}
+          /* 选模型与审批模式不再弹提示：下拉框自己就显示了当前选中值，
+             再弹一条 toast 是重复告知，还会盖住右下角内容 */
+          onPickModel={setModel}
+          onPickApproval={setApprovalMode}
         />
       </main>
 

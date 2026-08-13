@@ -142,6 +142,30 @@ export type AgentRole =
 
 export type AgentScope = "readonly" | "ask" | "auto";
 
+/* ---------------------------- 可选模型目录 ----------------------------
+   国产旗舰模型，按「重推理 → 高频低成本」排列。每个智能体按职责选型：
+   评审、架构这类判断密集的用 Pro 档，检索、汇总这类高频调用用 Flash 档，
+   这正是分工的意义 —— 不是所有节点都值得付最贵的推理成本。
+   -------------------------------------------------------------------- */
+export interface ModelOption {
+  /** API 调用名，也是界面展示名 */
+  id: string;
+  /** 厂商，便于在下拉框里分辨来源 */
+  vendor: string;
+  /** 定位说明，选型时的判断依据 */
+  note: string;
+}
+
+export const modelOptions: ModelOption[] = [
+  { id: "deepseek-v4-pro", vendor: "深度求索", note: "重推理与 Agent 编码，复杂判断首选" },
+  { id: "deepseek-v4-flash", vendor: "深度求索", note: "高频低成本，简单任务与 Pro 相当" },
+  { id: "kimi-k3", vendor: "月之暗面", note: "长程任务与工具调用，百万上下文" },
+  { id: "qwen-3.8-max", vendor: "阿里通义", note: "长文档理解与多模态材料解析" },
+];
+
+/** 默认模型：会话与新建智能体都从这里取，避免各处硬编码 */
+export const defaultModel = modelOptions[0].id;
+
 export interface AgentSpec {
   id: string;
   role: AgentRole;
@@ -173,7 +197,7 @@ export const builtinAgents: AgentSpec[] = [
     glyph: "Nodes",
     tint: "accent",
     duty: "任务拆解、依赖管理、检查点控制、异常处理与结果汇总。",
-    model: "agentflow-large",
+    model: "deepseek-v4-pro",
     scope: "auto",
     tools: ["agent.dispatch", "plan.write", "contract.read"],
     outputs: ["步骤计划", "检查点状态", "结果汇总"],
@@ -188,7 +212,7 @@ export const builtinAgents: AgentSpec[] = [
     glyph: "Book",
     tint: "azure",
     duty: "从源码查找业务规则、校验条件、接口行为与页面流程，形成需求说明初稿。",
-    model: "agentflow-large",
+    model: "kimi-k3",
     scope: "readonly",
     tools: ["repo.read", "doc.read"],
     outputs: ["需求说明", "事实/推断/待确认标注"],
@@ -203,7 +227,7 @@ export const builtinAgents: AgentSpec[] = [
     glyph: "Layers",
     tint: "cyan",
     duty: "系统结构、模块职责、接口与兼容性方案设计，评估修改影响范围。",
-    model: "agentflow-large",
+    model: "deepseek-v4-pro",
     scope: "readonly",
     tools: ["repo.read", "dep.graph"],
     outputs: ["设计材料", "接口定义", "影响分析"],
@@ -218,7 +242,7 @@ export const builtinAgents: AgentSpec[] = [
     glyph: "Pencil",
     tint: "accent",
     duty: "在隔离分支中修改代码、配置与文档，按测试驱动方式实现需求。",
-    model: "agentflow-large",
+    model: "deepseek-v4-pro",
     scope: "ask",
     tools: ["repo.read", "repo.patch", "shell"],
     outputs: ["代码差异", "变更说明"],
@@ -233,7 +257,7 @@ export const builtinAgents: AgentSpec[] = [
     glyph: "Beaker",
     tint: "sage",
     duty: "编写并运行单元、集成与回归测试，保留预期失败记录与复现用例。",
-    model: "agentflow-large",
+    model: "deepseek-v4-flash",
     scope: "ask",
     tools: ["test.run", "coverage.read", "browser.smoke"],
     outputs: ["测试报告", "覆盖率报告"],
@@ -248,7 +272,7 @@ export const builtinAgents: AgentSpec[] = [
     glyph: "Shield",
     tint: "gold",
     duty: "独立核对实现与需求，检查安全、合规与变更影响，写回问题位置与严重程度。",
-    model: "agentflow-large",
+    model: "deepseek-v4-pro",
     scope: "readonly",
     tools: ["diff.read", "scan.sast", "rule.read"],
     outputs: ["审查结论", "问题清单"],
@@ -263,7 +287,7 @@ export const builtinAgents: AgentSpec[] = [
     glyph: "Cube",
     tint: "plum",
     duty: "汇总变更说明、测试报告、审查问题及处理结果、发布方案与回滚措施。",
-    model: "agentflow-swift",
+    model: "qwen-3.8-max",
     scope: "ask",
     tools: ["doc.write", "release.plan"],
     outputs: ["交付包", "发布与回滚方案"],
@@ -278,7 +302,7 @@ export const builtinAgents: AgentSpec[] = [
     glyph: "Terminal",
     tint: "sage",
     duty: "执行构建、迁移与部署脚本，回写运行状态，全过程留痕。",
-    model: "agentflow-swift",
+    model: "deepseek-v4-flash",
     scope: "ask",
     tools: ["shell", "env.read", "deploy"],
     outputs: ["部署记录", "运行信息"],
@@ -296,7 +320,7 @@ export const customAgents: AgentSpec[] = [
     glyph: "Bolt",
     tint: "gold",
     duty: "按组件清单识别直接依赖、间接依赖与受影响版本，生成影响分析与整改任务。",
-    model: "agentflow-swift",
+    model: "deepseek-v4-pro",
     scope: "readonly",
     tools: ["dep.graph", "scan.sca", "repo.read"],
     outputs: ["排查清单", "依赖与影响分析"],

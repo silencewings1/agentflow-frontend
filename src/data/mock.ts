@@ -743,7 +743,7 @@ export const paletteGroups: {
   {
     group: "代理",
     items: [
-      { icon: "cpu", label: "切换模型", hint: "agentflow-large · agentflow-swift" },
+      { icon: "cpu", label: "切换模型", hint: "deepseek-v4-pro · kimi-k3 · qwen-3.8-max" },
       { icon: "shield", label: "审批模式", hint: "自动 / 逐条确认 / 只读", keys: ["⌘", "⇧", "A"] },
       { icon: "terminal", label: "重跑上一条命令", hint: "mvn -pl collect test" },
       { icon: "book", label: "编辑 AGENTS.md", hint: "仓库级代理约定" },

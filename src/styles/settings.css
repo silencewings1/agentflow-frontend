@@ -269,10 +269,24 @@
   color: var(--text-4);
 }
 
+/* 仓库纵向排布：仓库名是判断「改动落在哪」的关键，宁可占一行也要完整可读，
+   不能为了并排而把名字截断成 vote_org_qfii.g… */
 .repoGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 6px;
+}
+
+/* 纵向排布后不再有横向挤压，仓库名必须完整显示 */
+.repoGrid .repo__name {
+  flex: none;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* 分支推到最右，让「名称 → 角色 → 语言」成为一组连续信息 */
+.repoGrid .repo__branch {
+  margin-left: auto;
 }
 
 .repo--pick {
@@ -638,6 +652,45 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 模型选择：可改而非只可看 —— 不同职责该配不同档位的模型。
+   这一格要放下拉框与多行说明，需解除 .kv dd 的单行截断 */
+.kv dd:has(.modelPick) {
+  overflow: visible;
+  white-space: normal;
+}
+
+.modelPick {
+  width: 100%;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.18s;
+}
+
+.modelPick:hover {
+  border-color: var(--accent-line);
+}
+
+.modelPick:focus-visible {
+  outline: 1px solid var(--accent-line);
+  outline-offset: 1px;
+}
+
+/* 选型依据紧跟在下拉框后面：让人知道为什么该选这一档，而不是凭名字猜 */
+.modelPick__note {
+  display: block;
+  margin-top: 3px;
+  font-size: 9.5px;
+  line-height: 1.45;
+  color: var(--text-4);
+  white-space: normal;
 }
 
 .kv--tight {

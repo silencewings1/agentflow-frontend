@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { Icon } from "./Icons";
+import { modelOptions } from "../data/settings";
 import type { ApprovalMode } from "../App";
 
 const quick = [
@@ -14,6 +15,9 @@ const approvalCopy: Record<ApprovalMode, { label: string; hint: string }> = {
   readonly: { label: "只读", hint: "只读：只做分析，不产生任何写入" },
 };
 
+/* 审批模式按「约束由松到紧」排列，与下拉框的视觉顺序一致 */
+const approvalOrder: ApprovalMode[] = ["auto", "ask", "readonly"];
+
 export function Composer({
   streaming,
   model,
@@ -21,8 +25,8 @@ export function Composer({
   onSend,
   onStop,
   onPalette,
-  onCycleModel,
-  onCycleApproval,
+  onPickModel,
+  onPickApproval,
   planPending,
 }: {
   streaming: boolean;
@@ -31,8 +35,8 @@ export function Composer({
   onSend: (v: string) => void;
   onStop: () => void;
   onPalette: () => void;
-  onCycleModel: () => void;
-  onCycleApproval: () => void;
+  onPickModel: (m: string) => void;
+  onPickApproval: (m: ApprovalMode) => void;
   /** 规划待确认：此时输入的是修改意见，不是普通对话 */
   planPending?: boolean;
 }) {
@@ -112,21 +116,37 @@ export function Composer({
             ))}
           </div>
           <div className="composer__status mono">
-            {/* 模型与审批模式在此处直接切换：决策点紧邻输入，不必回到顶栏 */}
-            <button className="composer__toggle" onClick={onCycleModel} title="切换模型">
+            {/* 模型与审批模式在此处直接选：决策点紧邻输入，不必回到顶栏。
+                用下拉框而非循环切换 —— 4 个模型靠点击轮换要试到第几下才对，
+                而且看不到有哪些可选。 */}
+            <label className="composer__pick" title="选择模型">
               <Icon.Sparkle size={11} />
-              <span>{model}</span>
-            </button>
+              <select value={model} onChange={(e) => onPickModel(e.target.value)}>
+                {modelOptions.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.id}
+                  </option>
+                ))}
+              </select>
+            </label>
             <span className="composer__sep">·</span>
-            <button
-              className="composer__toggle"
-              onClick={onCycleApproval}
+            <label
+              className="composer__pick"
               data-mode={approvalMode}
               title={approvalCopy[approvalMode].hint}
             >
               <Icon.Shield size={11} />
-              <span>{approvalCopy[approvalMode].label}</span>
-            </button>
+              <select
+                value={approvalMode}
+                onChange={(e) => onPickApproval(e.target.value as ApprovalMode)}
+              >
+                {approvalOrder.map((m) => (
+                  <option key={m} value={m}>
+                    {approvalCopy[m].label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <span className="composer__sep">·</span>
             <span>
               <span className="kbd">⏎</span> 发送 <span className="kbd">⇧⏎</span> 换行

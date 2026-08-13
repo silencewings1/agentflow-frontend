@@ -1600,12 +1600,6 @@
   color: var(--gold);
 }
 
-/* 证据未闭环时，「开 PR」显式呈现为受阻状态 */
-.btn[data-blocked="true"] {
-  border-color: color-mix(in oklab, var(--gold) 34%, var(--line)) !important;
-  color: var(--gold) !important;
-}
-
 @media (max-width: 1180px) {
   .gateRail__ev { display: none; }
   .gateRail__rule { display: none; }

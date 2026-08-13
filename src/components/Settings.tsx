@@ -12,8 +12,10 @@ import {
   connStateLabel,
   connections,
   customAgents,
+  defaultModel,
   envVars,
   evidenceChain,
+  modelOptions,
   permTierLabel,
   permTiers,
   qualityGates,
@@ -489,7 +491,7 @@ function AgentsPane({ onToast }: { onToast: Toast }) {
         glyph: "Sparkle",
         tint: "plum",
         duty: draftDuty.trim() || "自定义智能体，尚未填写职责说明。",
-        model: "agentflow-swift",
+        model: defaultModel,
         scope: draftScope,
         tools: draftTools.length ? draftTools : ["repo.read"],
         outputs: ["自定义交付物"],
@@ -613,7 +615,29 @@ function AgentsPane({ onToast }: { onToast: Toast }) {
         <dl className="kv">
           <div>
             <dt>模型</dt>
-            <dd className="mono">{active.model}</dd>
+            <dd>
+              {/* 模型可直接改：不同职责该配不同档位的模型，这是编排的一部分，
+                  不应该只让人看不让人改 */}
+              <select
+                className="modelPick"
+                value={active.model}
+                onChange={(e) => {
+                  const model = e.target.value;
+                  setAgents((prev) =>
+                    prev.map((x) => (x.id === active.id ? { ...x, model } : x)),
+                  );
+                }}
+              >
+                {modelOptions.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.id} · {m.vendor}
+                  </option>
+                ))}
+              </select>
+              <span className="modelPick__note">
+                {modelOptions.find((m) => m.id === active.model)?.note ?? ""}
+              </span>
+            </dd>
           </div>
           <div>
             <dt>权限</dt>
