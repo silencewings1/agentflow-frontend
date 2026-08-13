@@ -15,6 +15,8 @@
 }
 
 .rot180 { transform: rotate(180deg); }
+/* 向左：用于「返回上一层」的箭头 */
+.rot90 { transform: rotate(90deg); }
 
 /* --------------------------- 结构化任务交接 ---------------------------- */
 
@@ -2027,6 +2029,262 @@
   .archRoute__target { grid-column: 1; }
 }
 
+/* ================== 主控规划方案（流水线第一步） ======================
+   与任务契约卡片同构，但左边框用渐变强调色：它是「等你拍板」的卡片，
+   在整条会话里应当最显眼。已确认/已取代后降为常规描边。
+   ===================================================================== */
+
+.card--plan {
+  padding: 0;
+  overflow: hidden;
+  border-left: 2px solid var(--accent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--accent) 7%, transparent),
+      transparent 46%
+    ),
+    var(--surface-1);
+}
+
+/* 已确认：改用已闭环色，表示这轮已成为既定事实 */
+.card--plan[data-state="confirmed"] {
+  border-left-color: color-mix(in oklab, var(--sage) 70%, var(--line));
+  background: var(--surface-1);
+}
+
+/* 已被取代：整体压低，留痕但不争夺注意力 */
+.card--plan[data-state="superseded"] {
+  border-left-color: var(--line-strong);
+  background: var(--surface-1);
+  opacity: 0.6;
+}
+
+.opl__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 14px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-1);
+  border-bottom: 1px solid transparent;
+  transition: background 0.16s var(--ease-out), border-color 0.16s var(--ease-out);
+}
+
+.card--plan[data-open="true"] .opl__head { border-bottom-color: var(--line); }
+.opl__head:hover { background: color-mix(in oklab, var(--accent) 5%, transparent); }
+
+.opl__seal {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 7px;
+  color: #fff;
+  background: linear-gradient(150deg, var(--cyan), var(--accent) 62%);
+}
+
+.card--plan[data-state="superseded"] .opl__seal {
+  background: var(--surface-3);
+  color: var(--text-4);
+}
+
+.opl__headText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.opl__kicker {
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--accent-text);
+}
+
+.card--plan[data-state="confirmed"] .opl__kicker { color: var(--sage); }
+.card--plan[data-state="superseded"] .opl__kicker { color: var(--text-4); }
+
+.opl__title {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.opl__count {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  font-size: 9.5px;
+  color: var(--text-3);
+}
+
+.card--plan[data-open="false"] .opl__body { display: none; }
+
+.opl__body {
+  display: grid;
+  gap: 11px;
+  padding: 12px 14px 14px;
+}
+
+/* 修改意见回显：让「这轮为何不同」有据可查 */
+.opl__fb {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  border: 1px dashed color-mix(in oklab, var(--gold) 40%, var(--line));
+  background: color-mix(in oklab, var(--gold) 7%, transparent);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.opl__strategy {
+  font-size: 10px;
+  color: var(--text-4);
+}
+
+.opl__grid {
+  display: grid;
+  gap: 8px;
+}
+
+.oplNode {
+  display: grid;
+  gap: 7px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  min-width: 0;
+  animation: oplIn 0.34s var(--ease-out) both;
+  animation-delay: calc(var(--i) * 45ms);
+}
+
+@keyframes oplIn {
+  from { opacity: 0; transform: translateY(5px); }
+}
+
+.oplNode__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.oplNode__idx {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  flex: none;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  font-size: 9px;
+  color: var(--accent-text);
+}
+
+.oplNode__name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.oplNode__io {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 9px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.oplNode__col {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.oplNode__col ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oplNode__col li {
+  font-size: 9.5px;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+
+.oplNode__acc {
+  display: grid;
+  gap: 3px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+/* 增强提示词：主控额外注入的部分，用 gold 左边框标示来源不同 */
+.oplNode__prompt {
+  display: grid;
+  gap: 4px;
+  padding-left: 9px;
+  border-left: 2px solid color-mix(in oklab, var(--gold) 62%, var(--line));
+}
+
+.oplNode__prompt pre {
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.65;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.opl__foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.opl__hint {
+  font-size: 10px;
+  color: var(--text-4);
+}
+
+.opl__done {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  color: var(--sage);
+}
+
+.opl__stale {
+  font-size: 10.5px;
+  color: var(--text-4);
+}
+
 @media (max-width: 760px) {
   .gate__dims li { grid-template-columns: 12px minmax(0, 1fr); }
   .gate__note { grid-column: 2; }
@@ -2035,4 +2293,5 @@
   .rpLine::before { display: none; }
   .rpLine__item { grid-template-columns: 15px minmax(0, 1fr); }
   .rpLine__at { display: none; }
+  .opl__count { display: none; }
 }

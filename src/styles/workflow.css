@@ -889,8 +889,8 @@
   right: 0;
   z-index: 6;
   /* 紧凑优先：浮层只占必要高度，尽量少侵占会话内容区域。
-     展开后同时容纳编排图与消息流，故留出更多余量但仍限高 */
-  max-height: 62vh;
+     消息流已下沉到会话区，这里只剩画布，故收回限高 */
+  max-height: 38vh;
   padding: 4px 20px 8px;
   overflow: auto;
   border-top: 1px dashed var(--line);
@@ -901,10 +901,18 @@
   animation: wfDagIn 0.26s var(--ease-out) both;
 }
 
-/* 紧凑模式下压缩画布自身留白，并限制等比缩放后的高度。
-   展开后画布是「定位器」，消息流才是主体，故画布限得更紧 */
+/* 面板内不再承载消息流，高度还给画布 */
 .wfStrip__dag .dag__svg {
-  max-height: 20vh;
+  max-height: 26vh;
+}
+
+/* 下钻提示：说明点节点后内容去哪了，避免以为没反应 */
+.wfStrip__tip {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  font-size: 9.5px;
+  color: var(--text-4);
 }
 
 @keyframes wfDagIn {

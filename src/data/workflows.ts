@@ -4,6 +4,7 @@
    ============================================================ */
 
 import type { IconName } from "../components/Icons";
+import type { AgentEvent } from "./mock";
 import type { AgentRole } from "./settings";
 
 export type EdgeKind = "flow" | "fail" | "approve";
@@ -818,6 +819,68 @@ export const demoMessages: NodeMessage[] = [
     body: "代码开发输出满足验收条件，弃用注释属建议项。已记入证据链，交由人工检查点判定。",
   },
 ];
+
+/* ==================== 主控规划方案（开工前的第一步） ==================
+   流水线不直接开跑：主控先把每个节点的输入输出与增强提示词摊开给人看，
+   经确认后才推进。增强提示词区别于 agent 自带提示词 —— 它由主控按当前
+   任务上下文（以及用户历轮修改意见）临时注入。
+   ===================================================================== */
+
+export type OrchestratorPlanEvent = Extract<
+  AgentEvent,
+  { kind: "orchestrator-plan" }
+>;
+
+export function buildOrchestratorPlan(
+  wf: Workflow,
+  task: string,
+  feedback?: string,
+  round = 1,
+): OrchestratorPlanEvent {
+  const contracts = wf.orchestrator.contracts;
+
+  const assignments = wf.nodes.map((n) => {
+    const c = contracts[n.id];
+    const inputs = c?.inputs ?? [];
+    const outputs = c?.outputs ?? [];
+    /* 增强提示词 = 角色职责 + 本节点在该编排中的分工 + 产物链 + 用户意见。
+       前三段来自契约推导，最后一段让「重新规划」在界面上可见地不同于上一轮。 */
+    const lines = [
+      `你在「${wf.name}」编排中承担「${n.name}」节点，角色职责：${c?.duty ?? n.desc}`,
+      `开工前置：必须先读取 ${inputs.join("、") || "任务契约"}；缺失则不得启动，直接回退上游。`,
+      `交付要求：产出 ${outputs.join("、")}，完成判定为「${c?.acceptance ?? "由主控核验"}」。`,
+      n.gate ? `质量门禁「${n.gate}」未通过时，本节点视为未完成。` : null,
+      feedback ? `用户对上一轮规划提出修改意见，请按此调整：${feedback}` : null,
+    ].filter(Boolean);
+
+    return {
+      nodeId: n.id,
+      nodeName: n.name,
+      inputs,
+      outputs,
+      duty: c?.duty ?? n.desc,
+      acceptance: c?.acceptance ?? "由主控核验",
+      enhancedPrompt: lines.join("\n"),
+    };
+  });
+
+  const flows = wf.edges.filter((e) => e.kind === "flow").length;
+  const fails = wf.edges.filter((e) => e.kind === "fail").length;
+  const gates = wf.nodes.filter((n) => n.gate).length;
+  const approvals = wf.nodes.filter((n) => n.approval).length;
+
+  return {
+    id: `plan-r${round}-${Date.now().toString(36)}`,
+    kind: "orchestrator-plan",
+    task,
+    summary: `已按「${wf.name}」为 ${wf.nodes.length} 个节点下发契约与增强提示词，重试上限 ${wf.maxRetry} 次，超限后${wf.onExhaust}。`,
+    strategy: `流转 ${flows} 条 · 失败回退 ${fails} 条 · 质量门禁 ${gates} 道 · 人工检查点 ${approvals} 个`,
+    round,
+    assignments,
+    confirmed: false,
+    ...(feedback ? { feedback } : {}),
+  };
+}
 
 /* ============================ 布局与编辑 ============================== */
 

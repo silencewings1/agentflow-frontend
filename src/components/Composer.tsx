@@ -23,6 +23,7 @@ export function Composer({
   onPalette,
   onCycleModel,
   onCycleApproval,
+  planPending,
 }: {
   streaming: boolean;
   model: string;
@@ -32,6 +33,8 @@ export function Composer({
   onPalette: () => void;
   onCycleModel: () => void;
   onCycleApproval: () => void;
+  /** 规划待确认：此时输入的是修改意见，不是普通对话 */
+  planPending?: boolean;
 }) {
   const [value, setValue] = useState("");
   const [focus, setFocus] = useState(false);
@@ -56,7 +59,11 @@ export function Composer({
             className="composer__input"
             value={value}
             rows={1}
-            placeholder="描述你想让代理完成的事，或用 @ 引用文件、/ 触发命令…"
+            placeholder={
+              planPending
+                ? "对规划方案提出修改意见，主控会重新规划…"
+                : "描述你想让代理完成的事，或用 @ 引用文件、/ 触发命令…"
+            }
             onFocus={() => setFocus(true)}
             onBlur={() => setFocus(false)}
             onChange={(e) => {

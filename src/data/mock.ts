@@ -203,6 +203,35 @@ export type AgentEvent = EventBase &
         tools: string[];
         deliverables: string[];
       }
+    | {
+        /** 主控规划方案：开工前为每个节点分配输入输出与增强提示词，
+            必须经用户确认才推进流水线。confirmed / feedback 把「用户是否确认、
+            改了什么」编码进事件本身，回放会话时能复原每一轮决策。 */
+        kind: "orchestrator-plan";
+        /** 任务描述，用于上下文对齐 */
+        task: string;
+        /** 全局规划说明 */
+        summary: string;
+        /** 流转 / 回退 / 审批边统计 */
+        strategy: string;
+        /** 第几轮规划，提交修改意见后递增 */
+        round: number;
+        assignments: {
+          nodeId: string;
+          nodeName: string;
+          inputs: string[];
+          outputs: string[];
+          duty: string;
+          acceptance: string;
+          /** 增强提示词：结合任务上下文与用户意见定制，区别于 agent 自带提示词 */
+          enhancedPrompt: string;
+        }[];
+        confirmed: boolean;
+        /** 用户上一轮的修改意见 */
+        feedback?: string;
+        /** 已被更新一轮的规划取代 */
+        superseded?: boolean;
+      }
   );
 
 export const conversation: AgentEvent[] = [

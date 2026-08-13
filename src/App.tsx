@@ -18,10 +18,12 @@ import { Toasts, type Toast } from "./components/Toasts";
 import { Welcome } from "./components/Welcome";
 import { SettingsOverlay, type ArchJump, type SettingsPane } from "./components/Settings";
 import { NewTaskDialog } from "./components/NewTask";
-import { WorkflowStrip } from "./components/Workflow";
+import { WorkflowStrip, NodeConversation } from "./components/Workflow";
 import {
+  buildOrchestratorPlan,
   demoMessages,
   workflowTemplates,
+  type OrchestratorPlanEvent,
   type WfRunStates,
   type Workflow,
 } from "./data/workflows";
@@ -54,6 +56,18 @@ export default function App() {
   const [streaming, setStreaming] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<string | null>(null);
   const [extra, setExtra] = useState<AgentEvent[]>([]);
+
+  /* --- 两阶段流水线 --------------------------------------------------------
+     阶段一：主控出规划方案，planPending 期间流水线不动、输入框转为「提修改意见」
+     阶段二：focusNode 非空时，会话区整体切换为该节点的消息视图 */
+  const [planEvent, setPlanEvent] = useState<OrchestratorPlanEvent | null>(null);
+  const [planPending, setPlanPending] = useState(false);
+  const [focusNode, setFocusNode] = useState<string | null>(null);
+  /* planPending 的同步镜像：acceptPlan 内紧接着要调 runTurn，
+     而此时 setPlanPending(false) 尚未生效，闭包里读到的仍是旧值，
+     会导致确认动作被误判为「又一轮修改意见」。用 ref 做同步判据。 */
+  const planPendingRef = useRef(false);
+
   const timers = useRef<number[]>([]);
 
   const active = useMemo(
@@ -67,11 +81,13 @@ export default function App() {
   );
 
   /* 节点运行态：由当前进度推导，保证换工作流或改编排后仍然自洽。
-     wfStep 之前的节点已完成，当前节点在跑，其后未开始。 */
+     wfStep 之前的节点已完成，当前节点在跑，其后未开始。
+     wfStep < 0 表示规划待确认、流水线尚未开跑，全部节点为未开始。 */
   const runStates = useMemo<WfRunStates>(() => {
     const m: WfRunStates = {};
     workflow.nodes.forEach((n, i) => {
-      m[n.id] = i < wfStep ? "done" : i === wfStep ? "running" : "todo";
+      m[n.id] =
+        wfStep < 0 ? "todo" : i < wfStep ? "done" : i === wfStep ? "running" : "todo";
     });
     return m;
   }, [workflow, wfStep]);
@@ -133,16 +149,57 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleTheme]);
 
+  /* --- 阶段一：主控规划的修改与确认 ---------------------------------------- */
+
+  /** 用户提交修改意见 → 主控重新规划。
+      新一轮追加而非替换：保留历史让人能对比主控这轮改了什么。 */
+  const revisePlan = useCallback(
+    (feedback: string) => {
+      if (!planEvent) return;
+      const next = buildOrchestratorPlan(
+        workflow,
+        planEvent.task,
+        feedback,
+        planEvent.round + 1,
+      );
+      setPlanEvent(next);
+      setExtra((prev) => [
+        /* 旧轮次标记为已被取代，视觉上弱化但不删除 */
+        ...prev.map((e) =>
+          e.kind === "orchestrator-plan" && !e.confirmed
+            ? { ...e, superseded: true }
+            : e,
+        ),
+        { id: `${next.id}-fb`, kind: "user", text: feedback } as AgentEvent,
+        next,
+      ]);
+      push({
+        tone: "info",
+        title: `已重新规划（第 ${next.round} 轮）`,
+        body: "主控已纳入你的修改意见，请确认新方案。",
+      });
+    },
+    [planEvent, workflow, push],
+  );
+
   /* --- simulated agent turn ---------------------------------------------- */
   const runTurn = useCallback(
-    (prompt: string, contract?: AgentEvent) => {
+    (prompt: string, contract?: AgentEvent, keepHistory?: boolean) => {
+      /* 规划待确认期间，输入框的语义变为「提交修改意见」而非普通对话 */
+      if (planPendingRef.current) {
+        revisePlan(prompt);
+        return;
+      }
       timers.current.forEach(clearTimeout);
       timers.current = [];
       setMode("session");
 
       const uid = `u${Date.now()}`;
       const script: AgentEvent[] = [
-        { id: `${uid}-a`, kind: "user", text: prompt },
+        /* 从规划确认进入执行时，用户诉求已在上文，不必重复一条用户气泡 */
+        ...(keepHistory
+          ? []
+          : [{ id: `${uid}-a`, kind: "user", text: prompt } as AgentEvent]),
         ...(contract ? [contract] : []),
         {
           id: `${uid}-b`,
@@ -181,7 +238,8 @@ export default function App() {
         },
       ];
 
-      setExtra([]);
+      /* keepHistory：保留规划卡片等上文，仅追加执行脚本 */
+      if (!keepHistory) setExtra([]);
       setStreaming(true);
       let delay = 260;
       script.forEach((ev, i) => {
@@ -197,15 +255,23 @@ export default function App() {
         delay += ev.kind === "reasoning" ? 900 : ev.kind === "plan" ? 760 : 620;
       });
     },
-    [],
+    /* 判据走 planPendingRef（同步），故不依赖 planPending */
+    [revisePlan],
   );
 
   const startTask = useCallback(
     (prompt: string, wf: Workflow, contract: AgentEvent) => {
+      timers.current.forEach(clearTimeout);
+      timers.current = [];
       setWorkflow(wf);
-      setWfStep(0);
+      /* -1 表示流水线尚未开跑：规划待确认，DAG 全部节点为未开始 */
+      setWfStep(-1);
       setNewTaskOpen(false);
       setVisible(0);
+      setMode("session");
+      setFocusNode(null);
+      setPendingApproval(null);
+      setStreaming(false);
       /* 新建任务落地为一条会话，进入侧栏「今天」分组并成为当前会话 */
       const repoLabel = contract.kind === "contract" ? contract.repo : "";
       const slug = prompt
@@ -222,7 +288,8 @@ export default function App() {
         title: prompt.length > 28 ? `${prompt.slice(0, 28)}…` : prompt,
         repo: repoLabel,
         branch: `feat/${slug || "task"}`,
-        state: "running",
+        /* 规划待确认，尚未进入执行 */
+        state: "review",
         time: "刚刚",
         bucket: "今天",
         diff: { added: 0, removed: 0, files: 0 },
@@ -230,20 +297,57 @@ export default function App() {
       };
       setSessionList((prev) => [newSession, ...prev.filter((s) => s.id !== sid)]);
       setActiveId(sid);
-      runTurn(prompt, contract);
+
+      /* 第一步只出规划方案，不推进流水线 —— 等用户确认 */
+      const plan = buildOrchestratorPlan(wf, prompt);
+      setPlanEvent(plan);
+      setPlanPending(true);
+      planPendingRef.current = true;
+      setExtra([
+        { id: `${sid}-u`, kind: "user", text: prompt } as AgentEvent,
+        contract,
+        plan,
+      ]);
       push({
-        tone: "ok",
-        title: `已按「${wf.name}」启动`,
-        body: `${wf.nodes.length} 个节点 · ${wf.edges.filter((e) => e.kind === "fail").length} 条失败回退边`,
-      });
-      wf.nodes.forEach((_, i) => {
-        if (i === 0) return;
-        const t = window.setTimeout(() => setWfStep(i), 1400 + i * 1600);
-        timers.current.push(t);
+        tone: "info",
+        title: "主控已完成规划",
+        body: `${wf.nodes.length} 个节点的契约与增强提示词待你确认`,
       });
     },
-    [push, runTurn],
+    [push],
   );
+
+  /** 用户确认规划 → 正式推进流水线（原 startTask 尾部的推进逻辑迁移至此） */
+  const acceptPlan = useCallback(() => {
+    if (!planEvent) return;
+    const wf = workflow;
+    setPlanPending(false);
+    /* 先落 ref，确保随后的 runTurn 不再被当作修改意见拦截 */
+    planPendingRef.current = false;
+    setExtra((prev) =>
+      prev.map((e) =>
+        e.kind === "orchestrator-plan" && e.id === planEvent.id
+          ? { ...e, confirmed: true, superseded: false }
+          : e,
+      ),
+    );
+    setSessionList((prev) =>
+      prev.map((s) => (s.id === activeId ? { ...s, state: "running" } : s)),
+    );
+    setWfStep(0);
+    /* 按节点依次推进，并播放执行脚本 */
+    wf.nodes.forEach((_, i) => {
+      if (i === 0) return;
+      const t = window.setTimeout(() => setWfStep(i), 1400 + i * 1600);
+      timers.current.push(t);
+    });
+    runTurn(planEvent.task, undefined, true);
+    push({
+      tone: "ok",
+      title: `规划已确认 · 按「${wf.name}」启动`,
+      body: `${wf.nodes.length} 个节点 · ${wf.edges.filter((e) => e.kind === "fail").length} 条失败回退边`,
+    });
+  }, [planEvent, workflow, activeId, runTurn, push]);
 
   const deleteSession = useCallback(
     (id: string) => {
@@ -251,6 +355,10 @@ export default function App() {
       setSessionList(next);
       /* 删除当前会话时切到首条；若已无会话则回到空态 */
       if (id === activeId) {
+        setPlanEvent(null);
+        setPlanPending(false);
+        planPendingRef.current = false;
+        setFocusNode(null);
         if (next.length) {
           const pick = next[0];
           setActiveId(pick.id);
@@ -345,12 +453,20 @@ export default function App() {
   }, [push]);
 
   const selectSession = useCallback((s: Session) => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
     setActiveId(s.id);
     setMode("session");
     setExtra([]);
     setVisible(conversation.length);
     setPendingApproval(null);
     setStreaming(s.state === "running");
+    /* 规划态与节点聚焦态属于单条会话，切换时必须清掉，否则会串台 */
+    setPlanEvent(null);
+    setPlanPending(false);
+    planPendingRef.current = false;
+    setFocusNode(null);
+    setWfStep(1);
   }, []);
 
   /* 架构层 → 承载该层证据的界面，一次点击到位，不让用户自己去找 */
@@ -472,20 +588,35 @@ export default function App() {
               activeIndex={wfStep}
               onOpen={() => setNewTaskOpen(true)}
               runStates={runStates}
-              messages={demoMessages}
+              focusNode={focusNode}
+              onNodeSelect={setFocusNode}
             />
-            <Stream
-            events={events}
-            streaming={streaming}
-            pendingApproval={pendingApproval}
-            onApprove={resolveApproval}
-            onOpenFile={(p) => {
-              setActiveFile(p);
-              setInspectorTab("diff");
-              setInspectorOpen(true);
-            }}
-            onCopy={() => push({ tone: "ok", title: "已复制", body: "内容在剪贴板中。" })}
-          />
+            {/* 点开 DAG 节点后，会话区整体切换为该节点视图；否则为正常事件流 */}
+            {focusNode ? (
+              <NodeConversation
+                wf={workflow}
+                runStates={runStates}
+                messages={demoMessages}
+                focus={focusNode}
+                onFocus={setFocusNode}
+                onBack={() => setFocusNode(null)}
+              />
+            ) : (
+              <Stream
+                events={events}
+                streaming={streaming}
+                pendingApproval={pendingApproval}
+                onApprove={resolveApproval}
+                planPending={planPending}
+                onAcceptPlan={acceptPlan}
+                onOpenFile={(p) => {
+                  setActiveFile(p);
+                  setInspectorTab("diff");
+                  setInspectorOpen(true);
+                }}
+                onCopy={() => push({ tone: "ok", title: "已复制", body: "内容在剪贴板中。" })}
+              />
+            )}
           </>
         )}
 
@@ -493,6 +624,7 @@ export default function App() {
           streaming={streaming}
           model={model}
           approvalMode={approvalMode}
+          planPending={planPending}
           onSend={runTurn}
           onStop={stop}
           onPalette={() => setPaletteOpen(true)}

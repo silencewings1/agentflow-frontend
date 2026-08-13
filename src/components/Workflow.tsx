@@ -158,19 +158,21 @@ export function WorkflowStrip({
   activeIndex,
   onOpen,
   runStates,
-  messages,
+  focusNode,
+  onNodeSelect,
 }: {
   wf: Workflow;
   activeIndex: number;
   onOpen?: () => void;
   runStates?: WfRunStates;
-  messages?: NodeMessage[];
+  /** 当前被点开的节点，由 App 持有 —— 会话区要据此切换视图 */
+  focusNode?: string | null;
+  onNodeSelect?: (id: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
-  /* null = 主控汇总视图，这是默认停留的位置 */
-  const [focus, setFocus] = useState<string | null>(null);
   const G = Icon[wf.glyph];
-  const live = Boolean(runStates && messages);
+  /* 有运行态才允许下钻：未跑过的节点没有消息可看 */
+  const live = Boolean(runStates && onNodeSelect);
 
   return (
     <div className="wfStrip" data-open={open ? "true" : undefined}>
@@ -221,25 +223,84 @@ export function WorkflowStrip({
       </div>
       {open && (
         <div className="wfStrip__dag">
+          {/* 面板只负责定位与下钻入口，消息内容一律去下方会话区 */}
           <DagCanvas
             wf={wf}
-            selected={focus ?? (live ? null : wf.nodes[activeIndex]?.id ?? null)}
-            onSelect={live ? (id) => setFocus((f) => (f === id ? null : id)) : undefined}
+            selected={focusNode ?? null}
+            onSelect={
+              live
+                ? (id) => {
+                    const next = focusNode === id ? null : id;
+                    onNodeSelect?.(next);
+                    /* 浮层是覆盖式的，会挡住下方会话区。既然内容已经下沉到
+                       会话区，选中后就收起浮层，否则等于选了却看不见。 */
+                    if (next) setOpen(false);
+                  }
+                : undefined
+            }
             runStates={runStates}
             compact
           />
-          {/* 运行期才有消息可看；默认展示主控汇总的信息流 */}
           {live && (
-            <NodeMessages
-              wf={wf}
-              runStates={runStates!}
-              messages={messages!}
-              focus={focus}
-              onFocus={setFocus}
-            />
+            <p className="wfStrip__tip">
+              点击已完成或进行中的节点，将收起本面板并在下方会话区展开该节点的会话内容。
+            </p>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ==================== 节点会话视图（挂在会话区） ======================
+   点开 DAG 节点后，整个会话区切换为该节点的消息流：单一焦点，
+   避免主控汇总与节点内容互相干扰。顶部保留返回入口。
+   ===================================================================== */
+
+export function NodeConversation({
+  wf,
+  runStates,
+  messages,
+  focus,
+  onFocus,
+  onBack,
+}: {
+  wf: Workflow;
+  runStates: WfRunStates;
+  messages: NodeMessage[];
+  focus: string;
+  onFocus: (id: string | null) => void;
+  onBack: () => void;
+}) {
+  const node = wf.nodes.find((n) => n.id === focus) ?? null;
+  const run = runStates[focus];
+
+  return (
+    <div className="nodeConv">
+      <div className="nodeConv__bar">
+        <button className="nodeConv__back" onClick={onBack}>
+          <Icon.Chevron size={12} className="rot90" />
+          返回主控汇总
+        </button>
+        <span className="nodeConv__sep" />
+        <span className="nodeConv__who">
+          {node ? node.name : focus}
+          {run && (
+            <span className="nodeConv__state" data-run={run}>
+              {nodeRunLabel[run]}
+            </span>
+          )}
+        </span>
+      </div>
+      <div className="nodeConv__body">
+        <NodeMessages
+          wf={wf}
+          runStates={runStates}
+          messages={messages}
+          focus={focus}
+          onFocus={onFocus}
+        />
+      </div>
     </div>
   );
 }

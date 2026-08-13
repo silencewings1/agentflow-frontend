@@ -11,6 +11,8 @@ export function Stream({
   onApprove,
   onOpenFile,
   onCopy,
+  planPending,
+  onAcceptPlan,
 }: {
   events: AgentEvent[];
   streaming: boolean;
@@ -18,6 +20,9 @@ export function Stream({
   onApprove: (id: string, ok: boolean) => void;
   onOpenFile: (path: string) => void;
   onCopy: () => void;
+  /** 规划待确认：决定规划卡片是否可操作 */
+  planPending?: boolean;
+  onAcceptPlan?: () => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -38,6 +43,8 @@ export function Stream({
             onApprove={onApprove}
             onOpenFile={onOpenFile}
             onCopy={onCopy}
+            planPending={planPending}
+            onAcceptPlan={onAcceptPlan}
           />
         ))}
         {streaming && <Thinking />}
@@ -54,6 +61,8 @@ function Event({
   onApprove,
   onOpenFile,
   onCopy,
+  planPending,
+  onAcceptPlan,
 }: {
   e: AgentEvent;
   index: number;
@@ -61,6 +70,8 @@ function Event({
   onApprove: (id: string, ok: boolean) => void;
   onOpenFile: (path: string) => void;
   onCopy: () => void;
+  planPending?: boolean;
+  onAcceptPlan?: () => void;
 }) {
   const style = { ["--i" as string]: Math.min(index, 14) };
 
@@ -267,7 +278,150 @@ function Event({
 
     case "contract":
       return <Contract e={e} style={style} />;
+
+    case "orchestrator-plan":
+      return (
+        <OrchestratorPlan
+          e={e}
+          style={style}
+          pending={planPending}
+          onAccept={onAcceptPlan}
+        />
+      );
   }
+}
+
+/* ================== 主控规划方案（流水线第一步） ======================
+   开工前把每个节点的输入输出与增强提示词摊开，等人确认。
+   底部三态：待确认 / 已确认 / 已被新一轮取代。
+   ===================================================================== */
+
+function OrchestratorPlan({
+  e,
+  style,
+  pending,
+  onAccept,
+}: {
+  e: Extract<AgentEvent, { kind: "orchestrator-plan" }>;
+  style: object;
+  pending?: boolean;
+  onAccept?: () => void;
+}) {
+  /* 已确认或已被取代的轮次默认收起：它们是历史，不该继续占据视线 */
+  const [open, setOpen] = useState(!e.confirmed && !e.superseded);
+  const actionable = pending && !e.confirmed && !e.superseded;
+
+  return (
+    <article className="ev ev--card" style={style}>
+      <div className="ev__gutter" />
+      <div
+        className="card card--plan"
+        data-open={open}
+        data-state={
+          e.confirmed ? "confirmed" : e.superseded ? "superseded" : "pending"
+        }
+      >
+        <button className="opl__head" onClick={() => setOpen((v) => !v)}>
+          <span className="opl__seal">
+            <Icon.Nodes size={13} />
+          </span>
+          <span className="opl__headText">
+            <span className="opl__kicker">
+              主控规划方案 · 第 {e.round} 轮
+              {e.confirmed ? " · 已确认" : e.superseded ? " · 已被取代" : " · 待你确认"}
+            </span>
+            <strong className="opl__title">{e.summary}</strong>
+          </span>
+          <span className="opl__count mono">{e.assignments.length} 节点</span>
+          <Icon.Chevron size={14} className={open ? "rot180" : undefined} />
+        </button>
+
+        {open && (
+          <div className="opl__body">
+            {/* 让「这一轮为什么和上一轮不同」可见 */}
+            {e.feedback && (
+              <p className="opl__fb">
+                <span className="kicker">已纳入你的修改意见</span>
+                {e.feedback}
+              </p>
+            )}
+
+            <p className="opl__strategy mono">{e.strategy}</p>
+
+            <div className="opl__grid">
+              {e.assignments.map((a, i) => (
+                <section
+                  key={a.nodeId}
+                  className="oplNode"
+                  style={{ ["--i" as string]: i }}
+                >
+                  <header className="oplNode__head">
+                    <span className="oplNode__idx mono">{i + 1}</span>
+                    <strong className="oplNode__name">{a.nodeName}</strong>
+                  </header>
+
+                  <div className="oplNode__io">
+                    <div className="oplNode__col">
+                      <span className="kicker">输入产物</span>
+                      <ul>
+                        {a.inputs.map((f) => (
+                          <li key={f} className="mono">
+                            {f}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="oplNode__col">
+                      <span className="kicker">输出产物</span>
+                      <ul>
+                        {a.outputs.map((f) => (
+                          <li key={f} className="mono">
+                            {f}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
+                  <p className="oplNode__acc">
+                    <span className="kicker">完成判定</span>
+                    {a.acceptance}
+                  </p>
+
+                  {/* 增强提示词是主控额外注入的部分，单独区块以示区别 */}
+                  <div className="oplNode__prompt">
+                    <span className="kicker">增强提示词</span>
+                    <pre>{a.enhancedPrompt}</pre>
+                  </div>
+                </section>
+              ))}
+            </div>
+
+            <div className="opl__foot">
+              {e.confirmed ? (
+                <span className="opl__done mono">
+                  <Icon.Check size={12} />
+                  规划已确认 · 流水线按此推进
+                </span>
+              ) : e.superseded ? (
+                <span className="opl__stale mono">该轮已被后续规划取代</span>
+              ) : actionable ? (
+                <>
+                  <button className="btn btn--accent" onClick={onAccept}>
+                    <Icon.Check size={14} />
+                    确认规划并启动流水线
+                  </button>
+                  <span className="opl__hint">
+                    如需调整，在下方输入框提交修改意见，主控会重新规划
+                  </span>
+                </>
+              ) : null}
+            </div>
+          </div>
+        )}
+      </div>
+    </article>
+  );
 }
 
 /* ===================== 任务契约（第二章第二节） ======================== */
