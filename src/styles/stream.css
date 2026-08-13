@@ -83,6 +83,13 @@
   background: var(--accent-soft);
 }
 
+/* 阻断：流程停在此处等待人工接管 */
+.nodeConv__state[data-run="blocked"] {
+  color: var(--rose);
+  border-color: color-mix(in oklab, var(--rose) 34%, var(--line));
+  background: color-mix(in oklab, var(--rose) 10%, transparent);
+}
+
 /* 消息流本体：复用 .nodeMsg，此处只负责滚动与留白 */
 .nodeConv__body {
   overflow-y: auto;

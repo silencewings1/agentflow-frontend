@@ -21,7 +21,7 @@ import { NewTaskDialog } from "./components/NewTask";
 import { WorkflowStrip, NodeConversation } from "./components/Workflow";
 import {
   buildOrchestratorPlan,
-  demoMessages,
+  runOf,
   workflowTemplates,
   type OrchestratorPlanEvent,
   type WfRunStates,
@@ -69,6 +69,10 @@ export default function App() {
   const planPendingRef = useRef(false);
 
   const timers = useRef<number[]>([]);
+  /* 流水线节点推进的定时器单独存放：runTurn / startTask 会清空 timers 以
+     中断上一轮脚本播放，若与推进共用一个数组，推进会被连带清掉（表现为
+     流水线卡在中途不动）。两者生命周期不同，就该分开管。 */
+  const stepTimers = useRef<number[]>([]);
 
   const active = useMemo(
     () => sessionList.find((s) => s.id === activeId) ?? sessionList[0],
@@ -80,17 +84,24 @@ export default function App() {
     [visible, extra],
   );
 
+  /* 当前模板的模拟运行现场：换编排即换整套消息与最终态 */
+  const wfRun = useMemo(() => runOf(workflow.id), [workflow.id]);
+
   /* 节点运行态：由当前进度推导，保证换工作流或改编排后仍然自洽。
      wfStep 之前的节点已完成，当前节点在跑，其后未开始。
-     wfStep < 0 表示规划待确认、流水线尚未开跑，全部节点为未开始。 */
+     wfStep < 0 表示规划待确认、流水线尚未开跑，全部节点为未开始。
+     推进到末尾后交给模板的最终态 —— 只有它知道这次是收尾还是被阻断，
+     这是 wfStep 推导不出来的（推导只会一路 running 到底）。 */
   const runStates = useMemo<WfRunStates>(() => {
+    const last = workflow.nodes.length - 1;
+    if (wfStep >= last && Object.keys(wfRun.states).length) return wfRun.states;
     const m: WfRunStates = {};
     workflow.nodes.forEach((n, i) => {
       m[n.id] =
         wfStep < 0 ? "todo" : i < wfStep ? "done" : i === wfStep ? "running" : "todo";
     });
     return m;
-  }, [workflow, wfStep]);
+  }, [workflow, wfStep, wfRun]);
 
   /* 五层架构的运行时切面：让「总体架构」显示当前会话在每层的实时状态 */
   const archRuntime = useMemo(
@@ -110,7 +121,13 @@ export default function App() {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
-  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  useEffect(
+    () => () => {
+      timers.current.forEach(clearTimeout);
+      stepTimers.current.forEach(clearTimeout);
+    },
+    [],
+  );
 
   const push = useCallback((t: Omit<Toast, "id">) => {
     const id = `t${++toastSeq}`;
@@ -263,6 +280,9 @@ export default function App() {
     (prompt: string, wf: Workflow, contract: AgentEvent) => {
       timers.current.forEach(clearTimeout);
       timers.current = [];
+      /* 上一条任务的推进也要停掉，否则会继续改写新任务的 wfStep */
+      stepTimers.current.forEach(clearTimeout);
+      stepTimers.current = [];
       setWorkflow(wf);
       /* -1 表示流水线尚未开跑：规划待确认，DAG 全部节点为未开始 */
       setWfStep(-1);
@@ -335,13 +355,15 @@ export default function App() {
       prev.map((s) => (s.id === activeId ? { ...s, state: "running" } : s)),
     );
     setWfStep(0);
-    /* 按节点依次推进，并播放执行脚本 */
+    /* 顺序要紧：runTurn 开头会清空 timers 以中断上一轮播放，
+       若先注册推进定时器再调它，刚注册的会被一并清掉（表现为流水线卡在首个
+       节点不动）。故先让它清理并铺好执行脚本，再注册节点推进。 */
+    runTurn(planEvent.task, undefined, true);
     wf.nodes.forEach((_, i) => {
       if (i === 0) return;
       const t = window.setTimeout(() => setWfStep(i), 1400 + i * 1600);
-      timers.current.push(t);
+      stepTimers.current.push(t);
     });
-    runTurn(planEvent.task, undefined, true);
     push({
       tone: "ok",
       title: `规划已确认 · 按「${wf.name}」启动`,
@@ -448,6 +470,9 @@ export default function App() {
   const stop = useCallback(() => {
     timers.current.forEach(clearTimeout);
     timers.current = [];
+    /* 中断意味着流水线也停下，否则点了停止节点还在自己往前推进 */
+    stepTimers.current.forEach(clearTimeout);
+    stepTimers.current = [];
     setStreaming(false);
     push({ tone: "warn", title: "已中断", body: "代理停在当前步骤。" });
   }, [push]);
@@ -455,6 +480,8 @@ export default function App() {
   const selectSession = useCallback((s: Session) => {
     timers.current.forEach(clearTimeout);
     timers.current = [];
+    stepTimers.current.forEach(clearTimeout);
+    stepTimers.current = [];
     setActiveId(s.id);
     setMode("session");
     setExtra([]);
@@ -596,7 +623,7 @@ export default function App() {
               <NodeConversation
                 wf={workflow}
                 runStates={runStates}
-                messages={demoMessages}
+                messages={wfRun.messages}
                 focus={focusNode}
                 onFocus={setFocusNode}
                 onBack={() => setFocusNode(null)}

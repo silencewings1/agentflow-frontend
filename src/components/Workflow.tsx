@@ -103,8 +103,9 @@ export function DagCanvas({
           const p = nodePos(n);
           const G = Icon[roleGlyph[n.role]];
           const run = runStates?.[n.id];
-          /* 只有跑过或正在跑的节点才有消息可看，未开始的不给点击预期 */
-          const inspectable = !runStates || run === "done" || run === "running";
+          /* 只有跑过或正在跑的节点才有消息可看，未开始的不给点击预期。
+             被阻断的节点必须可点 —— 流程停在哪、为什么停，都在它的消息里 */
+          const inspectable = !runStates || (!!run && run !== "todo");
           return (
             <g
               key={n.id}
@@ -184,13 +185,18 @@ export function WorkflowStrip({
         <span className="wfStrip__rule" />
         <ol className="wfStrip__steps">
           {wf.nodes.map((n, i) => {
-            /* 有运行态时以真实状态为准，否则退回按索引推断 */
-            const st = runStates?.[n.id]
-              ? runStates[n.id] === "done"
+            /* 有运行态时以真实状态为准，否则退回按索引推断。
+               blocked 单独成态：把「被阻断」显示成「未开始」会让人以为
+               还没轮到，而实际是本该轮到却卡住了 —— 这是必须看见的区别 */
+            const run = runStates?.[n.id];
+            const st = run
+              ? run === "done"
                 ? "done"
-                : runStates[n.id] === "running"
+                : run === "running"
                   ? "active"
-                  : "todo"
+                  : run === "blocked"
+                    ? "blocked"
+                    : "todo"
               : i < activeIndex
                 ? "done"
                 : i === activeIndex
@@ -339,10 +345,9 @@ export function NodeMessages({
   /* 主控视图汇总全部消息；节点视图只保留该节点自己的 */
   const list = focus ? messages.filter((m) => m.node === focus) : messages;
 
-  /* 可点开的节点：已完成或进行中 */
-  const openable = wf.nodes.filter(
-    (n) => runStates[n.id] === "done" || runStates[n.id] === "running",
-  );
+  /* 可点开的节点：已跑过的都算。被阻断的节点尤其要能点进去 ——
+     它是流程停下来的原因所在，不让看等于把关键信息藏起来 */
+  const openable = wf.nodes.filter((n) => runStates[n.id] && runStates[n.id] !== "todo");
 
   return (
     <div className="nodeMsg">

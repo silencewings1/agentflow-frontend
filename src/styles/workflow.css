@@ -852,6 +852,19 @@
   animation: wfPulse 1.6s ease-in-out infinite;
 }
 
+/* 阻断：重试超限转人工接管，必须与「未开始」区分开 */
+.wfStrip__step[data-state="blocked"] {
+  color: var(--rose);
+  background: color-mix(in oklab, var(--rose) 9%, transparent);
+  border-color: color-mix(in oklab, var(--rose) 30%, var(--line));
+  font-weight: 550;
+}
+
+.wfStrip__step[data-state="blocked"] i {
+  background: var(--rose);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--rose) 20%, transparent);
+}
+
 @keyframes wfPulse {
   50% { box-shadow: 0 0 0 5px color-mix(in oklab, var(--accent) 6%, transparent); }
 }
@@ -1033,6 +1046,18 @@
   color: var(--accent-text);
   border-color: var(--accent-line);
   background: var(--accent-soft);
+}
+
+/* 阻断：重试超限转人工接管，用与门禁失败一致的告警色 */
+.nodeMsg__state[data-run="blocked"] {
+  color: var(--rose);
+  border-color: color-mix(in oklab, var(--rose) 34%, var(--line));
+  background: color-mix(in oklab, var(--rose) 10%, transparent);
+}
+
+.nodeMsg__tab[data-run="blocked"] {
+  color: var(--rose);
+  border-color: color-mix(in oklab, var(--rose) 26%, var(--line));
 }
 
 .nodeMsg__role {
