@@ -1164,7 +1164,9 @@ code.inline {
 .welcome__inner {
   max-width: 820px;
   margin: 0 auto;
-  padding: 52px 30px 30px;
+  /* 底部留出输入框的高度：输入框浮在内容区之上，只给 30px 时最后一排
+     意图卡片会被压在它下面点不到（4 条时刚好看不出来，6 条就露馅了） */
+  padding: 52px 30px 148px;
   display: grid;
   gap: 34px;
 }
@@ -1306,10 +1308,10 @@ code.inline {
   transform: translateY(-2px);
 }
 
+/* 标签是中文方向名：uppercase 对中文无效，大字距反而让两字标签散开难读 */
 .seed__tag {
   font-size: 9.5px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--text-4);
 }
 

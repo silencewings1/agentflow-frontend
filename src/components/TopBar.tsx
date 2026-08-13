@@ -25,7 +25,8 @@ export function TopBar({
   onPalette,
   onOpenEvidence,
 }: {
-  session: Session;
+  /** 会话列表可能被删空，此时没有当前会话 */
+  session: Session | undefined;
   streaming: boolean;
   sidebarOpen: boolean;
   inspectorOpen: boolean;
@@ -53,17 +54,21 @@ export function TopBar({
         <Icon.Panel size={16} style={{ transform: "scaleX(-1)" }} />
       </button>
 
-      <div className="topbar__crumbs mono">
-        <span className="crumb crumb--muted">{session.repo}</span>
-        <Icon.Chevron size={12} className="crumb__sep" />
-        <span className="crumb crumb--branch">
-          <Icon.Branch size={12} />
-          {session.branch}
-        </span>
-      </div>
+      {/* 会话被删空时没有面包屑可显示：整块隐去而不是渲染空壳，
+          也不能读 session.repo —— 那会直接崩掉整个页面 */}
+      {session && (
+        <div className="topbar__crumbs mono">
+          <span className="crumb crumb--muted">{session.repo}</span>
+          <Icon.Chevron size={12} className="crumb__sep" />
+          <span className="crumb crumb--branch">
+            <Icon.Branch size={12} />
+            {session.branch}
+          </span>
+        </div>
+      )}
 
       <div className="topbar__title">
-        <h2 className="serif">{session.title}</h2>
+        <h2 className="serif">{session ? session.title : "新任务"}</h2>
         {streaming && (
           <span className="working mono">
             <i /> <i /> <i /> 代理执行中

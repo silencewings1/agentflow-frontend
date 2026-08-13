@@ -1,24 +1,8 @@
 import { Icon } from "./Icons";
-import { repoOptions } from "../data/settings";
+import { repoOptions, taskSeeds } from "../data/settings";
 
-const seeds = [
-  {
-    tag: "重构",
-    text: "把 sseinternetvote 的征集时间窗判定重构进 `src/main/java/com/sse/vote/qfii/collect/CollectWindowService.java`，与周边系统架构关系保持不变",
-  },
-  {
-    tag: "排障",
-    text: "多通道重复投票未按「时间优先」以第一次为准，定位 `collect 包` 的判定根因并给出最小修复",
-  },
-  {
-    tag: "测试",
-    text: "为股东名册上传补齐边界用例，覆盖 `src/main/java/com/sse/vote/qfii/upload/RosterParser.java` 的格式与越权分支",
-  },
-  {
-    tag: "阅读",
-    text: "画出会议查询到通行证校验的调用链，指出 `src/main/java/com/sse/vote/qfii/auth/EkeyAuthenticator.java` 的权限与审计缺口",
-  },
-];
+/* 起步意图已下沉到 data/settings.ts，覆盖六个不同方向的内置编排 */
+const seeds = taskSeeds;
 
 /* 仓库清单直接引用领域模型：源仓库与目标仓库的角色由数据层界定，界面不重复声明 */
 const repos = repoOptions;

@@ -128,6 +128,52 @@ export const taskContract: TaskContract = {
   deliverables: ["需求与规则材料", "设计材料", "实现与验证材料", "交付与运维材料"],
 };
 
+/* ------------------------- 起步任务意图（空态用） -------------------------
+   刻意覆盖不同方向：只给「同一业务点的四种说法」会让人以为这套编排只能干一件事。
+   每条对应一套内置编排（wf-*），点进去应当落到相应的工作流，而不是都走需求开发。
+   ---------------------------------------------------------------------- */
+export interface TaskSeed {
+  /** 方向标签，与内置编排一一对应 */
+  tag: string;
+  /** 关联的编排 id，供后续按意图预选编排使用 */
+  workflow: string;
+  /** 任务目标原文，反引号内的路径会渲染为行内代码 */
+  text: string;
+}
+
+export const taskSeeds: TaskSeed[] = [
+  {
+    tag: "逆向重构",
+    workflow: "wf-legacy",
+    text: "从 sseinternetvote 逆向 QFII 征集投票的业务规则，在 vote_org_qfii 重写，并保持与上证信息投票平台的接口契约不变",
+  },
+  {
+    tag: "缺陷修复",
+    workflow: "wf-bugfix",
+    text: "多通道重复投票未按「时间优先」以第一次为准，定位 `DuplicateVoteChecker` 的判定根因并给出最小修复",
+  },
+  {
+    tag: "单元测试",
+    workflow: "wf-unit",
+    text: "为股东名册上传补齐边界用例，覆盖 `RosterParser` 的编码、字段格式与越权分支",
+  },
+  {
+    tag: "需求开发",
+    workflow: "wf-feature",
+    text: "新增征集结果按议案分组导出，支持累积投票制的董事候选人分组统计",
+  },
+  {
+    tag: "漏洞整改",
+    workflow: "wf-cve",
+    text: "排查 `pom.xml` 中 fastjson 与 commons-io 的已知漏洞影响范围，给出升级方案与回归清单",
+  },
+  {
+    tag: "代码审核",
+    workflow: "wf-review",
+    text: "审核 `EkeyAuthenticator` 的通行证校验与审计留痕，指出越权风险与日志脱敏缺口",
+  },
+];
+
 /* ====================== （四）多智能体协同：编排 ======================= */
 
 export type AgentRole =

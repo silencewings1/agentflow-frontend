@@ -75,8 +75,10 @@ export default function App() {
      流水线卡在中途不动）。两者生命周期不同，就该分开管。 */
   const stepTimers = useRef<number[]>([]);
 
+  /* 会话可能被删空：此时没有「当前会话」，类型上必须如实反映为可空，
+     否则 TopBar 里读 active.repo 会在空态下崩掉（sessionList[0] 也是 undefined） */
   const active = useMemo(
-    () => sessionList.find((s) => s.id === activeId) ?? sessionList[0],
+    (): Session | undefined => sessionList.find((s) => s.id === activeId) ?? sessionList[0],
     [activeId, sessionList],
   );
 
@@ -663,15 +665,19 @@ export default function App() {
         />
       </main>
 
-      <Inspector
-        tab={inspectorTab}
-        onTab={setInspectorTab}
-        activeFile={activeFile}
-        onFile={setActiveFile}
-        session={active}
-        onClose={() => setInspectorOpen(false)}
-        onToast={push}
-      />
+      {/* 没有会话时检查面板无内容可查（文件、改动、证据链都属于某条会话），
+          整块不渲染，而不是渲染一个各处为空的空壳 */}
+      {active && (
+        <Inspector
+          tab={inspectorTab}
+          onTab={setInspectorTab}
+          activeFile={activeFile}
+          onFile={setActiveFile}
+          session={active}
+          onClose={() => setInspectorOpen(false)}
+          onToast={push}
+        />
+      )}
 
       {paletteOpen && (
         <Palette onClose={() => setPaletteOpen(false)} onRun={paletteAction} />
