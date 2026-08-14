@@ -7,6 +7,7 @@ import {
   type Theme,
 } from "./data/mock";
 import { conversationOf } from "./data/streams";
+import { inspectorOf } from "./data/inspector";
 import { Rail } from "./components/Rail";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
@@ -95,6 +96,19 @@ export default function App() {
     () => conversationOf(active?.workflow),
     [active?.workflow],
   );
+
+  /* 检查面板现场同样按会话取：文件树、改动、证据链、回放、终端成套替换 */
+  const inspectorBundle = useMemo(
+    () => inspectorOf(active?.workflow),
+    [active?.workflow],
+  );
+
+  /* 当前查看的文件必须属于当前会话：切换会话后原路径往往不在新现场里，
+     此时回落到该会话改动的第一个文件，而不是让「改动」页空白。 */
+  const shownFile = useMemo(() => {
+    const paths = Object.keys(inspectorBundle.diffs);
+    return paths.includes(activeFile) ? activeFile : (paths[0] ?? activeFile);
+  }, [activeFile, inspectorBundle]);
 
   const events = useMemo(
     () => [...baseConversation.slice(0, visible), ...extra],
@@ -692,9 +706,10 @@ export default function App() {
         <Inspector
           tab={inspectorTab}
           onTab={setInspectorTab}
-          activeFile={activeFile}
+          activeFile={shownFile}
           onFile={setActiveFile}
           session={active}
+          bundle={inspectorBundle}
           onClose={() => setInspectorOpen(false)}
           onToast={push}
         />

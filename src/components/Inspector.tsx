@@ -1,19 +1,14 @@
 import { useMemo, useState } from "react";
 import { Icon } from "./Icons";
+import { type DiffLine, type FileNode, type Session } from "../data/mock";
 import {
-  diffs,
-  fileTree,
-  terminalLog,
-  type FileNode,
-  type Session,
-} from "../data/mock";
-import {
-  evidenceChain,
   evidenceKindLabel,
-  replaySteps,
   permTierLabel,
+  type EvidenceItem,
   type EvidenceKind,
+  type ReplayStep,
 } from "../data/settings";
+import type { InspectorBundle } from "../data/inspector";
 import type { Toast } from "./Toasts";
 
 export type InspectorTab = "files" | "diff" | "terminal" | "env" | "evidence" | "replay";
@@ -33,6 +28,7 @@ export function Inspector({
   activeFile,
   onFile,
   session,
+  bundle,
   onClose,
   onToast,
 }: {
@@ -41,10 +37,12 @@ export function Inspector({
   activeFile: string;
   onFile: (p: string) => void;
   session: Session;
+  /** 本会话的检查面板现场：文件树、改动、证据链、回放、终端成套替换 */
+  bundle: InspectorBundle;
   onClose: () => void;
   onToast: (t: Omit<Toast, "id">) => void;
 }) {
-  const evReady = evidenceChain.filter((e) => e.confirmed).length;
+  const evReady = bundle.evidence.filter((e) => e.confirmed).length;
 
   return (
     <aside className="inspector">
@@ -63,7 +61,7 @@ export function Inspector({
               )}
               {t.key === "evidence" && (
                 <span className="tab__badge mono">
-                  {evReady}/{evidenceChain.length}
+                  {evReady}/{bundle.evidence.length}
                 </span>
               )}
             </button>
@@ -76,14 +74,14 @@ export function Inspector({
 
       <div className="inspector__body">
         {tab === "files" && (
-          <Tree nodes={fileTree} onFile={(p) => { onFile(p); onTab("diff"); }} />
+          <Tree nodes={bundle.files} onFile={(p) => { onFile(p); onTab("diff"); }} />
         )}
         {tab === "diff" && (
-          <DiffView path={activeFile} onFile={onFile} onToast={onToast} />
+          <DiffView path={activeFile} diffs={bundle.diffs} onFile={onFile} onToast={onToast} />
         )}
-        {tab === "evidence" && <EvidencePane onToast={onToast} />}
-        {tab === "replay" && <ReplayPane onToast={onToast} />}
-        {tab === "terminal" && <Terminal />}
+        {tab === "evidence" && <EvidencePane items={bundle.evidence} onToast={onToast} />}
+        {tab === "replay" && <ReplayPane steps={bundle.replay} onToast={onToast} />}
+        {tab === "terminal" && <Terminal log={bundle.terminal} />}
         {tab === "env" && <Env session={session} />}
       </div>
     </aside>
@@ -102,15 +100,21 @@ const evGlyph: Record<EvidenceKind, "Pencil" | "Plug" | "Beaker" | "Shield" | "B
   approval: "Check",
 };
 
-function EvidencePane({ onToast }: { onToast: (t: Omit<Toast, "id">) => void }) {
+function EvidencePane({
+  items,
+  onToast,
+}: {
+  items: EvidenceItem[];
+  onToast: (t: Omit<Toast, "id">) => void;
+}) {
   const [only, setOnly] = useState(false);
   const list = useMemo(
-    () => (only ? evidenceChain.filter((e) => !e.confirmed) : evidenceChain),
-    [only],
+    () => (only ? items.filter((e) => !e.confirmed) : items),
+    [only, items],
   );
-  const ready = evidenceChain.filter((e) => e.confirmed).length;
-  const blocking = evidenceChain.filter((e) => !e.confirmed && e.required).length;
-  const pct = Math.round((ready / evidenceChain.length) * 100);
+  const ready = items.filter((e) => e.confirmed).length;
+  const blocking = items.filter((e) => !e.confirmed && e.required).length;
+  const pct = Math.round((ready / items.length) * 100);
 
   return (
     <div className="pane">
@@ -129,7 +133,7 @@ function EvidencePane({ onToast }: { onToast: (t: Omit<Toast, "id">) => void }) 
           <span className="evSum__pct mono">{pct}%</span>
         </div>
         <p className="evSum__note">
-          {ready}/{evidenceChain.length} 项已核实
+          {ready}/{items.length} 项已核实
           {blocking > 0 && (
             <>
               ·<b>{blocking} 项必需证据未闭环</b>，交付门禁保持阻断
@@ -205,10 +209,19 @@ const resultLabel: Record<string, string> = {
   wait: "等待",
 };
 
-function ReplayPane({ onToast }: { onToast: (t: Omit<Toast, "id">) => void }) {
-  const [cursor, setCursor] = useState(replaySteps.length - 1);
-  const cur = replaySteps[cursor];
-  const abnormal = replaySteps.filter((s) => s.result !== "ok").length;
+function ReplayPane({
+  steps,
+  onToast,
+}: {
+  steps: ReplayStep[];
+  onToast: (t: Omit<Toast, "id">) => void;
+}) {
+  /* 游标上界随会话变化：不同任务的回放步数不同，切换后必须夹回有效范围，
+     否则会读到 undefined。 */
+  const [cursor, setCursor] = useState(steps.length - 1);
+  const idx = Math.min(cursor, steps.length - 1);
+  const cur = steps[idx];
+  const abnormal = steps.filter((s) => s.result !== "ok").length;
 
   return (
     <div className="pane">
@@ -223,7 +236,7 @@ function ReplayPane({ onToast }: { onToast: (t: Omit<Toast, "id">) => void }) {
             onToast({
               tone: "info",
               title: "回放已导出",
-              body: `${replaySteps.length} 个步骤 · ${abnormal} 处异常，可作为审计材料归档。`,
+              body: `${steps.length} 个步骤 · ${abnormal} 处异常，可作为审计材料归档。`,
             })
           }
         >
@@ -236,18 +249,18 @@ function ReplayPane({ onToast }: { onToast: (t: Omit<Toast, "id">) => void }) {
         <input
           type="range"
           min={0}
-          max={replaySteps.length - 1}
-          value={cursor}
+          max={steps.length - 1}
+          value={idx}
           onChange={(e) => setCursor(Number(e.target.value))}
           aria-label="回放进度"
         />
         <span className="rpScrub__pos mono">
-          {cursor + 1}/{replaySteps.length}
+          {idx + 1}/{steps.length}
         </span>
       </div>
 
       <ol className="rpLine">
-        {replaySteps.map((s, i) => (
+        {steps.map((s, i) => (
           <li
             className="rpLine__item"
             key={s.id}
@@ -367,10 +380,13 @@ function TreeNode({
 
 function DiffView({
   path,
+  diffs,
   onFile,
   onToast,
 }: {
   path: string;
+  /** 本会话的逐行改动，key 与文件树中的路径一致 */
+  diffs: Record<string, DiffLine[]>;
   onFile: (p: string) => void;
   onToast: (t: Omit<Toast, "id">) => void;
 }) {
@@ -438,14 +454,15 @@ function DiffView({
 
 /* -------------------------------- terminal --------------------------------- */
 
-function Terminal() {
-  const [log, setLog] = useState(terminalLog);
+function Terminal({ log }: { log: string[] }) {
+  /* 以本会话的终端现场为初值；用户在此追加的命令只存活于当次查看 */
+  const [buf, setBuf] = useState(log);
   const [cmd, setCmd] = useState("");
 
   const run = () => {
     const c = cmd.trim();
     if (!c) return;
-    setLog((prev) => [
+    setBuf((prev) => [
       ...prev,
       `$ ${c}`,
       c.startsWith("git")
@@ -461,7 +478,7 @@ function Terminal() {
   return (
     <div className="term">
       <div className="term__log mono">
-        {log.map((l, i) => (
+        {buf.map((l, i) => (
           <div key={i} data-kind={l.startsWith("$") ? "cmd" : l.includes("✓") || l.includes("✔") || l.includes("passed") ? "ok" : l.startsWith(" M") || l.startsWith("??") ? "vcs" : "ctx"}>
             {l || " "}
           </div>
