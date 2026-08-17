@@ -212,6 +212,108 @@ export const modelOptions: ModelOption[] = [
 /** 默认模型：会话与新建智能体都从这里取，避免各处硬编码 */
 export const defaultModel = modelOptions[0].id;
 
+/* ---------------------------- 模型供应商配置 ----------------------------
+   模型能力来自外部供应商，凭据与端点必须落在受控连接层（L3）之内：
+   API Key 属于凭据，界面默认掩码、可显可复制但不明文长驻。
+
+   一个供应商 = 一个 Base URL + 一种 API 格式 + 一把 Key + 一组模型。
+   把这四样绑在一起而不是拆成扁平字段，是因为换供应商时它们必须整组更换 —— 
+   只改 Base URL 不换 Key 是配不通的，界面不该让这种半截状态看起来合法。
+
+   `enabled` 为假时该供应商下的模型不参与选型，但配置保留：排查问题时
+   「停用」比「删除」更常用，删除是不可逆动作，得由用户显式确认。
+   ---------------------------------------------------------------------- */
+
+/** 供应商暴露的 API 协议格式 —— 决定请求体怎么拼，不是随意的标签 */
+export type ApiFormat = "openai" | "anthropic" | "gemini";
+
+export const apiFormatLabel: Record<ApiFormat, string> = {
+  openai: "OpenAI Chat Completions (/v1/chat/completions)",
+  anthropic: "Anthropic Messages (/v1/messages)",
+  gemini: "Gemini generateContent (/v1beta/models)",
+};
+
+/** 供应商下的一个可调用模型 */
+export interface ProviderModel {
+  id: string;
+  /** 上下文窗口，用「1M / 200K」这类量级标注，选型时最关心的一项 */
+  context: string;
+  /** 是否支持工具调用：不支持的模型无法承担需要调工具的节点 */
+  tools: boolean;
+}
+
+export interface ModelProvider {
+  id: string;
+  name: string;
+  /** 分组：内置供应商与用户自建，界面上分开呈现 */
+  group: "builtin" | "custom";
+  enabled: boolean;
+  baseUrl: string;
+  format: ApiFormat;
+  /** 掩码后的凭据尾号，真实 Key 不进前端数据层 */
+  keyTail: string;
+  models: ProviderModel[];
+}
+
+export const modelProviders: ModelProvider[] = [
+  {
+    id: "mp-volc",
+    name: "火山方舟",
+    group: "builtin",
+    enabled: true,
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+    format: "openai",
+    keyTail: "7f2a",
+    models: [
+      { id: "deepseek-v4-pro", context: "1M", tools: true },
+      { id: "deepseek-v4-flash", context: "1M", tools: true },
+    ],
+  },
+  {
+    id: "mp-moonshot",
+    name: "月之暗面",
+    group: "builtin",
+    enabled: true,
+    baseUrl: "https://api.moonshot.cn/v1",
+    format: "openai",
+    keyTail: "c41d",
+    models: [{ id: "kimi-k3", context: "1M", tools: true }],
+  },
+  {
+    id: "mp-dashscope",
+    name: "阿里通义",
+    group: "builtin",
+    enabled: true,
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    format: "openai",
+    keyTail: "9b03",
+    models: [{ id: "qwen-3.8-max", context: "256K", tools: true }],
+  },
+  {
+    id: "mp-sse-gw",
+    name: "所内模型网关",
+    group: "custom",
+    enabled: true,
+    baseUrl: "https://ai-gw.sse.internal/v1",
+    format: "anthropic",
+    keyTail: "e5f8",
+    models: [
+      { id: "sse-code-32b", context: "200K", tools: true },
+      { id: "sse-embed-1b", context: "8K", tools: false },
+    ],
+  },
+  {
+    id: "mp-local",
+    name: "本地推理节点",
+    group: "custom",
+    enabled: false,
+    baseUrl: "http://127.0.0.1:11434/v1",
+    format: "openai",
+    keyTail: "—",
+    models: [{ id: "qwen3-14b-local", context: "32K", tools: false }],
+  },
+];
+
 export interface AgentSpec {
   id: string;
   role: AgentRole;

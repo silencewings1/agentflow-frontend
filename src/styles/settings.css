@@ -815,6 +815,369 @@
   gap: 7px;
 }
 
+/* ------------------------------ 模型配置 --------------------------------- */
+/* 左右两栏：左侧选供应商、右侧配这一个供应商。
+   两栏之间用 1px 发丝线分隔（露出底色），而不是给右栏加一整圈边框。 */
+
+.mpLayout {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.mpList,
+.mpForm {
+  background: var(--bg);
+}
+
+/* --------------------------- 左栏：供应商列表 --------------------------- */
+
+.mpList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 12px;
+}
+
+.mpList__group {
+  display: grid;
+  gap: 6px;
+}
+
+.mpList__group ul {
+  display: grid;
+  gap: 2px;
+}
+
+.mpItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  background: none;
+  text-align: left;
+  color: var(--text-2);
+  font-size: var(--step--1);
+  cursor: pointer;
+  animation: fadeUp 0.34s var(--ease-out) both;
+  animation-delay: calc(var(--i) * 35ms);
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.mpItem:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* 选中项用描边 + 浅底，与 hover 区分开：hover 是「可能选」，选中是「正在配」 */
+.mpItem[data-active="true"] {
+  background: color-mix(in oklab, var(--accent) 7%, transparent);
+  border-color: color-mix(in oklab, var(--accent) 28%, var(--line));
+  color: var(--text);
+}
+
+.mpItem__glyph {
+  flex-shrink: 0;
+  color: var(--text-4);
+}
+
+.mpItem[data-active="true"] .mpItem__glyph {
+  color: var(--accent-text);
+}
+
+.mpItem__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mpItem__n {
+  font-size: 9.5px;
+  color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 启用=实心、停用=空心：形态差异先于颜色差异，对色觉障碍友好 */
+.mpItem__dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--text-4);
+}
+
+.mpItem__dot[data-on="true"] {
+  background: var(--sage);
+  border-color: var(--sage);
+}
+
+.mpList__add {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  border: 1px dashed var(--line-2);
+  background: none;
+  color: var(--text-3);
+  font-size: var(--step--1);
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.mpList__add:hover {
+  border-color: var(--accent-line);
+  color: var(--accent-text);
+}
+
+.mpAdd {
+  display: grid;
+  gap: 6px;
+  padding: 9px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--accent-line);
+  background: color-mix(in oklab, var(--accent) 5%, transparent);
+}
+
+.mpAdd input {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  font-size: var(--step--2);
+  font-family: inherit;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.mpAdd input:focus {
+  border-color: var(--accent-line);
+}
+
+.mpAdd input::placeholder {
+  color: var(--text-4);
+}
+
+.mpAdd__act {
+  display: flex;
+  gap: 6px;
+}
+
+/* --------------------------- 右栏：供应商配置 --------------------------- */
+
+.mpForm {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  padding: 16px 18px 20px;
+}
+
+.mpForm__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.mpForm__head h4 {
+  font-size: var(--step-1);
+  color: var(--text);
+}
+
+/* 状态徽标之后的控件一律靠右：不需要额外的占位元素 */
+.mpForm__head .btn {
+  margin-left: auto;
+}
+
+.mpForm__head .btn + .iconBtn {
+  margin-left: 0;
+}
+
+.mpBadge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+  border: 1px solid color-mix(in oklab, var(--gold) 34%, var(--line));
+  color: var(--gold);
+  background: color-mix(in oklab, var(--gold) 10%, transparent);
+}
+
+.mpBadge[data-on="true"] {
+  border-color: color-mix(in oklab, var(--sage) 34%, var(--line));
+  color: var(--sage);
+  background: color-mix(in oklab, var(--sage) 10%, transparent);
+}
+
+.mpField {
+  display: grid;
+  gap: 6px;
+}
+
+.mpField__label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
+.mpField__n {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-4);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mpField__hint {
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--text-4);
+  font-style: normal;
+}
+
+.mpField > input,
+.mpField > select,
+.mpKey > input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  font-size: var(--step--1);
+  font-family: inherit;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.22s;
+}
+
+.mpField > input:focus,
+.mpField > select:focus,
+.mpKey > input:focus {
+  border-color: var(--accent-line);
+}
+
+/* option 显式给底色，否则暗色主题下部分平台会渲染成白底黑字 */
+.mpField > select option {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.mpKey {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* ------------------------------ 模型列表 -------------------------------- */
+
+.mpModels {
+  display: grid;
+  gap: 5px;
+}
+
+.mpModel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px 7px 11px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--bg-deep) 34%, transparent);
+  animation: fadeUp 0.34s var(--ease-out) both;
+  animation-delay: calc(var(--i) * 35ms);
+}
+
+.mpModel__id {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--step--1);
+  color: var(--text);
+}
+
+/* 不支持工具调用是硬约束，用 gold 表示「需要注意」而非错误 */
+.mpModel__flag {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  font-size: 9px;
+  color: var(--gold);
+  border: 1px solid color-mix(in oklab, var(--gold) 30%, var(--line));
+  background: color-mix(in oklab, var(--gold) 8%, transparent);
+}
+
+.mpModel__ctx {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mpEmpty {
+  padding: 12px 13px;
+  border-radius: var(--r-sm);
+  border: 1px dashed var(--line-2);
+  font-size: var(--step--1);
+  line-height: 1.6;
+  color: var(--text-4);
+}
+
+.mpModelAdd {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.mpModelAdd input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  font-size: var(--step--1);
+  font-family: inherit;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.22s;
+}
+
+.mpModelAdd input:focus {
+  border-color: var(--accent-line);
+}
+
+.mpModelAdd input::placeholder {
+  color: var(--text-4);
+}
+
+/* 窄屏退化为上下两段：优先保住配置项本身，而不是硬挤两栏 */
+@media (max-width: 860px) {
+  .mpLayout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* --------------------------------- stats -------------------------------- */
 
 .statRow {

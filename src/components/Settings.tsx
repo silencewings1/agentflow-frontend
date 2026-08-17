@@ -15,7 +15,9 @@ import {
   defaultModel,
   envVars,
   evidenceChain,
+  apiFormatLabel,
   modelOptions,
+  modelProviders,
   permTierLabel,
   permTiers,
   qualityGates,
@@ -28,11 +30,13 @@ import {
   type AgentRole,
   type AgentScope,
   type AgentSpec,
+  type ApiFormat,
   type ArchLayer,
   type Connection,
+  type ModelProvider,
 } from "../data/settings";
 
-export type SettingsPane = "arch" | "agents" | "connect" | "env";
+export type SettingsPane = "arch" | "agents" | "models" | "connect" | "env";
 
 /* 架构层的跳转落点：点击直达承载该层证据的界面，而不是让用户自己去找 */
 export type ArchJump = "workflow" | "agents" | "replay" | "evidence" | "checkpoint";
@@ -60,6 +64,12 @@ const PANES: { id: SettingsPane; label: string; glyph: IconName; desc: string }[
     label: "智能体",
     glyph: "Agent",
     desc: "主控智能体与专业智能体的职责、模型、权限与工具集。",
+  },
+  {
+    id: "models",
+    label: "模型配置",
+    glyph: "Cpu",
+    desc: "管理模型供应商与可用模型。凭据经受控连接层保管，配置后可在会话与智能体中选用。",
   },
   {
     id: "connect",
@@ -149,6 +159,7 @@ export function SettingsOverlay({
               <ArchPane onToast={onToast} runtime={runtime} onJump={onJump} />
             )}
             {pane === "agents" && <AgentsPane onToast={onToast} />}
+            {pane === "models" && <ModelsPane onToast={onToast} />}
             {pane === "connect" && <ConnectPane onToast={onToast} />}
             {pane === "env" && <EnvPane onToast={onToast} />}
           </div>
@@ -729,6 +740,328 @@ function AgentCard({
       >
         <i />
       </button>
+    </div>
+  );
+}
+
+/* ============================== 模型配置 =============================== */
+/* 左栏选供应商、右栏配该供应商 —— 模型能力的来源是「供应商」这一整体，
+   Base URL / API 格式 / Key / 模型列表必须一起看、一起改。 */
+
+function ModelsPane({ onToast }: { onToast: Toast }) {
+  const [list, setList] = useState<ModelProvider[]>(modelProviders);
+  const [sel, setSel] = useState(modelProviders[0].id);
+  const [showKey, setShowKey] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const [draftUrl, setDraftUrl] = useState("");
+  const [modelDraft, setModelDraft] = useState("");
+
+  const cur = list.find((p) => p.id === sel) ?? list[0];
+  /* 只统计启用供应商下的模型：停用的配置仍在，但不参与选型 */
+  const usable = list
+    .filter((p) => p.enabled)
+    .reduce((n, p) => n + p.models.length, 0);
+
+  const patch = (id: string, next: Partial<ModelProvider>) =>
+    setList((prev) => prev.map((p) => (p.id === id ? { ...p, ...next } : p)));
+
+  /* 切换供应商时收起 Key：凭据不应跨供应商保持可见 */
+  const pick = (id: string) => {
+    setSel(id);
+    setShowKey(false);
+  };
+
+  const groups: { key: ModelProvider["group"]; label: string }[] = [
+    { key: "builtin", label: "内置供应商" },
+    { key: "custom", label: "自建供应商" },
+  ];
+
+  return (
+    <div className="stack">
+      <div className="statRow">
+        <Stat label="供应商" value={`${list.filter((p) => p.enabled).length}/${list.length}`} hint="已启用 / 全部" />
+        <Stat label="可选模型" value={String(usable)} hint="仅启用供应商下的模型" />
+        <Stat
+          label="凭据保管"
+          value="受控连接层"
+          hint="Key 不下发到智能体"
+        />
+      </div>
+
+      <div className="mpLayout">
+        {/* ---------------- 左栏：供应商列表 ---------------- */}
+        <aside className="mpList">
+          {groups.map((g) => {
+            const items = list.filter((p) => p.group === g.key);
+            if (!items.length) return null;
+            return (
+              <div className="mpList__group" key={g.key}>
+                <span className="kicker">{g.label}</span>
+                <ul>
+                  {items.map((p, i) => (
+                    <li key={p.id} style={{ ["--i" as string]: i }}>
+                      <button
+                        className="mpItem"
+                        data-active={p.id === sel}
+                        onClick={() => pick(p.id)}
+                      >
+                        <Icon.Cube size={13} className="mpItem__glyph" />
+                        <span className="mpItem__name">{p.name}</span>
+                        <span className="mpItem__n mono">{p.models.length}</span>
+                        {/* 启用态用实心点、停用态用空心点：形态差异先于颜色差异 */}
+                        <i className="mpItem__dot" data-on={p.enabled} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+
+          {adding ? (
+            <div className="mpAdd">
+              <input
+                value={draftName}
+                onChange={(e) => setDraftName(e.target.value)}
+                placeholder="供应商名称"
+                aria-label="供应商名称"
+                autoFocus
+              />
+              <input
+                className="mono"
+                value={draftUrl}
+                onChange={(e) => setDraftUrl(e.target.value)}
+                placeholder="https://…/v1"
+                aria-label="Base URL"
+              />
+              <div className="mpAdd__act">
+                <button
+                  className="btn btn--sm btn--accent"
+                  disabled={!draftName.trim() || !draftUrl.trim()}
+                  onClick={() => {
+                    const id = `mp-${Date.now()}`;
+                    setList((prev) => [
+                      ...prev,
+                      {
+                        id,
+                        name: draftName.trim(),
+                        group: "custom",
+                        /* 新供应商默认停用：Key 尚未填写，此时参与选型必然失败 */
+                        enabled: false,
+                        baseUrl: draftUrl.trim(),
+                        format: "openai",
+                        keyTail: "—",
+                        models: [],
+                      },
+                    ]);
+                    pick(id);
+                    setAdding(false);
+                    setDraftName("");
+                    setDraftUrl("");
+                    onToast({
+                      tone: "info",
+                      title: "供应商已添加",
+                      body: "默认为停用状态：填好 API Key 并添加模型后再启用。",
+                    });
+                  }}
+                >
+                  添加
+                </button>
+                <button className="btn btn--sm" onClick={() => setAdding(false)}>
+                  取消
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button className="mpList__add" onClick={() => setAdding(true)}>
+              <Icon.Plus size={13} />
+              添加供应商
+            </button>
+          )}
+        </aside>
+
+        {/* ---------------- 右栏：当前供应商配置 ---------------- */}
+        <section className="mpForm">
+          <header className="mpForm__head">
+            <h4 className="serif">{cur.name}</h4>
+            <span className="mpBadge" data-on={cur.enabled}>
+              {cur.enabled ? "已启用" : "已停用"}
+            </span>
+            <button
+              className="btn btn--sm"
+              onClick={() => {
+                patch(cur.id, { enabled: !cur.enabled });
+                onToast({
+                  tone: cur.enabled ? "warn" : "ok",
+                  title: cur.enabled ? `${cur.name} 已停用` : `${cur.name} 已启用`,
+                  body: cur.enabled
+                    ? "配置保留，其下模型不再参与选型。"
+                    : `${cur.models.length} 个模型可在会话与智能体中选用。`,
+                });
+              }}
+            >
+              {cur.enabled ? "停用" : "启用"}
+            </button>
+            {/* 删除是不可逆动作：内置供应商不给删，自建的删除前明确后果 */}
+            <button
+              className="iconBtn iconBtn--sm"
+              title={cur.group === "builtin" ? "内置供应商不可删除" : "删除供应商"}
+              disabled={cur.group === "builtin"}
+              onClick={() => {
+                const rest = list.filter((p) => p.id !== cur.id);
+                setList(rest);
+                setSel(rest[0].id);
+                onToast({
+                  tone: "warn",
+                  title: `已删除 ${cur.name}`,
+                  body: "端点与凭据一并移除；引用其模型的智能体需重新选型。",
+                });
+              }}
+            >
+              <Icon.Trash size={13} />
+            </button>
+          </header>
+
+          <label className="mpField">
+            <span className="mpField__label">Base URL</span>
+            <input
+              className="mono"
+              value={cur.baseUrl}
+              onChange={(e) => patch(cur.id, { baseUrl: e.target.value })}
+              spellCheck={false}
+            />
+          </label>
+
+          <label className="mpField">
+            <span className="mpField__label">API 格式</span>
+            <select
+              value={cur.format}
+              onChange={(e) => patch(cur.id, { format: e.target.value as ApiFormat })}
+            >
+              {(Object.keys(apiFormatLabel) as ApiFormat[]).map((f) => (
+                <option key={f} value={f}>
+                  {apiFormatLabel[f]}
+                </option>
+              ))}
+            </select>
+            <em className="mpField__hint">
+              决定请求体如何拼装，填错会在首次调用时被连接层拦下。
+            </em>
+          </label>
+
+          <label className="mpField">
+            <span className="mpField__label">API Key</span>
+            <span className="mpKey">
+              <input
+                className="mono"
+                type={showKey ? "text" : "password"}
+                value={showKey ? `sk-live-9c2e41b7a5d8${cur.keyTail}` : "••••••••••••••••••••••••"}
+                readOnly
+                aria-label="API Key"
+              />
+              <button
+                className="iconBtn iconBtn--sm"
+                title={showKey ? "隐藏" : "显示"}
+                onClick={() => setShowKey((v) => !v)}
+              >
+                <Icon.Key size={13} />
+              </button>
+            </span>
+            <em className="mpField__hint">
+              凭据由受控连接层保管，仅在调用时注入；智能体拿不到明文。
+            </em>
+          </label>
+
+          <div className="mpField">
+            <span className="mpField__label">
+              模型列表
+              <span className="mpField__n mono">{cur.models.length}</span>
+            </span>
+
+            {cur.models.length ? (
+              <ul className="mpModels">
+                {cur.models.map((m, i) => (
+                  <li key={m.id} className="mpModel" style={{ ["--i" as string]: i }}>
+                    <span className="mpModel__id mono">{m.id}</span>
+                    {/* 不支持工具调用是硬约束，必须在选型时就看见 */}
+                    {!m.tools && (
+                      <span className="mpModel__flag" title="不支持工具调用">
+                        无工具
+                      </span>
+                    )}
+                    <span className="mpModel__ctx mono">{m.context}</span>
+                    <button
+                      className="iconBtn iconBtn--sm"
+                      title="移除模型"
+                      onClick={() =>
+                        patch(cur.id, {
+                          models: cur.models.filter((x) => x.id !== m.id),
+                        })
+                      }
+                    >
+                      <Icon.Trash size={12} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mpEmpty">
+                还没有模型。供应商没有可用模型时无法参与选型，先添加一个。
+              </p>
+            )}
+
+            <div className="mpModelAdd">
+              <input
+                className="mono"
+                value={modelDraft}
+                onChange={(e) => setModelDraft(e.target.value)}
+                placeholder="模型 API 名，如 deepseek-v4-pro"
+                aria-label="模型名"
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  const id = modelDraft.trim();
+                  if (!id) return;
+                  if (cur.models.some((m) => m.id === id)) {
+                    onToast({
+                      tone: "warn",
+                      title: "模型已存在",
+                      body: cur.name + " 下已有 " + id + "，未重复添加。",
+                    });
+                    return;
+                  }
+                  patch(cur.id, {
+                    models: [...cur.models, { id, context: "—", tools: true }],
+                  });
+                  setModelDraft("");
+                }}
+              />
+              <button
+                className="btn btn--sm"
+                disabled={!modelDraft.trim()}
+                onClick={() => {
+                  const id = modelDraft.trim();
+                  if (cur.models.some((m) => m.id === id)) {
+                    onToast({
+                      tone: "warn",
+                      title: "模型已存在",
+                      body: cur.name + " 下已有 " + id + "，未重复添加。",
+                    });
+                    return;
+                  }
+                  patch(cur.id, {
+                    models: [...cur.models, { id, context: "—", tools: true }],
+                  });
+                  setModelDraft("");
+                }}
+              >
+                <Icon.Plus size={12} />
+                添加模型
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
