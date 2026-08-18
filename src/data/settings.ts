@@ -759,25 +759,6 @@ export const qualityGates: QualityGate[] = [
   },
 ];
 
-/* AI 代码审核的检查维度 */
-export const reviewDimensions = [
-  { id: "r1", name: "功能正确性", found: 2, severity: "major" as const },
-  { id: "r2", name: "安全", found: 1, severity: "blocker" as const },
-  { id: "r3", name: "异常处理", found: 3, severity: "minor" as const },
-  { id: "r4", name: "边界条件", found: 2, severity: "major" as const },
-  { id: "r5", name: "并发与资源使用", found: 0, severity: "none" as const },
-  { id: "r6", name: "可维护性", found: 4, severity: "minor" as const },
-  { id: "r7", name: "测试充分性", found: 1, severity: "major" as const },
-  { id: "r8", name: "修改影响范围", found: 0, severity: "none" as const },
-];
-
-export const severityLabel: Record<string, string> = {
-  blocker: "阻断",
-  major: "严重",
-  minor: "一般",
-  none: "无",
-};
-
 /* ==================== （三）结构化任务交接：证据链 ==================== */
 
 export type EvidenceKind =

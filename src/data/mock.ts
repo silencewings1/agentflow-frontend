@@ -620,6 +620,40 @@ const openings: Record<string, Opening> = {
       deliverables: ["审查报告", "问题清单与定级", "整改建议"],
     },
   },
+  /* 存量系统逆向重构：sseinternetvote 无设计文档，规则散落在 action / service 两层，
+     结论必须以「事实 / 推断 / 待确认」三分标注，待确认项交人裁决后才能进入设计。 */
+  "wf-legacy": {
+    user: {
+      id: "e1",
+      kind: "user",
+      text: "存量系统 sseinternetvote 里没有设计文档，QFII 征集投票的规则散落在 action 与 service。帮我以源码为唯一信息源逆向出征集时点、重复投票、结果报送这几条规则，把结论分成事实 / 推断 / 待确认三类，待确认的交给我确认后再进入设计。",
+      attachments: ["qfii-legacy-callmap.xml"],
+    },
+    contract: {
+      id: "e1b",
+      kind: "contract",
+      title: "存量 QFII 征集投票规则逆向",
+      problem:
+        "存量系统 sseinternetvote（Struts + iBATIS，com.sse.internetvote）中征集投票的规则散落在 action 与 service 两层，无设计文档，判定逻辑各写一遍且已出现偏差。需以源码为唯一信息源逆向，并把结论显式分为事实 / 推断 / 待确认三类：只有事实可直接进入设计，推断须附理由，待确认必须交人工裁决后才能固化为验收基线。",
+      repo: "sseinternetvote · main",
+      workflow: "存量系统逆向重构",
+      scope: [
+        "action 层：征集时点与投票入口",
+        "service 层：重复投票判定与结果报送",
+        "对外报送 vote.sseinfo.com 的字段与响应解析",
+      ],
+      doneCriteria: [
+        "每条结论带出处（文件 + 行号）或明示为推断 / 待确认",
+        "征集时点、重复投票、结果报送三条规则逐条闭环",
+        "待确认项经人工检查点裁决后固化为验收基线",
+        "逆向结论与对外报送契约比对一致",
+      ],
+      approvals: ["待确认项语义裁决", "逆向结论确认"],
+      materials: ["sseinternetvote 源码（4 个核心文件）", "svn 提交历史 r4187"],
+      tools: ["repo.read", "repo.patch", "test.run"],
+      deliverables: ["规则逆向报告", "事实 / 推断 / 待确认清单", "重构设计", "证据链归档"],
+    },
+  },
 };
 
 /** 按编排取开场两条（用户消息 + 任务契约）；未登记则返回 undefined。

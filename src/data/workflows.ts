@@ -123,12 +123,6 @@ export const roleTint: Record<AgentRole, Workflow["tint"]> = {
   ops: "sage",
 };
 
-export const edgeKindLabel: Record<EdgeKind, string> = {
-  flow: "流转",
-  fail: "失败回退",
-  approve: "人工审批",
-};
-
 /* ------------------- 主控智能体：契约规则生成 -------------------------
    契约按「角色 × 上游产物」推导：输入来自上游节点的输出，
    形成一条首尾相接的产物链 —— 这正是主控存在的意义：
@@ -2152,25 +2146,4 @@ export function patchNode(wf: Workflow, id: string, patch: Partial<WfNode>): Wor
     },
     wf.orchestrator.contracts,
   );
-}
-
-/** 人工改写某节点的契约：标记 manual，后续结构变化不再覆盖它 */
-export function patchContract(
-  wf: Workflow,
-  nodeId: string,
-  patch: Partial<NodeContract>,
-): Workflow {
-  const cur = wf.orchestrator.contracts[nodeId];
-  if (!cur) return wf;
-  return {
-    ...wf,
-    builtin: false,
-    orchestrator: {
-      ...wf.orchestrator,
-      contracts: {
-        ...wf.orchestrator.contracts,
-        [nodeId]: { ...cur, ...patch, manual: true },
-      },
-    },
-  };
 }

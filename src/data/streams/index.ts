@@ -21,24 +21,29 @@ import { legacyStream } from "./legacy";
 import { reviewStream } from "./review";
 import { unitStream } from "./unit";
 
-/** 编排 id → 该编排的执行过程（不含开场的用户消息与任务契约） */
+/** 编排 id → 该编排的执行过程（不含开场的用户消息与任务契约）。
+    wf-feature（需求开发，默认）复用默认演示流的执行部分。 */
 const bodyOf: Record<string, AgentEvent[]> = {
   "wf-bugfix": bugfixStream,
   "wf-cve": cveStream,
   "wf-unit": unitStream,
   "wf-review": reviewStream,
   "wf-legacy": legacyStream,
+  "wf-feature": conversation.slice(2),
 };
 
+/** 每套编排都有专属开场：需求开发即默认演示流的前两条（用户消息 + 任务契约），
+    其余由 mock.openings 按编排提供；未登记时返回 undefined。 */
+const openingOfEither = (wfId: string | undefined): AgentEvent[] | undefined =>
+  wfId === "wf-feature" ? conversation.slice(0, 2) : openingOf(wfId);
+
 /**
- * 按会话所属编排取整条正文：开场（用户消息 + 任务契约）与执行过程都随编排变化。
- * 未登记的编排回落到默认的需求开发演示流，保证界面不会因缺数据而空掉。
+ * 按会话所属编排取整条正文：开场与执行过程都随编排变化，全部登记在
+ * bodyOf / 开场表中，装配一致，不再靠分叉回退。未登记的编排才回落到
+ * 默认的需求开发演示流，保证界面不会因缺数据而空掉。
  */
 export function conversationOf(wfId: string | undefined): AgentEvent[] {
-  const opening = openingOf(wfId);
+  const opening = openingOfEither(wfId);
   const body = wfId ? bodyOf[wfId] : undefined;
-  /* 没有专属正文时沿用默认流的执行过程（e2 起），开场仍按编排替换 */
-  return opening
-    ? [...opening, ...(body ?? conversation.slice(2))]
-    : conversation;
+  return opening && body ? [...opening, ...body] : conversation;
 }
