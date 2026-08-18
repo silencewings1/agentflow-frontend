@@ -48,7 +48,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("files");
-  const [activeFile, setActiveFile] = useState<string>("src/main/java/com/sse/vote/qfii/collect/CollectWindowService.java");
+  const [activeFile, setActiveFile] = useState<string>("src/main/java/com/demo/auth/AuthService.java");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsPane, setSettingsPane] = useState<SettingsPane | null>(null);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
@@ -253,16 +253,16 @@ export default function App() {
           id: `${uid}-b`,
           kind: "reasoning",
           title: "已思考 6 秒",
-          body: "先确认改动范围是否会触及对外报送接口。仓库根目录的 AGENTS.md 要求征集规则的判定必须与源仓库语义逐条对齐，并且改动需附带对应的测试。据此拟定最小步骤集。",
+          body: "先确认改动范围与安全要求。密码须加盐哈希（bcrypt），Token 用 JWT 并设短期过期 + refresh。据此拟定最小步骤集。",
           ms: 6100,
         },
         {
           id: `${uid}-c`,
           kind: "plan",
           steps: [
-            { label: "在源仓库定位征集规则实现与调用点", status: "done" },
-            { label: "在目标仓库按最小改动落地重构", status: "active" },
-            { label: "补 JUnit 用例并跑通 mvn 编译", status: "todo" },
+            { label: "定位现有认证相关代码", status: "done" },
+            { label: "实现 AuthService 与 Token 管理", status: "active" },
+            { label: "补 JUnit 用例并跑通编译", status: "todo" },
           ],
         },
         {
@@ -270,18 +270,18 @@ export default function App() {
           kind: "tool",
           tool: "search",
           label: "grep",
-          meta: "checkCollectWindow — 2 files, 3 matches",
+          meta: "AuthService|TokenManager — 2 files, 5 matches",
           status: "ok",
           lines: [
-            "src/main/java/com/sse/vote/collect/CollectWindowService.java:31   checkCollectWindow(meetingId, tradeDate)",
-            "src/main/java/com/sse/vote/collect/DuplicateVoteChecker.java:12   public boolean isDuplicateVote(holderId, channel)",
+            "src/main/java/com/demo/auth/AuthService.java:31   login(username, password)",
+            "src/main/java/com/demo/auth/TokenManager.java:12   generateToken(userId)",
           ],
         },
         {
           id: `${uid}-e`,
           kind: "approval",
-          command: "mvn -q compile && mvn -pl collect test",
-          rationale: "需要在沙箱内执行编译与测试，确认征集时间窗与重复投票判定没有偏离源仓库语义。",
+          command: "mvn -q compile && mvn -pl auth test",
+          rationale: "需要在沙箱内执行编译与测试，确认密码哈希与 Token 刷新逻辑正确。",
           risk: "low",
         },
       ];
@@ -467,24 +467,24 @@ export default function App() {
           kind: "tool",
           tool: "shell",
           label: "shell",
-          meta: "mvn -q compile && mvn -pl collect test",
+          meta: "mvn -q compile && mvn -pl auth test",
           status: "ok",
           lines: [
             "$ mvn -q compile",
             "> mvn -q verify -DskipTests",
-            "✔ 0 errors · 312 files · 4.1s",
+            "✔ 0 errors · 48 files · 2.1s",
             "",
-            "$ mvn -pl collect test",
-            " ✓ src/test/java/com/sse/vote/qfii/collect/CollectWindowServiceTest.java (9 tests) 208ms",
-            " ✓ src/test/java/com/sse/vote/qfii/collect/DuplicateVoteCheckerTest.java (14 tests) 322ms",
-            " Tests  23 passed (23)",
+            "$ mvn -pl auth test",
+            " ✓ src/test/java/com/demo/auth/AuthServiceTest.java (8 tests) 208ms",
+            " ✓ src/test/java/com/demo/auth/TokenManagerTest.java (6 tests) 142ms",
+            " Tests  14 passed (14)",
           ],
         },
-        { id: `${id}-t`, kind: "tests", passed: 23, failed: 0, skipped: 1, ms: 1380 },
+        { id: `${id}-t`, kind: "tests", passed: 14, failed: 0, skipped: 0, ms: 1100 },
         {
           id: `${id}-w`,
           kind: "text",
-          body: "编译与测试全部通过，征集时间窗（投票起始日前一交易日 9:15–15:00）与「时间优先」去重规则已覆盖；报送字段已与 `src/main/resources/vote-org-api.yaml` 契约比对一致。可以开 PR 了。",
+          body: "编译与测试全部通过，密码加盐哈希与 Token 刷新吊销均已覆盖。可以开 PR 了。",
         },
       ];
       let delay = 420;
@@ -493,7 +493,7 @@ export default function App() {
           setExtra((prev) => [...prev, ev]);
           if (i === tail.length - 1) {
             setStreaming(false);
-            push({ tone: "ok", title: "23 项测试通过", body: "耗时 1.38s · 覆盖率 96.4%" });
+            push({ tone: "ok", title: "14 项测试通过", body: "耗时 1.1s · 覆盖率 92%" });
           }
         }, delay);
         timers.current.push(t);

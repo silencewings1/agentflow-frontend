@@ -43,7 +43,7 @@ export function NewTaskDialog({
   onToast: (t: { tone: "ok" | "warn" | "info"; title: string; body: string }) => void;
 }) {
   const [step, setStep] = useState<Step>("intent");
-  /* 预填本次任务目标：重构落在 vote_org_qfii，需求来自 sseinternetvote */
+  /* 预填本次任务目标 */
   const [prompt, setPrompt] = useState(taskContract.problem);
   /* 目标仓库可多选：契约范围以此为界，跨仓库改动需在契约中显式声明。
      默认选中目标仓库 —— 改动落在它上面，源仓库只作为需求来源被读取 */
@@ -221,9 +221,9 @@ export function NewTaskDialog({
                 <span className="kicker">从模板起草</span>
                 <div className="seedRow">
                   {[
-                    "提取 QFII 投票征集的业务规则，标注事实、推断与待确认项",
-                    "核对 vote_org_qfii 与上证信息投票平台的接口契约是否保持不变",
-                    "为名册与征集结果的文件上传补齐边界用例，覆盖格式与时点校验",
+                    "实现用户认证模块，支持密码登录与 Token 刷新",
+                    "修复登录超时未释放数据库连接的问题",
+                    "为认证模块补齐边界用例，覆盖 Token 过期与吊销分支",
                   ].map((s) => (
                     <button key={s} className="seedChip" onClick={() => setPrompt(s)}>
                       {s}

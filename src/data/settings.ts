@@ -96,14 +96,14 @@ export interface RepoOption {
 
 export const repoOptions: RepoOption[] = [
   {
-    name: "sseinternetvote",
+    name: "demo-app",
     lang: "Java",
     branch: "main",
     dot: "var(--azure)",
     role: "源仓库",
   },
   {
-    name: "vote_org_qfii",
+    name: "demo-service",
     lang: "Java",
     branch: "main",
     dot: "var(--cyan)",
@@ -112,20 +112,17 @@ export const repoOptions: RepoOption[] = [
 ];
 
 export const taskContract: TaskContract = {
-  problem:
-    "将 sseinternetvote 项目中 QFII 投票相关的需求提取出来，并在 vote_org_qfii 项目中重构。与周边系统的架构关系需要保持不变。",
-  /* 改动范围按业务模块划分：QFII 作为股票名义持有人，需向实际持有人征集
-     投票意见，故涉及会议查询、文件上传（名册与征集结果）、权限审计与通行证对接 */
-  scope: ["会议查询模块", "文件上传模块", "权限与审计", "通行证对接"],
+  problem: "实现用户认证模块，支持密码登录与 Token 刷新，密码须加盐哈希存储。",
+  scope: ["认证服务", "Token 管理", "对应测试"],
   doneCriteria: [
-    "需求条目全部标注事实 / 推断 / 待确认",
-    "单元测试与集成测试通过且覆盖率达门禁阈值",
-    "独立审查无阻断与严重问题",
+    "密码加盐哈希",
+    "Token 过期可刷新",
+    "覆盖率不低于 90%",
   ],
-  approvals: ["关键业务语义确认", "代码合并", "生产发布"],
-  materials: ["项目源码", "依赖扫描结果"],
+  approvals: ["沙箱内执行测试", "代码合并"],
+  materials: ["项目源码", "安全规范"],
   tools: ["repo.read", "repo.patch", "test.run", "scan.sast"],
-  deliverables: ["需求与规则材料", "设计材料", "实现与验证材料", "交付与运维材料"],
+  deliverables: ["实现与测试", "证据链归档"],
 };
 
 /* ------------------------- 起步任务意图（空态用） -------------------------
@@ -143,34 +140,34 @@ export interface TaskSeed {
 
 export const taskSeeds: TaskSeed[] = [
   {
-    tag: "逆向重构",
-    workflow: "wf-legacy",
-    text: "从 sseinternetvote 逆向 QFII 征集投票的业务规则，在 vote_org_qfii 重写，并保持与上证信息投票平台的接口契约不变",
+    tag: "需求开发",
+    workflow: "wf-feature",
+    text: "实现用户认证模块，支持密码登录与 Token 刷新",
   },
   {
     tag: "缺陷修复",
     workflow: "wf-bugfix",
-    text: "多通道重复投票未按「时间优先」以第一次为准，定位 `DuplicateVoteChecker` 的判定根因并给出最小修复",
+    text: "修复登录超时未释放数据库连接的问题",
   },
   {
     tag: "单元测试",
     workflow: "wf-unit",
-    text: "为股东名册上传补齐边界用例，覆盖 `RosterParser` 的编码、字段格式与越权分支",
-  },
-  {
-    tag: "需求开发",
-    workflow: "wf-feature",
-    text: "新增征集结果按议案分组导出，支持累积投票制的董事候选人分组统计",
-  },
-  {
-    tag: "漏洞整改",
-    workflow: "wf-cve",
-    text: "排查 `pom.xml` 中 fastjson 与 commons-io 的已知漏洞影响范围，给出升级方案与回归清单",
+    text: "为认证模块补齐边界用例，覆盖 Token 过期与吊销分支",
   },
   {
     tag: "代码审核",
     workflow: "wf-review",
-    text: "审核 `EkeyAuthenticator` 的通行证校验与审计留痕，指出越权风险与日志脱敏缺口",
+    text: "审核认证模块的安全合规，指出越权风险与日志脱敏缺口",
+  },
+  {
+    tag: "漏洞整改",
+    workflow: "wf-cve",
+    text: "排查依赖中的已知漏洞，给出升级方案与回归清单",
+  },
+  {
+    tag: "逆向重构",
+    workflow: "wf-legacy",
+    text: "逆向存量系统的认证逻辑，重写为统一认证服务",
   },
 ];
 
@@ -794,9 +791,9 @@ export const evidenceChain: EvidenceItem[] = [
   {
     id: "ev-1",
     kind: "change",
-    title: "5 个文件变更 · +302 −187",
-    source: "git.corp/sse/vote_org_qfii",
-    version: "fix/flaky-snapshot@a1c9f42",
+    title: "2 个文件变更 · +80 −12",
+    source: "git.corp/demo-app",
+    version: "feat/auth@a1b2c3",
     at: "10:12",
     actor: "开发智能体",
     confirmed: true,
@@ -804,19 +801,8 @@ export const evidenceChain: EvidenceItem[] = [
   },
   {
     id: "ev-2",
-    kind: "toolcall",
-    title: "受控调用 18 次 · 拒绝 1 次",
-    source: "受控连接层审计",
-    version: "audit-2026-08-12",
-    at: "10:12",
-    actor: "受控连接层",
-    confirmed: true,
-    required: true,
-  },
-  {
-    id: "ev-3",
     kind: "test",
-    title: "单元 312 passed · 覆盖率 91.4%",
+    title: "单元 14 passed · 覆盖率 92%",
     source: "ci.corp/pipeline/8841",
     version: "run#8841",
     at: "10:18",
@@ -825,40 +811,7 @@ export const evidenceChain: EvidenceItem[] = [
     required: true,
   },
   {
-    id: "ev-4",
-    kind: "test",
-    title: "集成 48/52 passed · 4 failed",
-    source: "ci.corp/pipeline/8842",
-    version: "run#8842",
-    at: "10:24",
-    actor: "测试智能体",
-    confirmed: false,
-    required: true,
-  },
-  {
-    id: "ev-5",
-    kind: "scan",
-    title: "SAST 1 阻断项待整改",
-    source: "scan.corp/sast/2291",
-    version: "sast#2291",
-    at: "10:25",
-    actor: "确定性程序",
-    confirmed: false,
-    required: true,
-  },
-  {
-    id: "ev-6",
-    kind: "review",
-    title: "独立审查 13 项问题 · 1 阻断",
-    source: "审查智能体",
-    version: "review#441",
-    at: "10:27",
-    actor: "审查智能体",
-    confirmed: false,
-    required: true,
-  },
-  {
-    id: "ev-7",
+    id: "ev-3",
     kind: "approval",
     title: "代码合并审批",
     source: "project.corp/approval",
@@ -928,16 +881,10 @@ export interface ReplayStep {
 }
 
 export const replaySteps: ReplayStep[] = [
-  { id: "rp-1", at: "10:02", stage: "任务契约", actor: "责任人", action: "确认范围、完成标准与审批点", materials: "contract@v3", tier: "—", result: "ok" },
-  { id: "rp-2", at: "10:04", stage: "资料读取", actor: "受控连接层", action: "按权限读取需求与源码", materials: "sseinternetvote@a1c9f42", tier: "readonly", result: "ok" },
-  { id: "rp-3", at: "10:06", stage: "需求分析", actor: "需求智能体", action: "抽取业务规则并标注事实/推断", materials: "req@v2", tier: "readonly", result: "ok" },
-  { id: "rp-4", at: "10:09", stage: "门禁 G1", actor: "需求审查智能体", action: "核对完整性与可测试性", materials: "review#438", tier: "—", result: "ok" },
-  { id: "rp-5", at: "10:12", stage: "开发", actor: "开发智能体", action: "隔离分支修改 5 个文件", materials: "diff@302/187", tier: "write", result: "ok" },
-  { id: "rp-6", at: "10:13", stage: "受控调用", actor: "受控连接层", action: "尝试写入生产配置", materials: "release.exec", tier: "highrisk", result: "denied" },
-  { id: "rp-7", at: "10:18", stage: "门禁 G2", actor: "确定性程序", action: "单元测试与覆盖率检查", materials: "run#8841", tier: "readonly", result: "ok" },
-  { id: "rp-8", at: "10:24", stage: "门禁 G3", actor: "确定性程序", action: "集成测试 4 项失败", materials: "run#8842", tier: "readonly", result: "fail" },
-  { id: "rp-9", at: "10:25", stage: "定向返工", actor: "主控智能体", action: "判定为实现问题，退回开发与测试", materials: "rework#7", tier: "—", result: "ok" },
-  { id: "rp-10", at: "10:27", stage: "人工检查点", actor: "项目负责人", action: "等待代码合并审批", materials: "approval#—", tier: "highrisk", result: "wait" },
+  { id: "rp-1", at: "10:02", stage: "任务契约", actor: "责任人", action: "确认范围与完成标准", materials: "contract@v1", tier: "—", result: "ok" },
+  { id: "rp-2", at: "10:06", stage: "开发", actor: "开发智能体", action: "隔离分支修改 2 个文件", materials: "diff@80/12", tier: "write", result: "ok" },
+  { id: "rp-3", at: "10:12", stage: "门禁", actor: "确定性程序", action: "单元测试与覆盖率检查", materials: "run#8841", tier: "readonly", result: "ok" },
+  { id: "rp-4", at: "10:18", stage: "人工检查点", actor: "项目负责人", action: "等待代码合并审批", materials: "approval#—", tier: "highrisk", result: "wait" },
 ];
 
 /* ========================= 环境与沙箱（承接第六章边界） ================= */
