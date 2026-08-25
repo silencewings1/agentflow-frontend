@@ -21,7 +21,7 @@ import {
   type WfRunStates,
   type Workflow,
 } from "../data/workflows";
-import { roleLabel, type AgentRole } from "../data/settings";
+import { roleLabel, skills, skillSourceLabel, type AgentRole, type SkillSource } from "../data/settings";
 
 /* ============================ DAG 画布 ================================= */
 
@@ -676,6 +676,46 @@ export function WorkflowPicker({
                       {u.name}
                     </button>
                   ))}
+                </div>
+              </div>
+
+              <div className="wfEdit__row">
+                <label>可用技能</label>
+                <div className="skillPick">
+                  {(Object.keys(skillSourceLabel) as SkillSource[]).map((src) => {
+                    const groupSkills = skills.filter((s) => s.source === src);
+                    if (!groupSkills.length) return null;
+                    const nodeSkills = node.skills ?? [];
+                    return (
+                      <div key={src} className="skillPick__group">
+                        <span className="skillPick__label">{skillSourceLabel[src]}</span>
+                        <div className="skillPick__tags">
+                          {groupSkills.map((s) => {
+                            const on = nodeSkills.includes(s.id);
+                            return (
+                              <button
+                                key={s.id}
+                                className="tag"
+                                data-on={on}
+                                title={s.desc}
+                                onClick={() =>
+                                  onChange(
+                                    patchNode(value, node.id, {
+                                      skills: on
+                                        ? nodeSkills.filter((id) => id !== s.id)
+                                        : [...nodeSkills, s.id],
+                                    }),
+                                  )
+                                }
+                              >
+                                {s.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

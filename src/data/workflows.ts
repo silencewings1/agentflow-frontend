@@ -75,6 +75,8 @@ export interface WfNode {
   desc: string;
   gate?: string;
   approval?: boolean;
+  /** 该节点可调用的技能，存 skill id 列表 */
+  skills?: string[];
 }
 
 export interface WfEdge {
@@ -261,6 +263,7 @@ const wfFeature: WfTemplate = {
       lane: 0,
       desc: "在隔离分支实现需求，同步补齐单元测试。",
       gate: "编译与单元测试",
+      skills: ["sk-codegen", "sk-unit-test"],
     },
     {
       id: "n3",
@@ -270,6 +273,7 @@ const wfFeature: WfTemplate = {
       lane: 0,
       desc: "独立核对实现与需求，检查安全、异常处理与影响范围。",
       gate: "无阻断与严重问题",
+      skills: ["sk-code-review", "sk-static-analysis"],
     },
     {
       id: "n4",
@@ -280,6 +284,7 @@ const wfFeature: WfTemplate = {
       desc: "汇总变更说明、测试报告与回滚方案，提交责任人验收。",
       gate: "证据链完整",
       approval: true,
+      skills: ["sk-doc-gen", "sk-coverage"],
     },
   ],
   edges: [
