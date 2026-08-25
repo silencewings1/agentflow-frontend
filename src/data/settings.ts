@@ -967,83 +967,58 @@ export const envVars = [
 ];
 
 /* ============================ 技能配置 ============================
-   技能 = 智能体可用的工具集 + 行为参数。工具权限矩阵决定「能做
-   什么」、审批策略决定「每次调用要不要人确认」、行为参数决定
-   「跑多久、跑多深」。凭据不下发到智能体——工具的可用性是配
-   置出来的，不是靠 Key 绕权限。
+   技能（Skill）= 可安装、可启用/停用的命名能力模块。每个技能属
+   于一个来源插件，有自己的命名空间、描述与触发条件。智能体在运
+   行时根据用户意图匹配已启用的技能并加载其指令与工具集。
+   凭据不下发到智能体——技能调用的外部连接由受控连接层统一管理。
    ==================================================================== */
 
-export type ApprovalPolicy = "auto" | "notify" | "confirm" | "deny";
+export type SkillSource = "builtin" | "lark" | "frontend" | "stock" | "visual" | "doc";
 
-export const approvalPolicyLabel: Record<ApprovalPolicy, string> = {
-  auto: "自动放行",
-  notify: "仅通知",
-  confirm: "需确认",
-  deny: "禁止",
+export const skillSourceLabel: Record<SkillSource, string> = {
+  builtin: "内置",
+  lark: "飞书",
+  frontend: "前端设计",
+  stock: "股票分析",
+  visual: "视觉图像",
+  doc: "文档与报告",
 };
 
-export type ToolCategory = "read" | "write" | "execute" | "search" | "scan" | "mcp";
-
-export const toolCategoryLabel: Record<ToolCategory, string> = {
-  read: "只读",
-  write: "写入",
-  execute: "执行",
-  search: "搜索",
-  scan: "扫描",
-  mcp: "MCP",
-};
-
-export interface SkillTool {
+export interface Skill {
   id: string;
   name: string;
-  category: ToolCategory;
+  namespace: string;
   desc: string;
+  source: SkillSource;
   enabled: boolean;
-  approval: ApprovalPolicy;
-  locked?: boolean;
+  version: string;
+  /** 触发词或场景，用于帮助用户理解何时会调用此技能 */
+  triggers?: string;
 }
 
-/* 工具权限矩阵：每条工具的启用状态与审批策略独立配置。
-   只读类工具默认自动放行，写入与执行类默认需确认——
-   主流 harness 的标准做法：读不拦、写必拦。 */
-export const skillTools: SkillTool[] = [
-  { id: "t-read", name: "文件读取", category: "read", desc: "读取仓库内源码、配置与文档。", enabled: true, approval: "auto", locked: true },
-  { id: "t-search", name: "代码检索", category: "search", desc: "按符号、引用或文本模式跨文件搜索。", enabled: true, approval: "auto", locked: true },
-  { id: "t-write", name: "文件写入", category: "write", desc: "在隔离分支上创建、修改、删除文件。", enabled: true, approval: "confirm" },
-  { id: "t-shell", name: "终端执行", category: "execute", desc: "运行编译、测试、构建等沙箱内命令。", enabled: true, approval: "confirm" },
-  { id: "t-web", name: "网络搜索", category: "search", desc: "检索文档、Issue 与技术资料。", enabled: true, approval: "notify" },
-  { id: "t-sast", name: "安全扫描", category: "scan", desc: "对改动执行 SAST / 依赖漏洞扫描。", enabled: true, approval: "auto" },
-  { id: "t-mcp", name: "MCP 工具调用", category: "mcp", desc: "调用已连接的 MCP 服务器工具。", enabled: true, approval: "confirm" },
-  { id: "t-sandbox", name: "沙箱代码执行", category: "execute", desc: "在隔离运行时中执行生成代码。", enabled: false, approval: "deny" },
-  { id: "t-deps", name: "依赖分析", category: "scan", desc: "解析依赖树并标注已知漏洞。", enabled: true, approval: "auto" },
-];
-
-/* 高层能力开关：对应智能体可承担的工作类型，关闭后编排中不调度 */
-export const skillCapabilities = [
-  { id: "c-complete", title: "代码补全", body: "在编辑器中提供行级与块级补全建议。", on: true },
-  { id: "c-refactor", title: "自动重构", body: "识别坏味道并生成最小重构方案。", on: true },
-  { id: "c-test", title: "测试生成", body: "为改动自动补齐单元测试用例。", on: true },
-  { id: "c-doc", title: "文档生成", body: "从代码与注释生成 API 文档与变更日志。", on: false },
-  { id: "c-review", title: "独立审查", body: "以独立视角审查代码质量与安全风险。", on: true },
-  { id: "c-deps", title: "依赖建议", body: "检查依赖版本并给出升级或固定建议。", on: false },
-];
-
-/* 行为参数：控制单次任务的运行边界，防止无限消耗 */
-export interface SkillParam {
-  id: string;
-  label: string;
-  desc: string;
-  value: number;
-  unit: string;
-  min: number;
-  max: number;
-  step: number;
-}
-
-export const skillParams: SkillParam[] = [
-  { id: "p-turns", label: "最大轮次", desc: "单次任务允许的 agent 轮次上限，超出即暂停并转人工。", value: 50, unit: "轮", min: 10, max: 200, step: 5 },
-  { id: "p-budget", label: "上下文窗口占比", desc: "允许使用的上下文窗口比例，保留余量给系统提示与工具输出。", value: 80, unit: "%", min: 30, max: 100, step: 5 },
-  { id: "p-retry", label: "连续失败重试上限", desc: "同一节点连续失败次数，超出后触发定向返工或人工接管。", value: 3, unit: "次", min: 0, max: 10, step: 1 },
-  { id: "p-timeout", label: "单步超时", desc: "单个工具调用的最长等待时间，超时即中断并记录。", value: 120, unit: "秒", min: 30, max: 600, step: 10 },
-  { id: "p-compact", label: "自动压缩阈值", desc: "上下文占用超过此比例时自动压缩历史对话。", value: 90, unit: "%", min: 50, max: 95, step: 5 },
+/* 技能清单：按来源分组，每条技能可独立启用或停用。
+   停用的技能不会被智能体匹配或加载，但不从系统中删除——
+   下次启用时无需重新安装。 */
+export const skills: Skill[] = [
+  { id: "sk-browseruse", name: "浏览器自动化", namespace: "trae:browseruse", desc: "驱动浏览器执行导航、点击、填表、截图等操作，支持多步页面交互与元素验证。", source: "builtin", enabled: true, version: "1.0.3", triggers: "打开网页、浏览 URL、页面交互" },
+  { id: "sk-product-knowledge", name: "品牌知识", namespace: "trae:product-knowledge", desc: "回答 TRAE 品牌与产品相关问题，包括产品差异、入口点、MCP 与 Skills 能力。", source: "builtin", enabled: true, version: "1.0.0", triggers: "TRAE 是什么、产品区别" },
+  { id: "sk-dynamic-ui", name: "内联可视化", namespace: "trae:dynamic-ui", desc: "在对话中内联渲染 SVG 图表、流程图与交互式组件，辅助理解。", source: "builtin", enabled: true, version: "1.0.0", triggers: "画图、可视化、图表、流程图" },
+  { id: "sk-skill-creator", name: "技能创建器", namespace: "trae:skill-creator", desc: "创建自定义 Skill，封装可复用的 API 操作或多步流程。", source: "builtin", enabled: false, version: "1.0.0", triggers: "创建技能、封装 Skill" },
+  { id: "sk-patent", name: "专利挖掘与交底", namespace: "trae:patent-disclosure", desc: "扫描项目文档挖掘专利点，生成技术交底书，联网查新并自检一致性。", source: "builtin", enabled: false, version: "1.0.0", triggers: "专利、交底书、查新" },
+  { id: "sk-frontend-design", name: "前端设计", namespace: "trae-remote:frontend-design:frontend-design", desc: "创建高设计质量的前端界面，避免通用 AI 风格，产出生产级组件与页面。", source: "frontend", enabled: true, version: "0.0.0", triggers: "构建页面、UI 组件、前端应用" },
+  { id: "sk-lark-approval", name: "飞书审批", namespace: "trae-remote:lark:lark-approval", desc: "查询和处理审批待办与已办实例，搜索审批定义并发起原生审批。", source: "lark", enabled: true, version: "1.0.4", triggers: "审批、待办、发起审批" },
+  { id: "sk-lark-calendar", name: "飞书日历", namespace: "trae-remote:lark:lark-calendar", desc: "管理日历日程与会议室，查看/搜索/创建/更新日程，查询忙闲并预定。", source: "lark", enabled: true, version: "1.0.4", triggers: "日程、会议、会议室" },
+  { id: "sk-lark-doc", name: "飞书云文档", namespace: "trae-remote:lark:lark-doc", desc: "读取和编辑飞书文档内容，插入或下载图片附件，操作思维笔记。", source: "lark", enabled: true, version: "1.0.4", triggers: "文档、docx、wiki" },
+  { id: "sk-lark-base", name: "飞书多维表格", namespace: "trae-remote:lark:lark-base", desc: "操作多维表格：建表、字段、记录、视图、统计、公式、表单与仪表盘。", source: "lark", enabled: true, version: "1.0.4", triggers: "多维表格、Base、bitable" },
+  { id: "sk-lark-im", name: "飞书即时通讯", namespace: "trae-remote:lark:lark-im", desc: "收发消息与管理群聊，搜索聊天记录，管理群成员与交互卡片。", source: "lark", enabled: false, version: "1.0.4", triggers: "发消息、群聊、聊天记录" },
+  { id: "sk-lark-sheets", name: "飞书电子表格", namespace: "trae-remote:lark:lark-sheets", desc: "创建和操作电子表格：工作表、单元格、公式、图表、透视表与条件格式。", source: "lark", enabled: false, version: "1.0.4", triggers: "电子表格、sheet、公式" },
+  { id: "sk-lark-task", name: "飞书任务", namespace: "trae-remote:lark:lark-task", desc: "管理待办任务、清单与任务智能体，拆分子任务并分配协作成员。", source: "lark", enabled: false, version: "1.0.4", triggers: "待办、任务清单、分配任务" },
+  { id: "sk-stock-analysis", name: "全链路个股分析", namespace: "trae-remote:full-link-stock-analysis", desc: "覆盖从实时盘面到深度研究报告的完整链路，支持 A股/港股/美股/基金。", source: "stock", enabled: false, version: "1.0.3", triggers: "个股分析、深度研究、估值" },
+  { id: "sk-visual-image", name: "视觉图像生成", namespace: "trae-remote:visual-image-generator", desc: "根据需求路由到对应 reference 调用生图工具，覆盖海报、广告 KV、电商主图等场景。", source: "visual", enabled: false, version: "0.1.0", triggers: "海报、广告 KV、封面图" },
+  { id: "sk-doc-writing", name: "文档写作", namespace: "trae:doc-writing-guide", desc: "PRD、产品需求、技术提案、研究报告等结构化文档写作。", source: "doc", enabled: true, version: "1.0.0", triggers: "写文档、PRD、报告" },
+  { id: "sk-html-report", name: "HTML 报告", namespace: "trae:html-report", desc: "生成自包含的 HTML 交付物：研究报告、白皮书、仪表盘、简历等。", source: "doc", enabled: true, version: "1.0.0", triggers: "HTML 报告、白皮书" },
+  { id: "sk-html-deck", name: "HTML 演示文稿", namespace: "trae:html-deck", desc: "从零创建动画丰富的 HTML 演示文稿，自适应所有平台。", source: "doc", enabled: false, version: "1.0.0", triggers: "演示文稿、presentation" },
+  { id: "sk-pdf", name: "PDF 处理", namespace: "trae:pdf", desc: "提取文本与表格、创建 PDF、合并/拆分文档、处理表单。", source: "doc", enabled: false, version: "1.0.0", triggers: "PDF、提取文本" },
+  { id: "sk-pptx", name: "PPT 演示", namespace: "trae:pptx", desc: "创建、编辑和分析 .pptx 演示文稿。", source: "doc", enabled: false, version: "1.0.0", triggers: "PPT、演示文稿" },
+  { id: "sk-xlsx", name: "电子表格处理", namespace: "trae:xlsx", desc: "打开、读取、编辑 .xlsx/.csv 文件，支持公式、格式化与图表。", source: "doc", enabled: false, version: "1.0.0", triggers: "Excel、xlsx、csv" },
 ];

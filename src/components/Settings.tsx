@@ -27,21 +27,17 @@ import {
   sandboxLimits,
   sandboxToggles,
   scopeLabel,
-  skillCapabilities,
-  skillParams,
-  skillTools,
-  toolCategoryLabel,
-  approvalPolicyLabel,
+  skills,
+  skillSourceLabel,
   type AgentRole,
   type AgentScope,
   type AgentSpec,
   type ApiFormat,
   type ArchLayer,
-  type ApprovalPolicy,
   type Connection,
   type ModelProvider,
-  type SkillParam,
-  type SkillTool,
+  type Skill,
+  type SkillSource,
 } from "../data/settings";
 
 export type SettingsPane = "arch" | "agents" | "skills" | "models" | "connect" | "env";
@@ -760,134 +756,153 @@ function AgentCard({
 }
 
 /* ============================== 技能配置 =============================== */
-/* 工具权限矩阵 + 能力开关 + 行为参数 —— 主流 harness 的标准三段式：
-   能做什么（工具）、要不要人确认（审批）、跑多久跑多深（参数）。 */
+/* 技能（Skill）= 可安装、可启停的命名能力模块。智能体运行时根据用户
+   意图匹配已启用技能并加载其指令与工具集。停用不等于卸载——下次
+   启用时无需重新安装。凭据由受控连接层统一管理，不下发到智能体。 */
 
 function SkillsPane({ onToast }: { onToast: Toast }) {
-  const [tools, setTools] = useState<SkillTool[]>(skillTools);
-  const [caps, setCaps] = useState(skillCapabilities);
-  const [params, setParams] = useState<SkillParam[]>(skillParams);
+  const [list, setList] = useState<Skill[]>(skills);
+  const [sel, setSel] = useState(skills[0].id);
+  const [query, setQuery] = useState("");
 
-  const enabledCount = tools.filter((t) => t.enabled).length;
-  const autoCount = tools.filter((t) => t.enabled && t.approval === "auto").length;
+  const enabled = list.filter((s) => s.enabled);
+  const cur = list.find((s) => s.id === sel) ?? list[0];
 
-  const patchTool = (id: string, next: Partial<SkillTool>) =>
-    setTools((prev) => prev.map((t) => (t.id === id ? { ...t, ...next } : t)));
+  const patch = (id: string, next: Partial<Skill>) =>
+    setList((prev) => prev.map((s) => (s.id === id ? { ...s, ...next } : s)));
 
-  const policies: ApprovalPolicy[] = ["auto", "notify", "confirm", "deny"];
+  const filtered = query.trim()
+    ? list.filter((s) =>
+        s.name.includes(query) ||
+        s.namespace.includes(query) ||
+        s.desc.includes(query) ||
+        (s.triggers ?? "").includes(query)
+      )
+    : list;
+
+  const groups: { key: SkillSource; label: string }[] = [
+    { key: "builtin", label: "内置" },
+    { key: "frontend", label: "前端设计" },
+    { key: "lark", label: "飞书" },
+    { key: "stock", label: "股票分析" },
+    { key: "visual", label: "视觉图像" },
+    { key: "doc", label: "文档与报告" },
+  ];
+
+  const groupCount = (key: SkillSource) =>
+    list.filter((s) => s.source === key).length;
 
   return (
     <div className="stack">
       <div className="statRow">
-        <Stat label="已启用工具" value={`${enabledCount}/${tools.length}`} hint="可被智能体调用" />
-        <Stat label="自动放行" value={String(autoCount)} hint="无需人工确认" tone={autoCount > 3 ? "warn" : undefined} />
-        <Stat label="能力开关" value={`${caps.filter((c) => c.on).length}/${caps.length}`} hint="已开启 / 全部" />
+        <Stat label="已启用技能" value={`${enabled.length}/${list.length}`} hint="可被智能体匹配" />
+        <Stat label="来源插件" value={String(groups.length)} hint="技能来源分组" />
+        <Stat label="凭据保管" value="受控连接层" hint="Skill 不直接持有凭据" />
       </div>
 
-      {/* ---- 工具权限矩阵 ---- */}
-      <SectionLabel text="工具权限矩阵" hint="每个工具的启用状态与审批策略" />
-      <div className="skillGrid">
-        <div className="skillGrid__hd">
-          <span>工具</span>
-          <span>类别</span>
-          <span>启用</span>
-          <span>审批策略</span>
-        </div>
-        {tools.map((t, i) => (
-          <div className="skillRow" key={t.id} style={{ ["--i" as string]: i }} data-on={t.enabled} data-locked={t.locked || undefined}>
-            <div className="skillRow__name">
-              <strong>{t.name}</strong>
-              <span>{t.desc}</span>
-            </div>
-            <span className="skillRow__cat" data-tier={t.category}>{toolCategoryLabel[t.category]}</span>
-            <button
-              className="switch"
-              data-on={t.enabled}
-              data-locked={t.locked || undefined}
-              aria-label={t.enabled ? "停用" : "启用"}
-              onClick={() => {
-                if (t.locked) return;
-                patchTool(t.id, { enabled: !t.enabled });
-                onToast({ tone: "ok", title: t.enabled ? "工具已停用" : "工具已启用", body: t.name });
-              }}
-            >
-              <i />
-            </button>
-            <div className="skillRow__pol">
-              {t.enabled && !t.locked ? (
-                policies.map((p) => (
-                  <button
-                    key={p}
-                    className="skillPol"
-                    data-on={t.approval === p}
-                    data-pol={p}
-                    onClick={() => patchTool(t.id, { approval: p })}
-                  >
-                    {approvalPolicyLabel[p]}
-                  </button>
-                ))
-              ) : (
-                <span className="skillRow__polLock">
-                  {t.locked ? "强制" : "未启用"}
-                </span>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* ---- 能力开关 ---- */}
-      <SectionLabel text="能力开关" hint="关闭后编排中不调度对应智能体" />
-      <div className="policyGrid">
-        {caps.map((c, i) => (
-          <div className="policy" key={c.id} style={{ ["--i" as string]: i }}>
-            <div className="policy__text">
-              <strong>{c.title}</strong>
-              <p>{c.body}</p>
-            </div>
-            <button
-              className="switch"
-              data-on={c.on}
-              aria-label={c.on ? "关闭" : "开启"}
-              onClick={() => {
-                setCaps((prev) => prev.map((x) => (x.id === c.id ? { ...x, on: !x.on } : x)));
-                onToast({ tone: "ok", title: c.on ? "能力已关闭" : "能力已开启", body: c.title });
-              }}
-            >
-              <i />
-            </button>
-          </div>
-        ))}
-      </div>
-
-      {/* ---- 行为参数 ---- */}
-      <SectionLabel text="行为参数" hint="控制单次任务的运行边界" />
-      <div className="skillParams">
-        {params.map((p, i) => (
-          <div className="skillParam" key={p.id} style={{ ["--i" as string]: i }}>
-            <div className="skillParam__head">
-              <strong>{p.label}</strong>
-              <span className="mono skillParam__val">{p.value}{p.unit}</span>
-            </div>
-            <p className="skillParam__desc">{p.desc}</p>
+      <div className="mpLayout">
+        {/* ---------------- 左栏：技能列表 ---------------- */}
+        <aside className="mpList">
+          <div className="mpList__search">
+            <Icon.Search size={13} className="mpList__searchIcon" />
             <input
-              className="skillParam__range"
-              type="range"
-              min={p.min}
-              max={p.max}
-              step={p.step}
-              value={p.value}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                setParams((prev) => prev.map((x) => (x.id === p.id ? { ...x, value: v } : x)));
-              }}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索技能…"
+              aria-label="搜索技能"
             />
-            <div className="skillParam__bounds">
-              <span className="mono">{p.min}{p.unit}</span>
-              <span className="mono">{p.max}{p.unit}</span>
+          </div>
+          {groups.map((g) => {
+            const items = filtered.filter((s) => s.source === g.key);
+            if (!items.length) return null;
+            return (
+              <div className="mpList__group" key={g.key}>
+                <span className="kicker">
+                  {g.label}
+                  <span className="mpList__count">{groupCount(g.key)}</span>
+                </span>
+                <ul>
+                  {items.map((s, i) => (
+                    <li key={s.id} style={{ ["--i" as string]: i }}>
+                      <button
+                        className="mpItem"
+                        data-active={s.id === sel}
+                        onClick={() => setSel(s.id)}
+                      >
+                        <Icon.Bolt size={13} className="mpItem__glyph" />
+                        <span className="mpItem__name">{s.name}</span>
+                        <i className="mpItem__dot" data-on={s.enabled} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+          {filtered.length === 0 && (
+            <div className="mpList__empty">未匹配到技能</div>
+          )}
+        </aside>
+
+        {/* ---------------- 右栏：技能详情 ---------------- */}
+        <section className="mpForm">
+          <div className="mpForm__top">
+            <div className="mpForm__titleRow">
+              <Icon.Bolt size={18} className="mpForm__glyph" />
+              <div>
+                <h3 className="serif">{cur.name}</h3>
+                <span className="mono mpForm__ns">{cur.namespace}</span>
+              </div>
+              <button
+                className="switch"
+                data-on={cur.enabled}
+                aria-label={cur.enabled ? "停用" : "启用"}
+                onClick={() => {
+                  patch(cur.id, { enabled: !cur.enabled });
+                  onToast({ tone: "ok", title: cur.enabled ? "技能已停用" : "技能已启用", body: cur.name });
+                }}
+              >
+                <i />
+              </button>
             </div>
           </div>
-        ))}
+
+          <div className="mpForm__body">
+            <div className="mpField">
+              <span className="mpField__label">描述</span>
+              <p className="mpField__text">{cur.desc}</p>
+            </div>
+
+            <div className="mpField">
+              <span className="mpField__label">触发场景</span>
+              <p className="mpField__text">{cur.triggers ?? "—"}</p>
+            </div>
+
+            <div className="mpForm__row">
+              <div className="mpField">
+                <span className="mpField__label">来源</span>
+                <span className="pill" data-tint={cur.source}>
+                  {skillSourceLabel[cur.source]}
+                </span>
+              </div>
+              <div className="mpField">
+                <span className="mpField__label">版本</span>
+                <span className="mono">{cur.version}</span>
+              </div>
+              <div className="mpField">
+                <span className="mpField__label">状态</span>
+                <span className="pill" data-state={cur.enabled ? "done" : undefined}>
+                  {cur.enabled ? "已启用" : "已停用"}
+                </span>
+              </div>
+            </div>
+
+            <div className="mpForm__note">
+              <Icon.Shield size={13} />
+              <span>技能调用的外部连接与凭据由受控连接层统一管理，不下发到智能体。</span>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );
