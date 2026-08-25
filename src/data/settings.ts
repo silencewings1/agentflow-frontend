@@ -222,12 +222,12 @@ export const defaultModel = modelOptions[0].id;
    ---------------------------------------------------------------------- */
 
 /** 供应商暴露的 API 协议格式 —— 决定请求体怎么拼，不是随意的标签 */
-export type ApiFormat = "openai" | "anthropic" | "gemini";
+export type ApiFormat = "openai" | "anthropic" | "openai-responses";
 
 export const apiFormatLabel: Record<ApiFormat, string> = {
   openai: "OpenAI Chat Completions (/v1/chat/completions)",
   anthropic: "Anthropic Messages (/v1/messages)",
-  gemini: "Gemini generateContent (/v1beta/models)",
+  "openai-responses": "OpenAI Responses (/v1/responses)",
 };
 
 /** 供应商下的一个可调用模型 */
@@ -254,11 +254,11 @@ export interface ModelProvider {
 
 export const modelProviders: ModelProvider[] = [
   {
-    id: "mp-volc",
-    name: "火山方舟",
+    id: "mp-deepseek",
+    name: "深度求索",
     group: "builtin",
     enabled: true,
-    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+    baseUrl: "https://api.deepseek.com/v1",
     format: "openai",
     keyTail: "7f2a",
     models: [
