@@ -973,15 +973,14 @@ export const envVars = [
    凭据不下发到智能体——技能调用的外部连接由受控连接层统一管理。
    ==================================================================== */
 
-export type SkillSource = "builtin" | "lark" | "frontend" | "stock" | "visual" | "doc";
+export type SkillSource = "builtin" | "dev" | "test" | "doc" | "frontend";
 
 export const skillSourceLabel: Record<SkillSource, string> = {
   builtin: "内置",
-  lark: "飞书",
-  frontend: "前端设计",
-  stock: "股票分析",
-  visual: "视觉图像",
+  dev: "开发工具",
+  test: "测试工具",
   doc: "文档与报告",
+  frontend: "前端设计",
 };
 
 export interface Skill {
@@ -1001,24 +1000,25 @@ export interface Skill {
    下次启用时无需重新安装。 */
 export const skills: Skill[] = [
   { id: "sk-browseruse", name: "浏览器自动化", namespace: "trae:browseruse", desc: "驱动浏览器执行导航、点击、填表、截图等操作，支持多步页面交互与元素验证。", source: "builtin", enabled: true, version: "1.0.3", triggers: "打开网页、浏览 URL、页面交互" },
-  { id: "sk-product-knowledge", name: "品牌知识", namespace: "trae:product-knowledge", desc: "回答 TRAE 品牌与产品相关问题，包括产品差异、入口点、MCP 与 Skills 能力。", source: "builtin", enabled: true, version: "1.0.0", triggers: "TRAE 是什么、产品区别" },
   { id: "sk-dynamic-ui", name: "内联可视化", namespace: "trae:dynamic-ui", desc: "在对话中内联渲染 SVG 图表、流程图与交互式组件，辅助理解。", source: "builtin", enabled: true, version: "1.0.0", triggers: "画图、可视化、图表、流程图" },
   { id: "sk-skill-creator", name: "技能创建器", namespace: "trae:skill-creator", desc: "创建自定义 Skill，封装可复用的 API 操作或多步流程。", source: "builtin", enabled: false, version: "1.0.0", triggers: "创建技能、封装 Skill" },
-  { id: "sk-patent", name: "专利挖掘与交底", namespace: "trae:patent-disclosure", desc: "扫描项目文档挖掘专利点，生成技术交底书，联网查新并自检一致性。", source: "builtin", enabled: false, version: "1.0.0", triggers: "专利、交底书、查新" },
-  { id: "sk-frontend-design", name: "前端设计", namespace: "trae-remote:frontend-design:frontend-design", desc: "创建高设计质量的前端界面，避免通用 AI 风格，产出生产级组件与页面。", source: "frontend", enabled: true, version: "0.0.0", triggers: "构建页面、UI 组件、前端应用" },
-  { id: "sk-lark-approval", name: "飞书审批", namespace: "trae-remote:lark:lark-approval", desc: "查询和处理审批待办与已办实例，搜索审批定义并发起原生审批。", source: "lark", enabled: true, version: "1.0.4", triggers: "审批、待办、发起审批" },
-  { id: "sk-lark-calendar", name: "飞书日历", namespace: "trae-remote:lark:lark-calendar", desc: "管理日历日程与会议室，查看/搜索/创建/更新日程，查询忙闲并预定。", source: "lark", enabled: true, version: "1.0.4", triggers: "日程、会议、会议室" },
-  { id: "sk-lark-doc", name: "飞书云文档", namespace: "trae-remote:lark:lark-doc", desc: "读取和编辑飞书文档内容，插入或下载图片附件，操作思维笔记。", source: "lark", enabled: true, version: "1.0.4", triggers: "文档、docx、wiki" },
-  { id: "sk-lark-base", name: "飞书多维表格", namespace: "trae-remote:lark:lark-base", desc: "操作多维表格：建表、字段、记录、视图、统计、公式、表单与仪表盘。", source: "lark", enabled: true, version: "1.0.4", triggers: "多维表格、Base、bitable" },
-  { id: "sk-lark-im", name: "飞书即时通讯", namespace: "trae-remote:lark:lark-im", desc: "收发消息与管理群聊，搜索聊天记录，管理群成员与交互卡片。", source: "lark", enabled: false, version: "1.0.4", triggers: "发消息、群聊、聊天记录" },
-  { id: "sk-lark-sheets", name: "飞书电子表格", namespace: "trae-remote:lark:lark-sheets", desc: "创建和操作电子表格：工作表、单元格、公式、图表、透视表与条件格式。", source: "lark", enabled: false, version: "1.0.4", triggers: "电子表格、sheet、公式" },
-  { id: "sk-lark-task", name: "飞书任务", namespace: "trae-remote:lark:lark-task", desc: "管理待办任务、清单与任务智能体，拆分子任务并分配协作成员。", source: "lark", enabled: false, version: "1.0.4", triggers: "待办、任务清单、分配任务" },
-  { id: "sk-stock-analysis", name: "全链路个股分析", namespace: "trae-remote:full-link-stock-analysis", desc: "覆盖从实时盘面到深度研究报告的完整链路，支持 A股/港股/美股/基金。", source: "stock", enabled: false, version: "1.0.3", triggers: "个股分析、深度研究、估值" },
-  { id: "sk-visual-image", name: "视觉图像生成", namespace: "trae-remote:visual-image-generator", desc: "根据需求路由到对应 reference 调用生图工具，覆盖海报、广告 KV、电商主图等场景。", source: "visual", enabled: false, version: "0.1.0", triggers: "海报、广告 KV、封面图" },
-  { id: "sk-doc-writing", name: "文档写作", namespace: "trae:doc-writing-guide", desc: "PRD、产品需求、技术提案、研究报告等结构化文档写作。", source: "doc", enabled: true, version: "1.0.0", triggers: "写文档、PRD、报告" },
-  { id: "sk-html-report", name: "HTML 报告", namespace: "trae:html-report", desc: "生成自包含的 HTML 交付物：研究报告、白皮书、仪表盘、简历等。", source: "doc", enabled: true, version: "1.0.0", triggers: "HTML 报告、白皮书" },
-  { id: "sk-html-deck", name: "HTML 演示文稿", namespace: "trae:html-deck", desc: "从零创建动画丰富的 HTML 演示文稿，自适应所有平台。", source: "doc", enabled: false, version: "1.0.0", triggers: "演示文稿、presentation" },
-  { id: "sk-pdf", name: "PDF 处理", namespace: "trae:pdf", desc: "提取文本与表格、创建 PDF、合并/拆分文档、处理表单。", source: "doc", enabled: false, version: "1.0.0", triggers: "PDF、提取文本" },
-  { id: "sk-pptx", name: "PPT 演示", namespace: "trae:pptx", desc: "创建、编辑和分析 .pptx 演示文稿。", source: "doc", enabled: false, version: "1.0.0", triggers: "PPT、演示文稿" },
-  { id: "sk-xlsx", name: "电子表格处理", namespace: "trae:xlsx", desc: "打开、读取、编辑 .xlsx/.csv 文件，支持公式、格式化与图表。", source: "doc", enabled: false, version: "1.0.0", triggers: "Excel、xlsx、csv" },
+  { id: "sk-code-review", name: "代码审查", namespace: "trae:dev:code-review", desc: "以独立视角审查代码质量、安全风险与坏味道，输出结构化问题清单与修复建议。", source: "dev", enabled: true, version: "1.0.0", triggers: "审查代码、review、安全风险" },
+  { id: "sk-static-analysis", name: "静态分析", namespace: "trae:dev:static-analysis", desc: "对源码执行 AST 级静态分析，检测未捕获异常、空指针与资源泄漏。", source: "dev", enabled: true, version: "1.0.0", triggers: "静态分析、lint、代码质量" },
+  { id: "sk-deps-audit", name: "依赖审计", namespace: "trae:dev:deps-audit", desc: "解析依赖树，标注已知漏洞（CVE）与过时版本，给出升级或固定建议。", source: "dev", enabled: true, version: "1.0.0", triggers: "依赖漏洞、CVE、升级建议" },
+  { id: "sk-refactor", name: "重构建议", namespace: "trae:dev:refactor", desc: "识别长方法、重复代码与复杂条件分支，生成最小重构方案与 diff。", source: "dev", enabled: true, version: "1.0.0", triggers: "重构、坏味道、重复代码" },
+  { id: "sk-codegen", name: "代码生成", namespace: "trae:dev:codegen", desc: "根据接口定义或类型声明生成样板代码：DTO、Builder、Mapper 等。", source: "dev", enabled: true, version: "1.0.0", triggers: "生成代码、DTO、样板代码" },
+  { id: "sk-api-mock", name: "API Mock", namespace: "trae:dev:api-mock", desc: "根据 OpenAPI / GraphQL Schema 生成 Mock Server 与请求/响应样例。", source: "dev", enabled: false, version: "1.0.0", triggers: "mock server、接口模拟" },
+  { id: "sk-reverse-eng", name: "逆向工程", namespace: "trae:dev:reverse-eng", desc: "从二进制或无文档代码推断模块边界与调用关系，生成架构草图。", source: "dev", enabled: false, version: "1.0.0", triggers: "逆向、无文档代码、架构推断" },
+  { id: "sk-perf-profile", name: "性能分析", namespace: "trae:dev:perf-profile", desc: "采集 CPU/内存/火焰图数据，定位热点函数与内存分配瓶颈。", source: "dev", enabled: false, version: "1.0.0", triggers: "性能分析、火焰图、瓶颈" },
+  { id: "sk-unit-test", name: "单元测试生成", namespace: "trae:test:unit-gen", desc: "为改动函数自动生成 JUnit / Jest / pytest 用例，覆盖正常、边界与异常分支。", source: "test", enabled: true, version: "1.0.0", triggers: "单元测试、JUnit、pytest" },
+  { id: "sk-integration-test", name: "集成测试生成", namespace: "trae:test:integration-gen", desc: "根据模块间接口契约生成集成测试用例，验证跨模块调用链与数据流。", source: "test", enabled: true, version: "1.0.0", triggers: "集成测试、接口契约、跨模块" },
+  { id: "sk-e2e-test", name: "端到端测试", namespace: "trae:test:e2e", desc: "通过浏览器自动化编排用户操作流程，验证从入口到落库的完整链路。", source: "test", enabled: false, version: "1.0.0", triggers: "E2E、端到端、用户流程" },
+  { id: "sk-coverage", name: "覆盖率分析", namespace: "trae:test:coverage", desc: "采集行/分支/方法覆盖率，标注未覆盖路径并推荐补充用例优先级。", source: "test", enabled: true, version: "1.0.0", triggers: "覆盖率、未覆盖路径" },
+  { id: "sk-benchmark", name: "性能基准测试", namespace: "trae:test:benchmark", desc: "生成 JMH / Benchmark.js 基准测试，对比改动前后的吞吐与延迟。", source: "test", enabled: false, version: "1.0.0", triggers: "基准测试、JMH、吞吐" },
+  { id: "sk-security-test", name: "安全测试", namespace: "trae:test:security", desc: "执行注入、XSS、越权与依赖漏洞扫描，输出可复现的攻击向量清单。", source: "test", enabled: false, version: "1.0.0", triggers: "安全测试、注入、XSS" },
+  { id: "sk-mutation-test", name: "变异测试", namespace: "trae:test:mutation", desc: "对源码注入变异体，检测现有测试能否捕获，量化测试有效性。", source: "test", enabled: false, version: "1.0.0", triggers: "变异测试、测试有效性" },
+  { id: "sk-doc-gen", name: "API 文档生成", namespace: "trae:doc:api-doc", desc: "从代码注解或接口定义生成 OpenAPI / GraphQL 文档与变更日志。", source: "doc", enabled: true, version: "1.0.0", triggers: "API 文档、OpenAPI、变更日志" },
+  { id: "sk-doc-writing", name: "文档写作", namespace: "trae:doc:writing-guide", desc: "PRD、产品需求、技术提案、研究报告等结构化文档写作。", source: "doc", enabled: true, version: "1.0.0", triggers: "写文档、PRD、报告" },
+  { id: "sk-html-report", name: "HTML 报告", namespace: "trae:doc:html-report", desc: "生成自包含的 HTML 交付物：研究报告、白皮书、仪表盘等。", source: "doc", enabled: false, version: "1.0.0", triggers: "HTML 报告、白皮书" },
+  { id: "sk-frontend-design", name: "前端设计", namespace: "trae:frontend:design", desc: "创建高设计质量的前端界面，避免通用 AI 风格，产出生产级组件与页面。", source: "frontend", enabled: true, version: "1.0.0", triggers: "构建页面、UI 组件、前端应用" },
 ];

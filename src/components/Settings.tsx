@@ -782,11 +782,10 @@ function SkillsPane({ onToast }: { onToast: Toast }) {
 
   const groups: { key: SkillSource; label: string }[] = [
     { key: "builtin", label: "内置" },
-    { key: "frontend", label: "前端设计" },
-    { key: "lark", label: "飞书" },
-    { key: "stock", label: "股票分析" },
-    { key: "visual", label: "视觉图像" },
+    { key: "dev", label: "开发工具" },
+    { key: "test", label: "测试工具" },
     { key: "doc", label: "文档与报告" },
+    { key: "frontend", label: "前端设计" },
   ];
 
   const groupCount = (key: SkillSource) =>

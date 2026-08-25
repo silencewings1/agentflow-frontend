@@ -827,11 +827,17 @@
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   overflow: hidden;
+  /* 固定高度让左栏独立滚动，右栏内容不撑开整个面板 */
+  height: min(460px, calc(100vh - 340px));
+  min-height: 280px;
 }
 
 .mpList,
 .mpForm {
   background: var(--bg);
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* --------------------------- 左栏：供应商列表 --------------------------- */
@@ -1868,34 +1874,28 @@
   color: var(--accent-text);
 }
 
-.pill[data-tint="frontend"] {
-  border-color: color-mix(in oklab, var(--plum) 30%, var(--line));
-  background: color-mix(in oklab, var(--plum) 8%, transparent);
-  color: color-mix(in oklab, var(--plum) 80%, var(--text));
+.pill[data-tint="dev"] {
+  border-color: color-mix(in oklab, var(--cyan) 30%, var(--line));
+  background: color-mix(in oklab, var(--cyan) 8%, transparent);
+  color: color-mix(in oklab, var(--cyan) 80%, var(--text));
 }
 
-.pill[data-tint="lark"] {
-  border-color: color-mix(in oklab, var(--azure) 30%, var(--line));
-  background: color-mix(in oklab, var(--azure) 8%, transparent);
-  color: color-mix(in oklab, var(--azure) 80%, var(--text));
-}
-
-.pill[data-tint="stock"] {
+.pill[data-tint="test"] {
   border-color: color-mix(in oklab, var(--gold) 30%, var(--line));
   background: color-mix(in oklab, var(--gold) 8%, transparent);
   color: color-mix(in oklab, var(--gold) 80%, var(--text));
-}
-
-.pill[data-tint="visual"] {
-  border-color: color-mix(in oklab, var(--rose) 24%, var(--line));
-  background: color-mix(in oklab, var(--rose) 6%, transparent);
-  color: color-mix(in oklab, var(--rose) 80%, var(--text));
 }
 
 .pill[data-tint="doc"] {
   border-color: color-mix(in oklab, var(--sage) 30%, var(--line));
   background: color-mix(in oklab, var(--sage) 8%, transparent);
   color: color-mix(in oklab, var(--sage) 80%, var(--text));
+}
+
+.pill[data-tint="frontend"] {
+  border-color: color-mix(in oklab, var(--plum) 30%, var(--line));
+  background: color-mix(in oklab, var(--plum) 8%, transparent);
+  color: color-mix(in oklab, var(--plum) 80%, var(--text));
 }
 
 /* 窄屏：两栏降一列 */
