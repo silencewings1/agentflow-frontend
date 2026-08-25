@@ -21,7 +21,7 @@ import {
   type WfRunStates,
   type Workflow,
 } from "../data/workflows";
-import { roleLabel, skills, skillSourceLabel, type AgentRole, type SkillSource } from "../data/settings";
+import { roleLabel, skills, skillSourceLabel, type AgentRole, type Skill, type SkillSource } from "../data/settings";
 
 /* ============================ DAG 画布 ================================= */
 
@@ -475,11 +475,17 @@ export function WorkflowPicker({
   const [adding, setAdding] = useState(false);
   const [newRole, setNewRole] = useState<AgentRole>("testing");
   const [newName, setNewName] = useState("");
+  const [skillOpen, setSkillOpen] = useState(false);
 
   const node = value.nodes.find((n) => n.id === sel) ?? null;
   const contract = node ? value.orchestrator.contracts[node.id] : null;
   const failEdge = value.edges.find((e) => e.kind === "fail" && e.from === sel);
   const upstream = value.nodes.filter((n) => n.col < (node?.col ?? 0));
+
+  const selectableSkills = skills.filter((s) => s.source !== "builtin");
+  const skillGroups = (Object.keys(skillSourceLabel) as SkillSource[]).filter(
+    (src) => src !== "builtin" && selectableSkills.some((s) => s.source === src),
+  );
 
   const pick = (id: string) => {
     const tpl = workflowTemplates.find((w) => w.id === id);
@@ -681,41 +687,61 @@ export function WorkflowPicker({
 
               <div className="wfEdit__row">
                 <label>可用技能</label>
-                <div className="skillPick">
-                  {(Object.keys(skillSourceLabel) as SkillSource[]).map((src) => {
-                    const groupSkills = skills.filter((s) => s.source === src);
-                    if (!groupSkills.length) return null;
-                    const nodeSkills = node.skills ?? [];
-                    return (
-                      <div key={src} className="skillPick__group">
-                        <span className="skillPick__label">{skillSourceLabel[src]}</span>
-                        <div className="skillPick__tags">
-                          {groupSkills.map((s) => {
-                            const on = nodeSkills.includes(s.id);
-                            return (
-                              <button
-                                key={s.id}
-                                className="tag"
-                                data-on={on}
-                                title={s.desc}
-                                onClick={() =>
-                                  onChange(
-                                    patchNode(value, node.id, {
-                                      skills: on
-                                        ? nodeSkills.filter((id) => id !== s.id)
-                                        : [...nodeSkills, s.id],
-                                    }),
-                                  )
-                                }
-                              >
-                                {s.name}
-                              </button>
-                            );
-                          })}
-                        </div>
+                <div className="skillDrop" data-open={skillOpen ? "true" : undefined}>
+                  <button
+                    type="button"
+                    className="skillDrop__trigger"
+                    onClick={() => setSkillOpen((v) => !v)}
+                  >
+                    <span className="skillDrop__summary">
+                      {(node.skills ?? []).length
+                        ? (node.skills ?? [])
+                            .map((id) => skills.find((s) => s.id === id)?.name ?? id)
+                            .join("、")
+                        : "选择技能"}
+                    </span>
+                    <Icon.Chevron size={12} className={skillOpen ? "rotUp" : undefined} />
+                  </button>
+                  {skillOpen && (
+                    <>
+                      <div className="skillDrop__scrim" onClick={() => setSkillOpen(false)} />
+                      <div className="skillDrop__panel">
+                        {skillGroups.map((src) => {
+                          const groupSkills = selectableSkills.filter((s) => s.source === src);
+                          const nodeSkills = node.skills ?? [];
+                          return (
+                            <div key={src} className="skillDrop__group">
+                              <span className="skillDrop__label">{skillSourceLabel[src]}</span>
+                              {groupSkills.map((s: Skill) => {
+                                const on = nodeSkills.includes(s.id);
+                                return (
+                                  <button
+                                    key={s.id}
+                                    type="button"
+                                    className="skillDrop__item"
+                                    data-on={on}
+                                    title={s.desc}
+                                    onClick={() =>
+                                      onChange(
+                                        patchNode(value, node.id, {
+                                          skills: on
+                                            ? nodeSkills.filter((id) => id !== s.id)
+                                            : [...nodeSkills, s.id],
+                                        }),
+                                      )
+                                    }
+                                  >
+                                    <i className="skillDrop__check" data-on={on} />
+                                    {s.name}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
+                    </>
+                  )}
                 </div>
               </div>
 
