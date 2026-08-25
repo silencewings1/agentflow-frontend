@@ -965,3 +965,85 @@ export const envVars = [
   { key: "REGISTRY_TOKEN", value: "由凭据系统注入", secret: true },
   { key: "SCA_API_KEY", value: "由凭据系统注入", secret: true },
 ];
+
+/* ============================ 技能配置 ============================
+   技能 = 智能体可用的工具集 + 行为参数。工具权限矩阵决定「能做
+   什么」、审批策略决定「每次调用要不要人确认」、行为参数决定
+   「跑多久、跑多深」。凭据不下发到智能体——工具的可用性是配
+   置出来的，不是靠 Key 绕权限。
+   ==================================================================== */
+
+export type ApprovalPolicy = "auto" | "notify" | "confirm" | "deny";
+
+export const approvalPolicyLabel: Record<ApprovalPolicy, string> = {
+  auto: "自动放行",
+  notify: "仅通知",
+  confirm: "需确认",
+  deny: "禁止",
+};
+
+export type ToolCategory = "read" | "write" | "execute" | "search" | "scan" | "mcp";
+
+export const toolCategoryLabel: Record<ToolCategory, string> = {
+  read: "只读",
+  write: "写入",
+  execute: "执行",
+  search: "搜索",
+  scan: "扫描",
+  mcp: "MCP",
+};
+
+export interface SkillTool {
+  id: string;
+  name: string;
+  category: ToolCategory;
+  desc: string;
+  enabled: boolean;
+  approval: ApprovalPolicy;
+  locked?: boolean;
+}
+
+/* 工具权限矩阵：每条工具的启用状态与审批策略独立配置。
+   只读类工具默认自动放行，写入与执行类默认需确认——
+   主流 harness 的标准做法：读不拦、写必拦。 */
+export const skillTools: SkillTool[] = [
+  { id: "t-read", name: "文件读取", category: "read", desc: "读取仓库内源码、配置与文档。", enabled: true, approval: "auto", locked: true },
+  { id: "t-search", name: "代码检索", category: "search", desc: "按符号、引用或文本模式跨文件搜索。", enabled: true, approval: "auto", locked: true },
+  { id: "t-write", name: "文件写入", category: "write", desc: "在隔离分支上创建、修改、删除文件。", enabled: true, approval: "confirm" },
+  { id: "t-shell", name: "终端执行", category: "execute", desc: "运行编译、测试、构建等沙箱内命令。", enabled: true, approval: "confirm" },
+  { id: "t-web", name: "网络搜索", category: "search", desc: "检索文档、Issue 与技术资料。", enabled: true, approval: "notify" },
+  { id: "t-sast", name: "安全扫描", category: "scan", desc: "对改动执行 SAST / 依赖漏洞扫描。", enabled: true, approval: "auto" },
+  { id: "t-mcp", name: "MCP 工具调用", category: "mcp", desc: "调用已连接的 MCP 服务器工具。", enabled: true, approval: "confirm" },
+  { id: "t-sandbox", name: "沙箱代码执行", category: "execute", desc: "在隔离运行时中执行生成代码。", enabled: false, approval: "deny" },
+  { id: "t-deps", name: "依赖分析", category: "scan", desc: "解析依赖树并标注已知漏洞。", enabled: true, approval: "auto" },
+];
+
+/* 高层能力开关：对应智能体可承担的工作类型，关闭后编排中不调度 */
+export const skillCapabilities = [
+  { id: "c-complete", title: "代码补全", body: "在编辑器中提供行级与块级补全建议。", on: true },
+  { id: "c-refactor", title: "自动重构", body: "识别坏味道并生成最小重构方案。", on: true },
+  { id: "c-test", title: "测试生成", body: "为改动自动补齐单元测试用例。", on: true },
+  { id: "c-doc", title: "文档生成", body: "从代码与注释生成 API 文档与变更日志。", on: false },
+  { id: "c-review", title: "独立审查", body: "以独立视角审查代码质量与安全风险。", on: true },
+  { id: "c-deps", title: "依赖建议", body: "检查依赖版本并给出升级或固定建议。", on: false },
+];
+
+/* 行为参数：控制单次任务的运行边界，防止无限消耗 */
+export interface SkillParam {
+  id: string;
+  label: string;
+  desc: string;
+  value: number;
+  unit: string;
+  min: number;
+  max: number;
+  step: number;
+}
+
+export const skillParams: SkillParam[] = [
+  { id: "p-turns", label: "最大轮次", desc: "单次任务允许的 agent 轮次上限，超出即暂停并转人工。", value: 50, unit: "轮", min: 10, max: 200, step: 5 },
+  { id: "p-budget", label: "上下文窗口占比", desc: "允许使用的上下文窗口比例，保留余量给系统提示与工具输出。", value: 80, unit: "%", min: 30, max: 100, step: 5 },
+  { id: "p-retry", label: "连续失败重试上限", desc: "同一节点连续失败次数，超出后触发定向返工或人工接管。", value: 3, unit: "次", min: 0, max: 10, step: 1 },
+  { id: "p-timeout", label: "单步超时", desc: "单个工具调用的最长等待时间，超时即中断并记录。", value: 120, unit: "秒", min: 30, max: 600, step: 10 },
+  { id: "p-compact", label: "自动压缩阈值", desc: "上下文占用超过此比例时自动压缩历史对话。", value: 90, unit: "%", min: 50, max: 95, step: 5 },
+];

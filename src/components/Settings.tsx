@@ -27,16 +27,24 @@ import {
   sandboxLimits,
   sandboxToggles,
   scopeLabel,
+  skillCapabilities,
+  skillParams,
+  skillTools,
+  toolCategoryLabel,
+  approvalPolicyLabel,
   type AgentRole,
   type AgentScope,
   type AgentSpec,
   type ApiFormat,
   type ArchLayer,
+  type ApprovalPolicy,
   type Connection,
   type ModelProvider,
+  type SkillParam,
+  type SkillTool,
 } from "../data/settings";
 
-export type SettingsPane = "arch" | "agents" | "models" | "connect" | "env";
+export type SettingsPane = "arch" | "agents" | "skills" | "models" | "connect" | "env";
 
 /* 架构层的跳转落点：点击直达承载该层证据的界面，而不是让用户自己去找 */
 export type ArchJump = "workflow" | "agents" | "replay" | "evidence" | "checkpoint";
@@ -64,6 +72,12 @@ const PANES: { id: SettingsPane; label: string; glyph: IconName; desc: string }[
     label: "智能体",
     glyph: "Agent",
     desc: "主控智能体与专业智能体的职责、模型、权限与工具集。",
+  },
+  {
+    id: "skills",
+    label: "技能配置",
+    glyph: "Bolt",
+    desc: "智能体可用的工具权限、审批策略与行为参数。工具可用性是配置出来的，不是靠凭据绕权限。",
   },
   {
     id: "models",
@@ -159,6 +173,7 @@ export function SettingsOverlay({
               <ArchPane onToast={onToast} runtime={runtime} onJump={onJump} />
             )}
             {pane === "agents" && <AgentsPane onToast={onToast} />}
+            {pane === "skills" && <SkillsPane onToast={onToast} />}
             {pane === "models" && <ModelsPane onToast={onToast} />}
             {pane === "connect" && <ConnectPane onToast={onToast} />}
             {pane === "env" && <EnvPane onToast={onToast} />}
@@ -744,9 +759,139 @@ function AgentCard({
   );
 }
 
-/* ============================== 模型配置 =============================== */
-/* 左栏选供应商、右栏配该供应商 —— 模型能力的来源是「供应商」这一整体，
-   Base URL / API 格式 / Key / 模型列表必须一起看、一起改。 */
+/* ============================== 技能配置 =============================== */
+/* 工具权限矩阵 + 能力开关 + 行为参数 —— 主流 harness 的标准三段式：
+   能做什么（工具）、要不要人确认（审批）、跑多久跑多深（参数）。 */
+
+function SkillsPane({ onToast }: { onToast: Toast }) {
+  const [tools, setTools] = useState<SkillTool[]>(skillTools);
+  const [caps, setCaps] = useState(skillCapabilities);
+  const [params, setParams] = useState<SkillParam[]>(skillParams);
+
+  const enabledCount = tools.filter((t) => t.enabled).length;
+  const autoCount = tools.filter((t) => t.enabled && t.approval === "auto").length;
+
+  const patchTool = (id: string, next: Partial<SkillTool>) =>
+    setTools((prev) => prev.map((t) => (t.id === id ? { ...t, ...next } : t)));
+
+  const policies: ApprovalPolicy[] = ["auto", "notify", "confirm", "deny"];
+
+  return (
+    <div className="stack">
+      <div className="statRow">
+        <Stat label="已启用工具" value={`${enabledCount}/${tools.length}`} hint="可被智能体调用" />
+        <Stat label="自动放行" value={String(autoCount)} hint="无需人工确认" tone={autoCount > 3 ? "warn" : undefined} />
+        <Stat label="能力开关" value={`${caps.filter((c) => c.on).length}/${caps.length}`} hint="已开启 / 全部" />
+      </div>
+
+      {/* ---- 工具权限矩阵 ---- */}
+      <SectionLabel text="工具权限矩阵" hint="每个工具的启用状态与审批策略" />
+      <div className="skillGrid">
+        <div className="skillGrid__hd">
+          <span>工具</span>
+          <span>类别</span>
+          <span>启用</span>
+          <span>审批策略</span>
+        </div>
+        {tools.map((t, i) => (
+          <div className="skillRow" key={t.id} style={{ ["--i" as string]: i }} data-on={t.enabled} data-locked={t.locked || undefined}>
+            <div className="skillRow__name">
+              <strong>{t.name}</strong>
+              <span>{t.desc}</span>
+            </div>
+            <span className="skillRow__cat" data-tier={t.category}>{toolCategoryLabel[t.category]}</span>
+            <button
+              className="switch"
+              data-on={t.enabled}
+              data-locked={t.locked || undefined}
+              aria-label={t.enabled ? "停用" : "启用"}
+              onClick={() => {
+                if (t.locked) return;
+                patchTool(t.id, { enabled: !t.enabled });
+                onToast({ tone: "ok", title: t.enabled ? "工具已停用" : "工具已启用", body: t.name });
+              }}
+            >
+              <i />
+            </button>
+            <div className="skillRow__pol">
+              {t.enabled && !t.locked ? (
+                policies.map((p) => (
+                  <button
+                    key={p}
+                    className="skillPol"
+                    data-on={t.approval === p}
+                    data-pol={p}
+                    onClick={() => patchTool(t.id, { approval: p })}
+                  >
+                    {approvalPolicyLabel[p]}
+                  </button>
+                ))
+              ) : (
+                <span className="skillRow__polLock">
+                  {t.locked ? "强制" : "未启用"}
+                </span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ---- 能力开关 ---- */}
+      <SectionLabel text="能力开关" hint="关闭后编排中不调度对应智能体" />
+      <div className="policyGrid">
+        {caps.map((c, i) => (
+          <div className="policy" key={c.id} style={{ ["--i" as string]: i }}>
+            <div className="policy__text">
+              <strong>{c.title}</strong>
+              <p>{c.body}</p>
+            </div>
+            <button
+              className="switch"
+              data-on={c.on}
+              aria-label={c.on ? "关闭" : "开启"}
+              onClick={() => {
+                setCaps((prev) => prev.map((x) => (x.id === c.id ? { ...x, on: !x.on } : x)));
+                onToast({ tone: "ok", title: c.on ? "能力已关闭" : "能力已开启", body: c.title });
+              }}
+            >
+              <i />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* ---- 行为参数 ---- */}
+      <SectionLabel text="行为参数" hint="控制单次任务的运行边界" />
+      <div className="skillParams">
+        {params.map((p, i) => (
+          <div className="skillParam" key={p.id} style={{ ["--i" as string]: i }}>
+            <div className="skillParam__head">
+              <strong>{p.label}</strong>
+              <span className="mono skillParam__val">{p.value}{p.unit}</span>
+            </div>
+            <p className="skillParam__desc">{p.desc}</p>
+            <input
+              className="skillParam__range"
+              type="range"
+              min={p.min}
+              max={p.max}
+              step={p.step}
+              value={p.value}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setParams((prev) => prev.map((x) => (x.id === p.id ? { ...x, value: v } : x)));
+              }}
+            />
+            <div className="skillParam__bounds">
+              <span className="mono">{p.min}{p.unit}</span>
+              <span className="mono">{p.max}{p.unit}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function ModelsPane({ onToast }: { onToast: Toast }) {
   const [list, setList] = useState<ModelProvider[]>(modelProviders);
