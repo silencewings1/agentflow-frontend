@@ -1,5 +1,6 @@
 import { Icon } from "./Icons";
 import type { Session } from "../data/mock";
+import type { ExecutorMode } from "../api";
 import {
   evidenceChain,
   gateStateLabel,
@@ -24,6 +25,8 @@ export function TopBar({
   onToggleInspector,
   onPalette,
   onOpenEvidence,
+  executorMode,
+  apiMode,
 }: {
   /** 会话列表可能被删空，此时没有当前会话 */
   session: Session | undefined;
@@ -34,6 +37,8 @@ export function TopBar({
   onToggleInspector: () => void;
   onPalette: () => void;
   onOpenEvidence: () => void;
+  executorMode: ExecutorMode;
+  apiMode: "http" | "fixture";
 }) {
   /* 门禁进度：已通过节点数决定“这条任务走到哪一步可以被信任” */
   const passed = qualityGates.filter((g) => g.state === "passed").length;
@@ -105,6 +110,9 @@ export function TopBar({
       </button>
 
       <div className="topbar__right">
+        <span className="chip chip--ghost mono" title="当前执行模式">
+          {executorMode} · API {apiMode}
+        </span>
         {/* 模型与审批模式已下移至输入框底部：决策点紧邻输入 */}
         <button className="chip chip--ghost" onClick={onPalette} title="命令面板">
           <Icon.Search size={13} />
@@ -124,4 +132,3 @@ export function TopBar({
     </header>
   );
 }
-

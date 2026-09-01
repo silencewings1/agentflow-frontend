@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import {
-  sessions,
   type AgentEvent,
   type Session,
   type Theme,
 } from "./data/mock";
+import { afApi, AfApiError, toUiBootstrap } from "./api";
+import type { ExecutorMode } from "./api";
 import { conversationOf } from "./data/streams";
 import { inspectorOf } from "./data/inspector";
 import { Rail } from "./components/Rail";
@@ -31,20 +32,21 @@ import {
 } from "./data/workflows";
 
 export type ApprovalMode = "auto" | "ask" | "readonly";
+type ApiLoadState = { status: "loading" } | { status: "ready" } | { status: "error"; code: string; message: string; retryable: boolean };
 
 /* 会话 → 编排：每条会话记着自己走哪条流水线，切换会话时顶部要跟着换。
    找不到时回落到第一套，保证界面不会因为数据缺字段而空掉。 */
-function wfOf(id: string | undefined): Workflow {
-  return workflowTemplates.find((w) => w.id === id) ?? workflowTemplates[0];
+function wfOf(id: string | undefined, catalog: Workflow[] = workflowTemplates): Workflow {
+  return catalog.find((w) => w.id === id) ?? catalog[0] ?? workflowTemplates[0]!;
 }
 
 let toastSeq = 0;
 
 export default function App() {
   const [theme, setTheme] = useState<Theme>("lumen");
-  const [activeId, setActiveId] = useState<string>("s-1");
-  /* 会话列表为运行时状态：新建任务会追加，删除会移除，不再只读自静态数据 */
-  const [sessionList, setSessionList] = useState<Session[]>(sessions);
+  const [activeId, setActiveId] = useState<string>("");
+  /* 任务列表由 AF API bootstrap 注入；fixture 只由 api/client.ts 作为兜底适配器提供。 */
+  const [sessionList, setSessionList] = useState<Session[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("files");
@@ -53,15 +55,18 @@ export default function App() {
   const [settingsPane, setSettingsPane] = useState<SettingsPane | null>(null);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   /* 初始编排取首条会话自己的编排，而不是写死第一套模板 */
-  const [workflow, setWorkflow] = useState<Workflow>(() => wfOf(sessions[0]?.workflow));
+  const [workflowCatalog, setWorkflowCatalog] = useState<Workflow[]>(workflowTemplates);
+  const [workflow, setWorkflow] = useState<Workflow>(() => workflowTemplates[0]!);
+  const [executorMode, setExecutorMode] = useState<ExecutorMode>("demo-deterministic");
+  const [apiLoad, setApiLoad] = useState<ApiLoadState>({ status: "loading" });
   const [wfStep, setWfStep] = useState(1);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>("ask");
   const [model, setModel] = useState(defaultModel);
-  const [mode, setMode] = useState<"session" | "welcome">("session");
+  const [mode, setMode] = useState<"session" | "welcome">("welcome");
 
   /* --- streamed event window --------------------------------------------- */
-  const [visible, setVisible] = useState(() => conversationOf(sessions[0]?.workflow).length);
+  const [visible, setVisible] = useState(0);
   const [streaming, setStreaming] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<string | null>(null);
   const [extra, setExtra] = useState<AgentEvent[]>([]);
@@ -82,6 +87,38 @@ export default function App() {
      中断上一轮脚本播放，若与推进共用一个数组，推进会被连带清掉（表现为
      流水线卡在中途不动）。两者生命周期不同，就该分开管。 */
   const stepTimers = useRef<number[]>([]);
+
+  /* 首屏只依赖 AF API。未配置后端时，client 会显式走 fixture adapter，
+     但组件仍通过同一套 API 契约工作，接入真实服务无需改页面状态模型。 */
+  const loadBootstrap = useCallback(() => {
+    setApiLoad({ status: "loading" });
+    let disposed = false;
+    afApi.bootstrap().then((data) => {
+      if (disposed) return;
+      const ui = toUiBootstrap(data);
+      setWorkflowCatalog(ui.workflows);
+      setSessionList(ui.tasks);
+      setExecutorMode(ui.executorMode);
+      setApiLoad({ status: "ready" });
+      const first = ui.tasks[0];
+      if (!first) {
+        setMode("welcome");
+        return;
+      }
+      setActiveId(first.id);
+      setWorkflow(wfOf(first.workflow, ui.workflows));
+      setVisible(conversationOf(first.workflow).length);
+      setMode("session");
+    }).catch((error: unknown) => {
+      if (disposed) return;
+      const apiError = error instanceof AfApiError ? error : undefined;
+      setApiLoad({ status: "error", code: apiError?.code ?? "AF_NETWORK_ERROR", message: apiError?.message ?? "无法连接 AF API", retryable: apiError?.retryable ?? true });
+      setMode("welcome");
+    });
+    return () => { disposed = true; };
+  }, []);
+
+  useEffect(() => loadBootstrap(), [loadBootstrap]);
 
   /* 会话可能被删空：此时没有「当前会话」，类型上必须如实反映为可空，
      否则 TopBar 里读 active.repo 会在空态下崩掉（sessionList[0] 也是 undefined） */
@@ -308,7 +345,7 @@ export default function App() {
   );
 
   const startTask = useCallback(
-    (prompt: string, wf: Workflow, contract: AgentEvent) => {
+    async (prompt: string, wf: Workflow, contract: AgentEvent) => {
       timers.current.forEach(clearTimeout);
       timers.current = [];
       /* 上一条任务的推进也要停掉，否则会继续改写新任务的 wfStep */
@@ -323,7 +360,7 @@ export default function App() {
       setFocusNode(null);
       setPendingApproval(null);
       setStreaming(false);
-      /* 新建任务落地为一条会话，进入侧栏「今天」分组并成为当前会话 */
+      /* 所有任务创建都先经过 AF API；fixture adapter 也走同一请求契约。 */
       const repoLabel = contract.kind === "contract" ? contract.repo : "";
       const slug = prompt
         .replace(/[^\p{L}\p{N}\s]/gu, "")
@@ -334,11 +371,42 @@ export default function App() {
         .join("-")
         .slice(0, 24);
       const sid = `s-${Date.now()}`;
+      const targetBranch = `feat/${slug || "task"}`;
+      const repositoryRef = repoLabel.split(" · ")[0] ?? repoLabel;
+      let createdTask: { taskId: string };
+      try {
+        createdTask = await afApi.createTask({
+          idempotencyKey: `task-create:${sid}`,
+          title: prompt.length > 28 ? `${prompt.slice(0, 28)}…` : prompt,
+          problem: prompt,
+          repositoryRef,
+          baseBranch: "main",
+          targetBranch,
+          credentialRef: "credential-ref-required",
+          workflowId: wf.id,
+          workflowVersion: 1,
+          contractDigest: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        });
+      } catch (error: unknown) {
+        const apiError = error instanceof AfApiError ? error : undefined;
+        push({ tone: "warn", title: "任务创建失败", body: `${apiError?.code ?? "AF_NETWORK_ERROR"} · ${apiError?.message ?? "无法连接 AF API"}` });
+        return;
+      }
+      if (afApi.mode === "http") {
+        setNewTaskOpen(false);
+        setActiveId(createdTask.taskId);
+        setMode("session");
+        push({ tone: "info", title: "任务已创建", body: `任务 ${createdTask.taskId} 已进入控制面，等待刷新状态。` });
+        await loadBootstrap();
+        setActiveId(createdTask.taskId);
+        return;
+      }
+      const taskId = createdTask.taskId;
       const newSession: Session = {
-        id: sid,
+        id: taskId,
         title: prompt.length > 28 ? `${prompt.slice(0, 28)}…` : prompt,
         repo: repoLabel,
-        branch: `feat/${slug || "task"}`,
+        branch: targetBranch,
         /* 规划待确认，尚未进入执行 */
         state: "review",
         time: "刚刚",
@@ -348,8 +416,8 @@ export default function App() {
         /* 记住这条任务选的编排，之后切回来仍能显示对应流水线 */
         workflow: wf.id,
       };
-      setSessionList((prev) => [newSession, ...prev.filter((s) => s.id !== sid)]);
-      setActiveId(sid);
+      setSessionList((prev) => [newSession, ...prev.filter((s) => s.id !== taskId)]);
+      setActiveId(taskId);
 
       /* 第一步只出规划方案，不推进流水线 —— 等用户确认 */
       const plan = buildOrchestratorPlan(wf, prompt);
@@ -357,7 +425,7 @@ export default function App() {
       setPlanPending(true);
       planPendingRef.current = true;
       setExtra([
-        { id: `${sid}-u`, kind: "user", text: prompt } as AgentEvent,
+        { id: `${taskId}-u`, kind: "user", text: prompt } as AgentEvent,
         contract,
         plan,
       ]);
@@ -367,7 +435,7 @@ export default function App() {
         body: `${wf.nodes.length} 个节点的契约与增强提示词待你确认`,
       });
     },
-    [push],
+    [loadBootstrap, push],
   );
 
   /** 用户确认规划 → 正式推进流水线（原 startTask 尾部的推进逻辑迁移至此） */
@@ -387,6 +455,13 @@ export default function App() {
     setSessionList((prev) =>
       prev.map((s) => (s.id === activeId ? { ...s, state: "running" } : s)),
     );
+    if (afApi.mode === "http") {
+      void afApi.startTask(activeId).then(() => loadBootstrap()).catch((error: unknown) => {
+        const apiError = error instanceof AfApiError ? error : undefined;
+        push({ tone: "warn", title: "任务启动失败", body: `${apiError?.code ?? "AF_NETWORK_ERROR"} · ${apiError?.message ?? "无法连接 AF API"}` });
+      });
+      return;
+    }
     setWfStep(0);
     /* 顺序要紧：runTurn 开头会清空 timers 以中断上一轮播放，
        若先注册推进定时器再调它，刚注册的会被一并清掉（表现为流水线卡在首个
@@ -402,7 +477,7 @@ export default function App() {
       title: `规划已确认 · 按「${wf.name}」启动`,
       body: `${wf.nodes.length} 个节点 · ${wf.edges.filter((e) => e.kind === "fail").length} 条失败回退边`,
     });
-  }, [planEvent, workflow, activeId, runTurn, push]);
+  }, [planEvent, workflow, activeId, runTurn, push, loadBootstrap]);
 
   const deleteSession = useCallback(
     (id: string) => {
@@ -423,7 +498,7 @@ export default function App() {
           setPendingApproval(null);
           setStreaming(pick.state === "running");
           /* 顶部流水线也要跟着切到接手的这条会话，否则会残留上一条的编排 */
-          setWorkflow(wfOf(pick.workflow));
+          setWorkflow(wfOf(pick.workflow, workflowCatalog));
           setWfStep(1);
         } else {
           setMode("welcome");
@@ -433,7 +508,7 @@ export default function App() {
       }
       push({ tone: "warn", title: "已删除会话", body: "相关演示记录已从侧栏移除。" });
     },
-    [activeId, push, sessionList],
+    [activeId, push, sessionList, workflowCatalog],
   );
 
   const resolveApproval = useCallback(
@@ -531,8 +606,8 @@ export default function App() {
     setFocusNode(null);
     setWfStep(1);
     /* 编排随会话切换：这条任务是缺陷修复就该显示缺陷修复的流水线 */
-    setWorkflow(wfOf(s.workflow));
-  }, []);
+    setWorkflow(wfOf(s.workflow, workflowCatalog));
+  }, [workflowCatalog]);
 
   /* 架构层 → 承载该层证据的界面，一次点击到位，不让用户自己去找 */
   const archJump = useCallback(
@@ -642,7 +717,17 @@ export default function App() {
             setInspectorTab("evidence");
             setInspectorOpen(true);
           }}
+          executorMode={executorMode}
+          apiMode={afApi.mode}
         />
+
+        {apiLoad.status === "loading" && <div className="apiNotice" data-state="loading">正在连接 AF API…</div>}
+        {apiLoad.status === "error" && (
+          <div className="apiNotice" data-state="error" role="alert">
+            <span>AF API 不可用 · {apiLoad.code} · {apiLoad.message}</span>
+            {apiLoad.retryable && <button className="btn btn--ghost btn--sm" onClick={loadBootstrap}>重试</button>}
+          </div>
+        )}
 
         {mode === "welcome" ? (
           <Welcome onStart={runTurn} />
