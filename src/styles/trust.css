@@ -2310,3 +2310,56 @@
   .rpLine__at { display: none; }
   .opl__count { display: none; }
 }
+
+/* AF API 聚合事实：真实模式只展示这些 DTO，不从演示事件推导结果。 */
+.runtime { margin: 8px 14px 0; border: 1px solid var(--line); border-radius: var(--r-md); background: color-mix(in oklab, var(--surface) 94%, var(--accent)); box-shadow: var(--shadow-lift); overflow: hidden; }
+.runtime--notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; color: var(--text-3); font-size: 10px; }
+.runtime--notice[data-state="error"] { border-color: var(--rose); color: var(--rose); }
+.runtime__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 11px; border-bottom: 1px solid var(--line); }
+.runtime__head > div:first-child { display: grid; gap: 2px; }
+.runtime__head strong { font-size: 11px; color: var(--text); }
+.runtime__badges { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 4px; }
+.runtime__fixture { border-color: var(--gold); color: var(--gold); }
+.runtime__summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border-bottom: 1px solid var(--line); }
+.runtime__summary > span { display: grid; gap: 2px; min-width: 0; padding: 7px 9px; background: var(--surface-1); color: var(--text-3); font-size: 9px; }
+.runtime__summary b { color: var(--text-4); font-weight: 500; }
+.runtime__summary code { overflow: hidden; color: var(--text-2); font: 9px var(--font-mono); text-overflow: ellipsis; }
+.runtime__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 420px; overflow: auto; }
+.runtimeBlock { min-width: 0; padding: 10px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.runtimeBlock > header { display: flex; align-items: center; gap: 5px; margin-bottom: 7px; color: var(--text-2); font-size: 10px; }
+.runtimeNodes, .runtimeTimeline { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.runtimeNodes li { display: grid; grid-template-columns: 7px minmax(78px, .55fr) minmax(110px, 1fr); gap: 5px 8px; align-items: center; padding: 6px 7px; border: 1px solid var(--line); border-radius: var(--r-xs); background: var(--surface-1); }
+.runtimeNodes li > i { width: 7px; height: 7px; border: 1px solid var(--line-strong); border-radius: 50%; }
+.runtimeNodes li[data-status="accepted"] > i { border-color: var(--sage); background: var(--sage); }
+.runtimeNodes li[data-status="running"] > i { border-color: var(--accent); background: var(--accent); }
+.runtimeNodes li[data-status="rejected"] > i, .runtimeNodes li[data-status="blocked_unavailable"] > i { border-color: var(--rose); background: var(--rose); }
+.runtimeNodes li > div { display: grid; min-width: 0; }
+.runtimeNodes strong { font-size: 9.5px; color: var(--text); }
+.runtimeNodes span { font-size: 8.5px; color: var(--text-4); }
+.runtimeNodes p { display: grid; gap: 2px; margin: 0; font-size: 9px; color: var(--text-3); }
+.runtimeNodes p em { color: var(--text-4); font-size: 8px; font-style: normal; }
+.runtimeNodes small { grid-column: 2 / -1; overflow-wrap: anywhere; color: var(--text-4); font-size: 8px; }
+.runtimeNodes__failure { grid-column: 2 / -1; color: var(--rose) !important; font-size: 8.5px !important; }
+.runtimeFacts, .gitOps { display: grid; gap: 5px; }
+.runtimeFacts article, .gitOps article { display: grid; gap: 3px; padding: 7px 8px; border: 1px solid var(--line); border-radius: var(--r-xs); background: var(--surface-1); }
+.runtimeFacts article[data-tone="ok"] { border-left: 2px solid var(--sage); }
+.runtimeFacts article[data-tone="bad"] { border-left: 2px solid var(--rose); }
+.runtimeFacts article[data-tone="warn"] { border-left: 2px solid var(--gold); }
+.runtimeFacts strong { font-size: 9.5px; color: var(--text-2); }
+.runtimeFacts span { font-size: 8.5px; color: var(--text-3); }
+.runtimeFacts code { overflow-wrap: anywhere; color: var(--text-4); font: 8px var(--font-mono); }
+.gitOps__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.gitOps dl { display: grid; gap: 2px; margin: 0; }
+.gitOps dl div { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 5px; }
+.gitOps dt { color: var(--text-4); font-size: 8px; }
+.gitOps dd { min-width: 0; margin: 0; }
+.gitOps dd code { display: block; overflow: hidden; color: var(--text-3); font: 8px var(--font-mono); text-overflow: ellipsis; }
+.gitOps__warning { margin: 2px 0 0; color: var(--gold); font-size: 8.5px; line-height: 1.5; }
+.runtimeEmpty { margin: 0; color: var(--text-4); font-size: 9px; line-height: 1.5; }
+.runtimeTimeline li { display: grid; grid-template-columns: 26px minmax(0, 1fr) max-content; gap: 6px; padding: 5px 0; border-bottom: 1px solid var(--line); }
+.runtimeTimeline li > span { color: var(--text-4); font-size: 8px; }
+.runtimeTimeline strong { font-size: 9px; color: var(--text-2); }
+.runtimeTimeline p { margin: 1px 0 0; color: var(--text-3); font-size: 8.5px; }
+.runtimeTimeline small { color: var(--text-4); font-size: 8px; }
+.runtimeDeliverables { margin: 7px 0 0; color: var(--text-3); font-size: 8.5px; }
+@media (max-width: 900px) { .runtime__summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .runtime__grid { grid-template-columns: minmax(0, 1fr); } }

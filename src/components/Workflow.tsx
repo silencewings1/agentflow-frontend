@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Icon } from "./Icons";
 import {
+  addWorkflowEdge,
   NODE_H,
   NODE_W,
   dagSize,
@@ -11,10 +12,13 @@ import {
   nodePos,
   nodeRunLabel,
   patchNode,
+  patchWorkflowEdge,
   removeNode,
+  removeWorkflowEdge,
   roleGlyph,
   roleTint,
   setFailTarget,
+  validateWorkflowGraph,
   workflowTemplates,
   type NodeMessage,
   type WfNode,
@@ -22,6 +26,7 @@ import {
   type Workflow,
 } from "../data/workflows";
 import { roleLabel, type AgentRole } from "../data/settings";
+import type { AgentProfileSummaryDto, SkillSummaryDto, WorkflowValidation } from "../api";
 
 /* ============================ DAG 画布 ================================= */
 
@@ -40,7 +45,7 @@ export function DagCanvas({
   runStates?: WfRunStates;
 }) {
   const size = dagSize(wf.nodes);
-  const flows = wf.edges.filter((e) => e.kind === "flow");
+  const flows = wf.edges.filter((e) => e.kind !== "fail");
   const fails = wf.edges.filter((e) => e.kind === "fail");
   const byId = useMemo(
     () => Object.fromEntries(wf.nodes.map((n) => [n.id, n])) as Record<string, WfNode>,
@@ -68,6 +73,9 @@ export function DagCanvas({
           <marker id="ar-fail" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6.5" markerHeight="6.5" orient="auto">
             <path d="M0 0.6 L7.4 4 L0 7.4 z" fill="var(--gold)" />
           </marker>
+          <marker id="ar-approve" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0.6 L7.4 4 L0 7.4 z" fill="var(--plum)" />
+          </marker>
         </defs>
 
         {/* 失败回退边先画，压在节点下层 */}
@@ -93,8 +101,8 @@ export function DagCanvas({
           const b = byId[e.to];
           if (!a || !b) return null;
           return (
-            <g key={e.id} className="dagEdge dagEdge--flow" style={{ ["--i" as string]: i }}>
-              <path d={flowPath(a, b)} markerEnd="url(#ar-flow)" />
+            <g key={e.id} className={`dagEdge dagEdge--${e.kind}`} style={{ ["--i" as string]: i }}>
+              <path d={flowPath(a, b)} markerEnd={e.kind === "approve" ? "url(#ar-approve)" : "url(#ar-flow)"} />
             </g>
           );
         })}
@@ -466,23 +474,90 @@ export function WorkflowPicker({
   value,
   onChange,
   onToast,
+  catalog = workflowTemplates,
+  profiles = [],
+  skills = [],
+  serverValidation,
 }: {
   value: Workflow;
   onChange: (w: Workflow) => void;
   onToast?: (t: { tone: "ok" | "warn" | "info"; title: string; body: string }) => void;
+  catalog?: Workflow[];
+  profiles?: AgentProfileSummaryDto[];
+  skills?: SkillSummaryDto[];
+  serverValidation?: WorkflowValidation | null;
 }) {
   const [sel, setSel] = useState<string | null>(value.nodes[0]?.id ?? null);
   const [adding, setAdding] = useState(false);
   const [newRole, setNewRole] = useState<AgentRole>("testing");
   const [newName, setNewName] = useState("");
+  const [edgeFrom, setEdgeFrom] = useState(value.nodes[0]?.id ?? "");
+  const [edgeTo, setEdgeTo] = useState(value.nodes[1]?.id ?? value.nodes[0]?.id ?? "");
+  const [edgeKind, setEdgeKind] = useState<"flow" | "fail" | "approve">("flow");
 
   const node = value.nodes.find((n) => n.id === sel) ?? null;
   const contract = node ? value.orchestrator.contracts[node.id] : null;
   const failEdge = value.edges.find((e) => e.kind === "fail" && e.from === sel);
   const upstream = value.nodes.filter((n) => n.col < (node?.col ?? 0));
+  const localIssues = useMemo(() => validateWorkflowGraph(value), [value]);
+  const issues = [...localIssues, ...(serverValidation?.errors ?? [])].filter((issue, index, all) => all.findIndex((candidate) => candidate.code === issue.code && candidate.path === issue.path && candidate.message === issue.message) === index);
+  const locked = value.frozen === true;
+  const selectedProfile = node?.agentProfileRef
+    ? profiles.find((profile) => profile.profileId === node.agentProfileRef?.profileId)
+    : undefined;
+  const selectedSkill = node?.skillRef
+    ? skills.find((skill) => skill.skillId === node.skillRef?.skillId)
+    : undefined;
+
+  const changeRole = (role: AgentRole) => {
+    if (!node) return;
+    if (role === "testing") {
+      const skill = skills.find((item) => item.skillId === node.skillRef?.skillId) ?? skills[0];
+      const testProfile = profiles.find((item) => item.profileId === "test-analyst");
+      onChange(patchNode(value, node.id, skill ? {
+        role,
+        kind: "skill",
+        skillRef: { skillId: skill.skillId, skillVersion: skill.skillVersion },
+        agentProfileRef: undefined,
+        outputSchemaVersion: "SkillResult@1.0",
+      } : {
+        role,
+        kind: "ai",
+        skillRef: undefined,
+        agentProfileRef: testProfile ? { profileId: testProfile.profileId, profileVersion: testProfile.profileVersion } : undefined,
+        outputSchemaVersion: testProfile?.outputSchemaVersion ?? node.outputSchemaVersion,
+      }));
+      return;
+    }
+    if (role === "delivery") {
+      onChange(patchNode(value, node.id, {
+        role,
+        kind: "git",
+        agentProfileRef: undefined,
+        skillRef: undefined,
+        outputSchemaVersion: "GitOperation@1.1",
+      }));
+      return;
+    }
+    const profileIds: Partial<Record<AgentRole, string>> = {
+      requirement: "requirements-analyst",
+      architecture: "solution-architect",
+      development: "implementation-agent",
+      review: "independent-reviewer",
+    };
+    const profileId = profileIds[role];
+    const profile = profiles.find((item) => item.profileId === profileId);
+    onChange(patchNode(value, node.id, {
+      role,
+      kind: "ai",
+      skillRef: undefined,
+      agentProfileRef: profile ? { profileId: profile.profileId, profileVersion: profile.profileVersion } : undefined,
+      outputSchemaVersion: profile?.outputSchemaVersion ?? node.outputSchemaVersion,
+    }));
+  };
 
   const pick = (id: string) => {
-    const tpl = workflowTemplates.find((w) => w.id === id);
+    const tpl = catalog.find((w) => w.id === id);
     if (!tpl) return;
     onChange(tpl);
     setSel(tpl.nodes[0]?.id ?? null);
@@ -493,7 +568,7 @@ export function WorkflowPicker({
     <div className="wfConf">
       {/* 模板选择 */}
       <div className="wfTpl">
-        {workflowTemplates.map((w, i) => {
+        {catalog.map((w, i) => {
           const G = Icon[w.glyph];
           const on = w.id === value.id;
           return (
@@ -541,11 +616,13 @@ export function WorkflowPicker({
       </div>
 
       {/* 画布 */}
-      <div className="wfStage">
+      <div className="wfStage" data-invalid={issues.length > 0 || undefined}>
         <div className="wfStage__bar">
           <div className="wfStage__id">
             <strong>{value.name}</strong>
             {!value.builtin && <span className="tag tag--xs">已修改</span>}
+            <span className="tag tag--xs mono">v{value.workflowVersion ?? 1}</span>
+            {locked && <span className="tag tag--xs tag--lock">运行中已冻结</span>}
           </div>
           <p className="wfStage__sum">{value.summary}</p>
           <div className="wfLegend">
@@ -571,6 +648,13 @@ export function WorkflowPicker({
         <div className="wfStage__scroll">
           <DagCanvas wf={value} selected={sel} onSelect={setSel} />
         </div>
+        <div className="wfValidation" data-valid={issues.length === 0}>
+          <strong>{issues.length === 0 ? "DAG 校验通过" : `DAG 有 ${issues.length} 项问题`}</strong>
+          {issues.slice(0, 4).map((issue, index) => (
+            <span key={`${issue.code}-${issue.path}-${index}`}><code>{issue.code}</code> · {issue.message}</span>
+          ))}
+          {issues.length > 4 && <span>另有 {issues.length - 4} 项，请修正后再保存。</span>}
+        </div>
       </div>
 
       {/* 节点编辑 */}
@@ -590,10 +674,12 @@ export function WorkflowPicker({
                   value={node.name}
                   onChange={(e) => onChange(patchNode(value, node.id, { name: e.target.value }))}
                   aria-label="节点名称"
+                  readOnly={locked}
                 />
                 <button
                   className="iconBtn iconBtn--sm"
                   aria-label="删除节点"
+                  disabled={locked}
                   onClick={() => {
                     const next = removeNode(value, node.id);
                     onChange(next);
@@ -645,18 +731,80 @@ export function WorkflowPicker({
               <div className="wfEdit__row">
                 <label>承接角色</label>
                 <div className="tagPick">
-                  {(Object.keys(roleLabel) as AgentRole[]).map((r) => (
+                  {(["requirement", "architecture", "development", "testing", "review", "delivery"] as AgentRole[]).map((r) => (
                     <button
                       key={r}
                       className="tag"
                       data-on={node.role === r}
-                      onClick={() => onChange(patchNode(value, node.id, { role: r }))}
+                      disabled={locked}
+                      onClick={() => changeRole(r)}
                     >
                       {roleLabel[r]}
                     </button>
                   ))}
                 </div>
               </div>
+
+              {profiles.length > 0 && node.kind !== "skill" && node.kind !== "git" && (
+                <div className="wfEdit__row wfEdit__row--profile">
+                  <label>专业智能体 Profile</label>
+                  <div className="profilePick">
+                    {profiles.map((profile) => (
+                      <button
+                        key={`${profile.profileId}@${profile.profileVersion}`}
+                        className="profilePick__item"
+                        data-on={selectedProfile?.profileId === profile.profileId}
+                        disabled={locked}
+                        onClick={() => onChange(patchNode(value, node.id, {
+                          kind: "ai",
+                          agentProfileRef: { profileId: profile.profileId, profileVersion: profile.profileVersion },
+                          skillRef: undefined,
+                          outputSchemaVersion: profile.outputSchemaVersion,
+                        }))}
+                      >
+                        <strong>{profile.name}</strong>
+                        <span className="mono">{profile.profileId}@{profile.profileVersion}</span>
+                        {profile.independent && <em>独立上下文</em>}
+                      </button>
+                    ))}
+                  </div>
+                  {selectedProfile && (
+                    <div className="profileFact">
+                      <p><b>职责</b>{selectedProfile.responsibilities.join("；")}</p>
+                      <p><b>非职责</b>{selectedProfile.nonResponsibilities.join("；")}</p>
+                      <p><b>模型</b><span className="mono">{selectedProfile.modelPolicy.provider}/{selectedProfile.modelPolicy.model}</span></p>
+                      <p><b>工具策略</b><span className="mono">{selectedProfile.toolPolicyVersion} · {selectedProfile.tools.join(", ")}</span></p>
+                      <p><b>I/O</b><span className="mono">{selectedProfile.inputSchemaVersion} → {selectedProfile.outputSchemaVersion}</span></p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {skills.length > 0 && (node.kind === "skill" || (node.kind === undefined && node.role === "testing")) && (
+                <div className="wfEdit__row wfEdit__row--profile">
+                  <label>受控 Skill</label>
+                  <div className="profilePick">
+                    {skills.map((skill) => (
+                      <button
+                        key={`${skill.skillId}@${skill.skillVersion}`}
+                        className="profilePick__item"
+                        data-on={selectedSkill?.skillId === skill.skillId}
+                        disabled={locked}
+                        onClick={() => onChange(patchNode(value, node.id, {
+                          kind: "skill",
+                          skillRef: { skillId: skill.skillId, skillVersion: skill.skillVersion },
+                          agentProfileRef: undefined,
+                          outputSchemaVersion: "SkillResult@1.0",
+                        }))}
+                      >
+                        <strong>{skill.name}</strong>
+                        <span className="mono">{skill.skillId}@{skill.skillVersion}</span>
+                        <em>{skill.allowedCommands.join(" · ")}</em>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="wfEdit__row">
                 <label>失败回退至</label>
@@ -667,6 +815,7 @@ export function WorkflowPicker({
                       key={u.id}
                       className="tag"
                       data-on={failEdge?.to === u.id}
+                      disabled={locked}
                       onClick={() =>
                         onChange(
                           setFailTarget(value, node.id, failEdge?.to === u.id ? null : u.id),
@@ -683,6 +832,7 @@ export function WorkflowPicker({
                 <button
                   className="flagBtn"
                   data-on={!!node.gate}
+                  disabled={locked}
                   onClick={() =>
                     onChange(
                       patchNode(value, node.id, { gate: node.gate ? undefined : "自动检查通过" }),
@@ -695,6 +845,7 @@ export function WorkflowPicker({
                 <button
                   className="flagBtn"
                   data-on={!!node.approval}
+                  disabled={locked}
                   onClick={() => onChange(patchNode(value, node.id, { approval: !node.approval }))}
                 >
                   <Icon.Check size={13} />
@@ -731,6 +882,40 @@ export function WorkflowPicker({
               <dd className="mono">{value.nodes.filter((n) => n.approval).length}</dd>
             </div>
           </dl>
+
+          <div className="wfEdges">
+            <span className="kicker">节点与边</span>
+            <div className="wfEdges__add">
+              <select value={edgeFrom} onChange={(event) => setEdgeFrom(event.target.value)} disabled={locked} aria-label="边起点">
+                {value.nodes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+              <span>→</span>
+              <select value={edgeTo} onChange={(event) => setEdgeTo(event.target.value)} disabled={locked} aria-label="边终点">
+                {value.nodes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+              <select value={edgeKind} onChange={(event) => setEdgeKind(event.target.value as typeof edgeKind)} disabled={locked} aria-label="边类型">
+                <option value="flow">流转</option>
+                <option value="fail">失败回退</option>
+                <option value="approve">人工审批</option>
+              </select>
+              <button className="btn btn--outline btn--sm" disabled={locked || edgeFrom === edgeTo} onClick={() => onChange(addWorkflowEdge(value, edgeFrom, edgeTo, edgeKind, edgeKind === "fail" ? "定向返工" : undefined))}>
+                <Icon.Plus size={12} /> 添加边
+              </button>
+            </div>
+            <ul className="wfEdges__list">
+              {value.edges.map((edge) => (
+                <li key={edge.id}>
+                  <span>{value.nodes.find((item) => item.id === edge.from)?.name ?? edge.from} → {value.nodes.find((item) => item.id === edge.to)?.name ?? edge.to}</span>
+                  <select value={edge.kind} disabled={locked} onChange={(event) => onChange(patchWorkflowEdge(value, edge.id, { kind: event.target.value as typeof edge.kind }))}>
+                    <option value="flow">流转</option>
+                    <option value="fail">回退</option>
+                    <option value="approve">审批</option>
+                  </select>
+                  <button className="iconBtn iconBtn--sm" disabled={locked} onClick={() => onChange(removeWorkflowEdge(value, edge.id))} aria-label="删除边"><Icon.X size={11} /></button>
+                </li>
+              ))}
+            </ul>
+          </div>
 
           {adding ? (
             <div className="wfAdd">
@@ -769,7 +954,8 @@ export function WorkflowPicker({
           ) : (
             <button
               className="btn btn--outline btn--sm btn--block"
-              disabled={!sel}
+              disabled={!sel || locked}
+              data-locked={locked || undefined}
               onClick={() => setAdding(true)}
             >
               <Icon.Plus size={13} />

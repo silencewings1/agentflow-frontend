@@ -5,8 +5,8 @@ import {
   type Session,
   type Theme,
 } from "./data/mock";
-import { afApi, AfApiError, toUiBootstrap } from "./api";
-import type { ExecutorMode } from "./api";
+import { afApi, AfApiError, toUiBootstrap, toWorkflowDto } from "./api";
+import type { AgentProfileSummaryDto, ExecutorMode, ScmProviderDto, SkillSummaryDto, TaskDetailDto, TrajectoryEventDto, WorkflowValidation } from "./api";
 import { conversationOf } from "./data/streams";
 import { inspectorOf } from "./data/inspector";
 import { Rail } from "./components/Rail";
@@ -19,8 +19,9 @@ import { Palette } from "./components/Palette";
 import { Toasts, type Toast } from "./components/Toasts";
 import { Welcome } from "./components/Welcome";
 import { SettingsOverlay, type ArchJump, type SettingsPane } from "./components/Settings";
-import { NewTaskDialog } from "./components/NewTask";
+import { NewTaskDialog, type NewTaskScmDraft } from "./components/NewTask";
 import { WorkflowStrip, NodeConversation } from "./components/Workflow";
+import { RuntimeConsole, type RuntimeLoadState } from "./components/RuntimeConsole";
 import { defaultModel, modelOptions } from "./data/settings";
 import {
   buildOrchestratorPlan,
@@ -40,6 +41,12 @@ function wfOf(id: string | undefined, catalog: Workflow[] = workflowTemplates): 
   return catalog.find((w) => w.id === id) ?? catalog[0] ?? workflowTemplates[0]!;
 }
 
+async function digestValue(value: unknown): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return `sha256:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
 let toastSeq = 0;
 
 export default function App() {
@@ -57,8 +64,15 @@ export default function App() {
   /* 初始编排取首条会话自己的编排，而不是写死第一套模板 */
   const [workflowCatalog, setWorkflowCatalog] = useState<Workflow[]>(workflowTemplates);
   const [workflow, setWorkflow] = useState<Workflow>(() => workflowTemplates[0]!);
+  const [agentProfiles, setAgentProfiles] = useState<AgentProfileSummaryDto[]>([]);
+  const [skillCatalog, setSkillCatalog] = useState<SkillSummaryDto[]>([]);
+  const [scmProviders, setScmProviders] = useState<ScmProviderDto[]>([]);
   const [executorMode, setExecutorMode] = useState<ExecutorMode>("demo-deterministic");
   const [apiLoad, setApiLoad] = useState<ApiLoadState>({ status: "loading" });
+  const [taskRuntime, setTaskRuntime] = useState<TaskDetailDto | null>(null);
+  const [trajectory, setTrajectory] = useState<TrajectoryEventDto[]>([]);
+  const [runtimeLoad, setRuntimeLoad] = useState<RuntimeLoadState>({ status: "idle" });
+  const [confirmingOperationId, setConfirmingOperationId] = useState<string | null>(null);
   const [wfStep, setWfStep] = useState(1);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>("ask");
@@ -87,6 +101,10 @@ export default function App() {
      中断上一轮脚本播放，若与推进共用一个数组，推进会被连带清掉（表现为
      流水线卡在中途不动）。两者生命周期不同，就该分开管。 */
   const stepTimers = useRef<number[]>([]);
+  const currentActiveRef = useRef("");
+  const preferredActiveRef = useRef<string | null>(null);
+
+  useEffect(() => { currentActiveRef.current = activeId; }, [activeId]);
 
   /* 首屏只依赖 AF API。未配置后端时，client 会显式走 fixture adapter，
      但组件仍通过同一套 API 契约工作，接入真实服务无需改页面状态模型。 */
@@ -99,8 +117,13 @@ export default function App() {
       setWorkflowCatalog(ui.workflows);
       setSessionList(ui.tasks);
       setExecutorMode(ui.executorMode);
+      setAgentProfiles(ui.agentProfiles);
+      setSkillCatalog(ui.skills);
+      setScmProviders(ui.scmProviders);
       setApiLoad({ status: "ready" });
-      const first = ui.tasks[0];
+      const requestedId = preferredActiveRef.current ?? currentActiveRef.current;
+      const first = ui.tasks.find((task) => task.id === requestedId) ?? ui.tasks[0];
+      preferredActiveRef.current = null;
       if (!first) {
         setMode("welcome");
         return;
@@ -119,6 +142,52 @@ export default function App() {
   }, []);
 
   useEffect(() => loadBootstrap(), [loadBootstrap]);
+
+  const fetchTaskRuntime = useCallback(async (taskId: string, signal?: AbortSignal, quiet = false) => {
+    if (!taskId) return;
+    if (!quiet) setRuntimeLoad({ status: "loading" });
+    try {
+      const [detail, events] = await Promise.all([
+        afApi.getTask(taskId, signal),
+        afApi.getTrajectory(taskId, signal),
+      ]);
+      setTaskRuntime(detail);
+      setTrajectory(events);
+      setExecutorMode(detail.executorMode);
+      setRuntimeLoad({ status: "ready" });
+      setSessionList((items) => items.map((item) => item.id === taskId ? {
+        ...item,
+        state: detail.status === "completed" || detail.status === "done" ? "done"
+          : detail.status === "failed" || detail.status === "blocked_unavailable" || detail.status === "needs_reconcile" ? "failed"
+            : detail.status === "created" || detail.status === "review" ? "review"
+              : detail.status === "cancelled" || detail.status === "idle" ? "idle" : "running",
+      } : item));
+    } catch (error: unknown) {
+      if (signal?.aborted) return;
+      const apiError = error instanceof AfApiError ? error : undefined;
+      setRuntimeLoad({ status: "error", code: apiError?.code ?? "AF_NETWORK_ERROR", message: apiError?.message ?? "无法读取任务状态", retryable: apiError?.retryable ?? true });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!activeId) {
+      setTaskRuntime(null);
+      setTrajectory([]);
+      setRuntimeLoad({ status: "idle" });
+      return;
+    }
+    const controller = new AbortController();
+    setTaskRuntime(null);
+    setTrajectory([]);
+    void fetchTaskRuntime(activeId, controller.signal);
+    const interval = window.setInterval(() => {
+      if (afApi.mode === "http") void fetchTaskRuntime(activeId, controller.signal, true);
+    }, 2_000);
+    return () => {
+      controller.abort();
+      clearInterval(interval);
+    };
+  }, [activeId, fetchTaskRuntime]);
 
   /* 会话可能被删空：此时没有「当前会话」，类型上必须如实反映为可空，
      否则 TopBar 里读 active.repo 会在空态下崩掉（sessionList[0] 也是 undefined） */
@@ -148,8 +217,10 @@ export default function App() {
   }, [activeFile, inspectorBundle]);
 
   const events = useMemo(
-    () => [...baseConversation.slice(0, visible), ...extra],
-    [baseConversation, visible, extra],
+    () => afApi.mode === "http"
+      ? trajectory.map((event) => ({ id: event.eventId, kind: "text" as const, body: `#${event.seq} · ${event.eventType} · ${event.summary}（${event.actor}）` }))
+      : [...baseConversation.slice(0, visible), ...extra],
+    [baseConversation, visible, extra, trajectory],
   );
 
   /* 当前模板的模拟运行现场：换编排即换整套消息与最终态 */
@@ -161,6 +232,15 @@ export default function App() {
      推进到末尾后交给模板的最终态 —— 只有它知道这次是收尾还是被阻断，
      这是 wfStep 推导不出来的（推导只会一路 running 到底）。 */
   const runStates = useMemo<WfRunStates>(() => {
+    if (afApi.mode === "http" && taskRuntime) {
+      const live: WfRunStates = {};
+      taskRuntime.nodes.forEach((node) => {
+        live[node.nodeId] = node.status === "accepted" ? "done"
+          : node.status === "rejected" || node.status === "blocked_unavailable" || node.status === "needs_reconcile" ? "blocked"
+            : node.status === "pending" ? "todo" : "running";
+      });
+      return live;
+    }
     const last = workflow.nodes.length - 1;
     if (wfStep >= last && Object.keys(wfRun.states).length) return wfRun.states;
     const m: WfRunStates = {};
@@ -169,7 +249,7 @@ export default function App() {
         wfStep < 0 ? "todo" : i < wfStep ? "done" : i === wfStep ? "running" : "todo";
     });
     return m;
-  }, [workflow, wfStep, wfRun]);
+  }, [workflow, wfStep, wfRun, taskRuntime]);
 
   /* 五层架构的运行时切面：让「总体架构」显示当前会话在每层的实时状态 */
   const archRuntime = useMemo(
@@ -177,12 +257,12 @@ export default function App() {
       workflowName: workflow.name,
       wfStep,
       wfTotal: workflow.nodes.length,
-      currentNode: workflow.nodes[Math.min(wfStep, workflow.nodes.length - 1)]?.name ?? "",
+      currentNode: taskRuntime?.currentNodeId ?? workflow.nodes[Math.min(wfStep, workflow.nodes.length - 1)]?.name ?? "",
       eventCount: events.length,
       streaming,
       awaitingApproval: pendingApproval !== null,
     }),
-    [workflow, wfStep, events.length, streaming, pendingApproval],
+    [workflow, wfStep, events.length, streaming, pendingApproval, taskRuntime?.currentNodeId],
   );
 
   useEffect(() => {
@@ -270,6 +350,10 @@ export default function App() {
   /* --- simulated agent turn ---------------------------------------------- */
   const runTurn = useCallback(
     (prompt: string, contract?: AgentEvent, keepHistory?: boolean) => {
+      if (afApi.mode === "http") {
+        push({ tone: "info", title: "真实模式由工作流节点驱动", body: "当前 AF API 未声明自由对话路由；请通过任务创建、启动、确认与返工入口操作，页面不会伪造一轮智能体执行。" });
+        return;
+      }
       /* 规划待确认期间，输入框的语义变为「提交修改意见」而非普通对话 */
       if (planPendingRef.current) {
         revisePlan(prompt);
@@ -341,72 +425,67 @@ export default function App() {
       });
     },
     /* 判据走 planPendingRef（同步），故不依赖 planPending */
-    [revisePlan],
+    [push, revisePlan],
   );
 
   const startTask = useCallback(
-    async (prompt: string, wf: Workflow, contract: AgentEvent) => {
-      timers.current.forEach(clearTimeout);
-      timers.current = [];
-      /* 上一条任务的推进也要停掉，否则会继续改写新任务的 wfStep */
-      stepTimers.current.forEach(clearTimeout);
-      stepTimers.current = [];
-      setWorkflow(wf);
-      /* -1 表示流水线尚未开跑：规划待确认，DAG 全部节点为未开始 */
-      setWfStep(-1);
-      setNewTaskOpen(false);
-      setVisible(0);
-      setMode("session");
-      setFocusNode(null);
-      setPendingApproval(null);
-      setStreaming(false);
+    async (prompt: string, wf: Workflow, contract: AgentEvent, scm: NewTaskScmDraft) => {
       /* 所有任务创建都先经过 AF API；fixture adapter 也走同一请求契约。 */
-      const repoLabel = contract.kind === "contract" ? contract.repo : "";
-      const slug = prompt
-        .replace(/[^\p{L}\p{N}\s]/gu, "")
-        .trim()
-        .toLowerCase()
-        .split(/\s+/)
-        .slice(0, 3)
-        .join("-")
-        .slice(0, 24);
       const sid = `s-${Date.now()}`;
-      const targetBranch = `feat/${slug || "task"}`;
-      const repositoryRef = repoLabel.split(" · ")[0] ?? repoLabel;
       let createdTask: { taskId: string };
+      let versionedWorkflow = wf;
       try {
+        const workflowVersion = await afApi.saveWorkflow(toWorkflowDto(wf));
+        const contractDigest = await digestValue(contract);
+        versionedWorkflow = { ...wf, workflowVersion: workflowVersion.workflowVersion, nodeSpecDigest: workflowVersion.nodeSpecDigest, frozen: workflowVersion.frozen };
         createdTask = await afApi.createTask({
           idempotencyKey: `task-create:${sid}`,
           title: prompt.length > 28 ? `${prompt.slice(0, 28)}…` : prompt,
           problem: prompt,
-          repositoryRef,
-          baseBranch: "main",
-          targetBranch,
-          credentialRef: "credential-ref-required",
-          workflowId: wf.id,
-          workflowVersion: 1,
-          contractDigest: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          repositoryRef: scm.repositoryRef,
+          baseBranch: scm.baseBranch,
+          targetBranch: scm.targetBranch,
+          credentialRef: scm.credentialRef,
+          provider: scm.provider,
+          mcpServerRef: scm.mcpServerRef,
+          workflowId: workflowVersion.workflowId,
+          workflowVersion: workflowVersion.workflowVersion,
+          contractDigest,
         });
       } catch (error: unknown) {
         const apiError = error instanceof AfApiError ? error : undefined;
         push({ tone: "warn", title: "任务创建失败", body: `${apiError?.code ?? "AF_NETWORK_ERROR"} · ${apiError?.message ?? "无法连接 AF API"}` });
         return;
       }
+      timers.current.forEach(clearTimeout);
+      timers.current = [];
+      /* 上一条任务的推进也要停掉，否则会继续改写新任务的 wfStep。 */
+      stepTimers.current.forEach(clearTimeout);
+      stepTimers.current = [];
+      setWorkflow(versionedWorkflow);
+      /* -1 表示流水线尚未开跑：规划待确认，DAG 全部节点为未开始。 */
+      setWfStep(-1);
+      setVisible(0);
+      setMode("session");
+      setFocusNode(null);
+      setPendingApproval(null);
+      setStreaming(false);
+      setNewTaskOpen(false);
       if (afApi.mode === "http") {
-        setNewTaskOpen(false);
+        preferredActiveRef.current = createdTask.taskId;
         setActiveId(createdTask.taskId);
         setMode("session");
         push({ tone: "info", title: "任务已创建", body: `任务 ${createdTask.taskId} 已进入控制面，等待刷新状态。` });
-        await loadBootstrap();
-        setActiveId(createdTask.taskId);
+        loadBootstrap();
+        await fetchTaskRuntime(createdTask.taskId);
         return;
       }
       const taskId = createdTask.taskId;
       const newSession: Session = {
         id: taskId,
         title: prompt.length > 28 ? `${prompt.slice(0, 28)}…` : prompt,
-        repo: repoLabel,
-        branch: targetBranch,
+        repo: scm.repositoryRef.split("/").pop() ?? scm.repositoryRef,
+        branch: scm.targetBranch,
         /* 规划待确认，尚未进入执行 */
         state: "review",
         time: "刚刚",
@@ -435,7 +514,7 @@ export default function App() {
         body: `${wf.nodes.length} 个节点的契约与增强提示词待你确认`,
       });
     },
-    [loadBootstrap, push],
+    [fetchTaskRuntime, loadBootstrap, push],
   );
 
   /** 用户确认规划 → 正式推进流水线（原 startTask 尾部的推进逻辑迁移至此） */
@@ -455,11 +534,14 @@ export default function App() {
     setSessionList((prev) =>
       prev.map((s) => (s.id === activeId ? { ...s, state: "running" } : s)),
     );
-    if (afApi.mode === "http") {
-      void afApi.startTask(activeId).then(() => loadBootstrap()).catch((error: unknown) => {
+    void afApi.startTask(activeId).then(async () => {
+      await fetchTaskRuntime(activeId);
+      if (afApi.mode === "http") await loadBootstrap();
+    }).catch((error: unknown) => {
         const apiError = error instanceof AfApiError ? error : undefined;
         push({ tone: "warn", title: "任务启动失败", body: `${apiError?.code ?? "AF_NETWORK_ERROR"} · ${apiError?.message ?? "无法连接 AF API"}` });
-      });
+    });
+    if (afApi.mode === "http") {
       return;
     }
     setWfStep(0);
@@ -477,7 +559,7 @@ export default function App() {
       title: `规划已确认 · 按「${wf.name}」启动`,
       body: `${wf.nodes.length} 个节点 · ${wf.edges.filter((e) => e.kind === "fail").length} 条失败回退边`,
     });
-  }, [planEvent, workflow, activeId, runTurn, push, loadBootstrap]);
+  }, [planEvent, workflow, activeId, runTurn, push, loadBootstrap, fetchTaskRuntime]);
 
   const deleteSession = useCallback(
     (id: string) => {
@@ -681,6 +763,30 @@ export default function App() {
     [approvalMode, model, push, toggleTheme],
   );
 
+  const validateWorkflow = useCallback(async (candidate: Workflow): Promise<WorkflowValidation> => {
+    return afApi.validateWorkflow(toWorkflowDto(candidate));
+  }, []);
+
+  const confirmGitOperation = useCallback(async (operationId: string) => {
+    setConfirmingOperationId(operationId);
+    try {
+      const operation = await afApi.confirmPushOperation(operationId);
+      push({
+        tone: operation.status === "committed" ? "ok" : operation.status === "unknown" ? "warn" : "info",
+        title: operation.status === "committed" ? "SCM MCP 写入已核验" : `Git operation · ${operation.status}`,
+        body: operation.status === "committed"
+          ? `remote ${operation.remoteRevision?.slice(0, 12)} · source ${operation.sourceRevision.slice(0, 12)}`
+          : operation.errorMessage ?? "操作状态已由控制面更新。",
+      });
+      if (activeId) await fetchTaskRuntime(activeId);
+    } catch (error: unknown) {
+      const apiError = error instanceof AfApiError ? error : undefined;
+      push({ tone: "warn", title: "Git operation 确认失败", body: `${apiError?.code ?? "AF_NETWORK_ERROR"} · ${apiError?.message ?? "无法确认外部写入"}` });
+    } finally {
+      setConfirmingOperationId(null);
+    }
+  }, [activeId, fetchTaskRuntime, push]);
+
   return (
     <div
       className="shell"
@@ -719,6 +825,7 @@ export default function App() {
           }}
           executorMode={executorMode}
           apiMode={afApi.mode}
+          runtime={taskRuntime}
         />
 
         {apiLoad.status === "loading" && <div className="apiNotice" data-state="loading">正在连接 AF API…</div>}
@@ -739,7 +846,17 @@ export default function App() {
               onOpen={() => setNewTaskOpen(true)}
               runStates={runStates}
               focusNode={focusNode}
-              onNodeSelect={setFocusNode}
+              onNodeSelect={afApi.mode === "fixture" ? setFocusNode : undefined}
+            />
+            <RuntimeConsole
+              detail={taskRuntime}
+              trajectory={trajectory}
+              load={runtimeLoad}
+              profiles={agentProfiles}
+              apiMode={afApi.mode}
+              confirmingOperationId={confirmingOperationId}
+              onConfirmOperation={(operationId) => void confirmGitOperation(operationId)}
+              onRefresh={() => { if (activeId) void fetchTaskRuntime(activeId); }}
             />
             {/* 点开 DAG 节点后，会话区整体切换为该节点视图；否则为正常事件流 */}
             {focusNode ? (
@@ -787,7 +904,7 @@ export default function App() {
 
       {/* 没有会话时检查面板无内容可查（文件、改动、证据链都属于某条会话），
           整块不渲染，而不是渲染一个各处为空的空壳 */}
-      {active && (
+      {active && afApi.mode === "fixture" && (
         <Inspector
           tab={inspectorTab}
           onTab={setInspectorTab}
@@ -818,6 +935,11 @@ export default function App() {
           onClose={() => setNewTaskOpen(false)}
           onStart={startTask}
           onToast={push}
+          workflows={workflowCatalog}
+          profiles={agentProfiles}
+          skills={skillCatalog}
+          scmProviders={scmProviders}
+          onValidateWorkflow={validateWorkflow}
         />
       )}
       <Toasts items={toasts} />

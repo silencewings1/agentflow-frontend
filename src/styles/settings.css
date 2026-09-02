@@ -1726,3 +1726,23 @@
     padding: 10px 14px 12px 16px;
   }
 }
+
+/* 阶段 1.6：SCM 只允许选择服务端登记项，endpoint 不进入浏览器表单。 */
+.scmForm {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+}
+.scmForm label { display: grid; gap: 5px; min-width: 0; font-size: 10px; color: var(--text-3); }
+.scmForm__wide { grid-column: 1 / -1; }
+.scmForm input, .scmForm select { width: 100%; min-width: 0; height: 34px; padding: 0 9px; border: 1px solid var(--line-2); border-radius: var(--r-xs); background: var(--surface); color: var(--text); font: 11px var(--font-mono); }
+.scmForm input:focus, .scmForm select:focus { border-color: var(--accent); outline: none; }
+.scmForm input[readonly] { color: var(--text-3); background: var(--surface-2); }
+.scmForm input[data-invalid="true"] { border-color: var(--rose); }
+.scmForm small { font-size: 9px; line-height: 1.45; color: var(--text-4); }
+.scmUnavailable { grid-column: 1 / -1; margin: 0; padding: 8px 9px; border: 1px solid color-mix(in oklab, var(--gold) 45%, var(--line)); border-radius: var(--r-xs); color: var(--gold); font-size: 10px; }
+@media (max-width: 620px) { .scmForm { grid-template-columns: minmax(0, 1fr); } .scmForm__wide { grid-column: auto; } }

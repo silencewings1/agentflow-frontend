@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "./Icons";
 import { WorkflowPicker } from "./Workflow";
-import { workflowTemplates, type Workflow } from "../data/workflows";
-import { taskContract, repoOptions } from "../data/settings";
+import { validateWorkflowGraph, workflowTemplates, type Workflow } from "../data/workflows";
+import { taskContract } from "../data/settings";
 import type { AgentEvent } from "../data/mock";
+import type { AgentProfileSummaryDto, ScmProviderDto, SkillSummaryDto, WorkflowValidation } from "../api";
 
-/* 目标仓库清单已下沉到 data/settings.ts */
-const repos = repoOptions;
+export interface NewTaskScmDraft {
+  provider: "github" | "gitlab";
+  mcpServerRef: string;
+  repositoryRef: string;
+  baseBranch: string;
+  targetBranch: string;
+  credentialRef: string;
+}
 
 type Step = "intent" | "contract" | "workflow";
 
@@ -37,20 +44,33 @@ export function NewTaskDialog({
   onClose,
   onStart,
   onToast,
+  workflows = workflowTemplates,
+  profiles = [],
+  skills = [],
+  scmProviders,
+  onValidateWorkflow,
 }: {
   onClose: () => void;
-  onStart: (prompt: string, wf: Workflow, contract: AgentEvent) => void;
+  onStart: (prompt: string, wf: Workflow, contract: AgentEvent, scm: NewTaskScmDraft) => Promise<void>;
   onToast: (t: { tone: "ok" | "warn" | "info"; title: string; body: string }) => void;
+  workflows?: Workflow[];
+  profiles?: AgentProfileSummaryDto[];
+  skills?: SkillSummaryDto[];
+  scmProviders: ScmProviderDto[];
+  onValidateWorkflow: (workflow: Workflow) => Promise<WorkflowValidation>;
 }) {
   const [step, setStep] = useState<Step>("intent");
   /* 预填本次任务目标：重构落在 vote_org_qfii，需求来自 sseinternetvote */
   const [prompt, setPrompt] = useState(taskContract.problem);
-  /* 目标仓库可多选：契约范围以此为界，跨仓库改动需在契约中显式声明。
-     默认选中目标仓库 —— 改动落在它上面，源仓库只作为需求来源被读取 */
-  const [picked, setPicked] = useState<string[]>(
-    [repos.find((r) => r.role === "目标仓库")?.name ?? repos[0].name],
-  );
-  const [wf, setWf] = useState<Workflow>(workflowTemplates[0]);
+  const initialProvider = scmProviders.find((provider) => provider.available) ?? scmProviders[0];
+  const [serverRef, setServerRef] = useState(initialProvider?.mcpServerRef ?? "");
+  const provider = scmProviders.find((item) => item.mcpServerRef === serverRef);
+  const [repositoryRef, setRepositoryRef] = useState(initialProvider ? `${initialProvider.allowedRepositoryNamespaces[0] ?? "namespace"}/repository` : "");
+  const [baseBranch, setBaseBranch] = useState("main");
+  const [targetBranch, setTargetBranch] = useState("feat/agentflow-task");
+  const [wf, setWf] = useState<Workflow>(workflows[0] ?? workflowTemplates[0]!);
+  const [serverValidation, setServerValidation] = useState<WorkflowValidation | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   /* 契约清单：默认取自体系内置模板，允许逐条裁剪 */
   const [lists, setLists] = useState<Record<ListField, string[]>>({
@@ -82,12 +102,12 @@ export function NewTaskDialog({
     prompt.trim().length > 0 &&
     lists.scope.length > 0 &&
     lists.doneCriteria.length > 0 &&
-    picked.length > 0;
-
-  const toggleRepo = (name: string) =>
-    setPicked((p) =>
-      p.includes(name) ? p.filter((x) => x !== name) : [...p, name],
-    );
+    provider?.available === true &&
+    repositoryRef.trim().length > 0 &&
+    baseBranch.trim().length > 0 &&
+    targetBranch.trim().length > 0 &&
+    targetBranch !== "main" &&
+    targetBranch !== "master";
 
   const add = (k: ListField) => {
     const v = (draft[k] ?? "").trim();
@@ -98,7 +118,7 @@ export function NewTaskDialog({
   const drop = (k: ListField, i: number) =>
     setLists((p) => ({ ...p, [k]: p[k].filter((_, x) => x !== i) }));
 
-  const submit = () => {
+  const submit = async () => {
     const text = prompt.trim();
     if (!text) {
       setStep("intent");
@@ -112,17 +132,30 @@ export function NewTaskDialog({
         body: "改动范围与完成判定不可为空，否则门禁无法核验。",
       });
     }
+    if (!provider?.available) {
+      setStep("intent");
+      return onToast({ tone: "warn", title: "SCM provider 不可用", body: provider?.errorMessage ?? "请选择服务端已登记且能力可用的 MCP Server。" });
+    }
+    const localIssues = validateWorkflowGraph(wf);
+    if (localIssues.length) {
+      setServerValidation({ valid: false, errors: localIssues });
+      setStep("workflow");
+      return onToast({ tone: "warn", title: "DAG 本地校验未通过", body: localIssues[0]!.message });
+    }
+    setSubmitting(true);
+    const validation = await onValidateWorkflow(wf).catch(() => ({ valid: false, errors: [{ code: "AF_NETWORK_ERROR", path: "workflow", message: "无法完成服务端工作流校验" }] }));
+    setServerValidation(validation);
+    if (!validation.valid) {
+      setSubmitting(false);
+      setStep("workflow");
+      return onToast({ tone: "warn", title: "工作流校验未通过", body: validation.errors[0]?.message ?? "请检查 DAG。" });
+    }
     const contract: AgentEvent = {
       id: `ctr-${Date.now()}`,
       kind: "contract",
       title: text.length > 22 ? `${text.slice(0, 22)}…` : text,
       problem: text,
-      repo: picked
-        .map((n) => {
-          const r = repos.find((x) => x.name === n);
-          return r ? `${r.name} · ${r.branch}` : n;
-        })
-        .join("、"),
+      repo: `${repositoryRef.trim()} · ${baseBranch.trim()} → ${targetBranch.trim()}`,
       workflow: wf.name,
       scope: lists.scope,
       doneCriteria: lists.doneCriteria,
@@ -131,7 +164,15 @@ export function NewTaskDialog({
       tools: lists.tools,
       deliverables: lists.deliverables,
     };
-    onStart(text, wf, contract);
+    await onStart(text, wf, contract, {
+      provider: provider.provider,
+      mcpServerRef: provider.mcpServerRef,
+      repositoryRef: repositoryRef.trim(),
+      baseBranch: baseBranch.trim(),
+      targetBranch: targetBranch.trim(),
+      credentialRef: provider.credentialRef,
+    });
+    setSubmitting(false);
   };
 
   return (
@@ -180,40 +221,45 @@ export function NewTaskDialog({
 
               <div className="taskField">
                 <span className="kicker">
-                  目标仓库
-                  <i className="repoCount mono">已选 {picked.length}</i>
+                  SCM 与目标仓库
+                  <i className="repoCount mono">服务端登记</i>
                 </span>
-                <div className="repoGrid">
-                  {repos.map((r, i) => {
-                    const on = picked.includes(r.name);
-                    return (
-                      <button
-                        key={r.name}
-                        className="repo repo--pick"
-                        data-on={on}
-                        style={{ ["--i" as string]: i }}
-                        onClick={() => toggleRepo(r.name)}
-                        aria-pressed={on}
-                      >
-                        <i className="repo__dot" style={{ background: r.dot }} />
-                        <span className="repo__name mono">{r.name}</span>
-                        {/* 角色标签：让「需求从哪来、改动落在哪」不必靠猜 */}
-                        <span className="repo__role" data-role={r.role}>
-                          {r.role}
-                        </span>
-                        <span className="repo__lang">{r.lang}</span>
-                        <span className="repo__branch mono">
-                          <Icon.Branch size={11} />
-                          {r.branch}
-                        </span>
-                        {on && (
-                          <i className="repo__tick" aria-hidden>
-                            <Icon.Check size={11} />
-                          </i>
-                        )}
-                      </button>
-                    );
-                  })}
+                <div className="scmForm">
+                  <label>
+                    <span>Provider / MCP Server</span>
+                    <select value={serverRef} onChange={(event) => {
+                      const next = scmProviders.find((item) => item.mcpServerRef === event.target.value);
+                      setServerRef(event.target.value);
+                      if (next) setRepositoryRef(`${next.allowedRepositoryNamespaces[0] ?? "namespace"}/repository`);
+                    }}>
+                      {scmProviders.map((item) => (
+                        <option key={item.mcpServerRef} value={item.mcpServerRef} disabled={!item.available}>
+                          {item.provider} · {item.mcpServerRef}{item.available ? "" : "（不可用）"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="scmForm__wide">
+                    <span>仓库</span>
+                    <input value={repositoryRef} onChange={(event) => setRepositoryRef(event.target.value)} placeholder="namespace/repository 或仓库 URL" />
+                    {provider && <small>允许 namespace：{provider.allowedRepositoryNamespaces.join("、")}</small>}
+                  </label>
+                  <label>
+                    <span>基线分支</span>
+                    <input value={baseBranch} onChange={(event) => setBaseBranch(event.target.value)} />
+                  </label>
+                  <label>
+                    <span>目标功能分支</span>
+                    <input value={targetBranch} onChange={(event) => setTargetBranch(event.target.value)} data-invalid={targetBranch === "main" || targetBranch === "master" || undefined} />
+                  </label>
+                  <label className="scmForm__wide">
+                    <span>凭据引用</span>
+                    <input value={provider?.credentialRef ?? ""} readOnly />
+                    <small>只提交引用，不向浏览器或 DTO 返回 token。</small>
+                  </label>
+                  {provider && !provider.available && (
+                    <p className="scmUnavailable"><code>{provider.errorCode}</code> · {provider.errorMessage}</p>
+                  )}
                 </div>
               </div>
 
@@ -296,12 +342,12 @@ export function NewTaskDialog({
             </div>
           )}
 
-          {step === "workflow" && <WorkflowPicker value={wf} onChange={setWf} onToast={onToast} />}
+          {step === "workflow" && <WorkflowPicker value={wf} onChange={(next) => { setWf(next); setServerValidation(null); }} onToast={onToast} catalog={workflows} profiles={profiles} skills={skills} serverValidation={serverValidation} />}
         </div>
 
         <footer className="sheet__foot">
           <span className="sheet__footHint">
-            {picked.length} 个仓库 · 契约 <strong>{total}</strong> 条约定 · 将由{" "}
+            {provider?.provider ?? "未选择"} / {provider?.mcpServerRef ?? "无可用 MCP"} · 契约 <strong>{total}</strong> 条约定 · 将由{" "}
             <strong>{wf.name}</strong> 编排 · {wf.nodes.length} 个节点 ·{" "}
             {wf.nodes.filter((n) => n.gate).length} 道门禁 ·{" "}
             {wf.nodes.filter((n) => n.approval).length} 个人工检查点
@@ -319,9 +365,9 @@ export function NewTaskDialog({
             </button>
           )}
           {step === "workflow" && (
-            <button className="btn btn--accent btn--sm" onClick={submit} data-ready={ready}>
+            <button className="btn btn--accent btn--sm" onClick={() => void submit()} data-ready={ready} disabled={!ready || submitting}>
               <Icon.Sparkle size={13} />
-              按契约与编排启动
+              {submitting ? "校验并创建中…" : "按契约与编排启动"}
             </button>
           )}
         </footer>

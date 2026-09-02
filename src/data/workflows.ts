@@ -75,6 +75,11 @@ export interface WfNode {
   desc: string;
   gate?: string;
   approval?: boolean;
+  /** AF API 冻结的执行绑定；界面可编辑，但运行时不能由模型自行更换。 */
+  kind?: "ai" | "skill" | "gate" | "git" | "approval";
+  agentProfileRef?: { profileId: string; profileVersion: string };
+  skillRef?: { skillId: string; skillVersion: string };
+  outputSchemaVersion?: string;
 }
 
 export interface WfEdge {
@@ -97,6 +102,9 @@ export interface Workflow {
   edges: WfEdge[];
   maxRetry: number;
   onExhaust: "人工接管" | "降级处理" | "终止任务";
+  workflowVersion?: number;
+  nodeSpecDigest?: string;
+  frozen?: boolean;
   /** 主控智能体：必须存在，由 withOrchestrator 保证 */
   orchestrator: Orchestrator;
 }
@@ -196,7 +204,7 @@ export function withOrchestrator(
   wf.nodes.forEach((n) => {
     const base = roleContract[n.role];
     const upstream = wf.edges
-      .filter((e) => e.kind === "flow" && e.to === n.id)
+      .filter((e) => e.kind !== "fail" && e.to === n.id)
       .map((e) => wf.nodes.find((x) => x.id === e.from))
       .filter((x): x is WfNode => Boolean(x));
 
@@ -2066,7 +2074,7 @@ export function failLabelPos(a: WfNode, b: WfNode, depth: number, baseY: number)
  */
 function rebuild(wf: Workflow, keep: Record<string, NodeContract>): Workflow {
   const { orchestrator: _drop, ...rest } = wf;
-  const next = withOrchestrator(rest);
+  const next = withOrchestrator({ ...rest, nodes: layoutNodes(rest.nodes, rest.edges) });
   /* 保留仍然存在的节点上、被人工改过的契约字段 */
   Object.keys(keep).forEach((id) => {
     if (next.orchestrator.contracts[id] && keep[id].manual) {
@@ -2093,7 +2101,7 @@ export function insertAfter(wf: Workflow, afterId: string, role: AgentRole, name
     desc: "新增节点，待补充职责说明。",
   });
   const edges: WfEdge[] = wf.edges.map((e) =>
-    e.kind === "flow" && e.from === afterId ? { ...e, from: id } : e,
+    e.kind !== "fail" && e.from === afterId ? { ...e, from: id } : e,
   );
   edges.push({ id: `e${id}`, from: afterId, to: id, kind: "flow" });
   edges.push({ id: `f${id}`, from: id, to: afterId, kind: "fail", label: "校验未过" });
@@ -2107,15 +2115,15 @@ export function insertAfter(wf: Workflow, afterId: string, role: AgentRole, name
 export function removeNode(wf: Workflow, id: string): Workflow {
   const target = wf.nodes.find((n) => n.id === id);
   if (!target || wf.nodes.length <= 2) return wf;
-  const preds = wf.edges.filter((e) => e.kind === "flow" && e.to === id).map((e) => e.from);
-  const succs = wf.edges.filter((e) => e.kind === "flow" && e.from === id).map((e) => e.to);
+  const preds = wf.edges.filter((e) => e.kind !== "fail" && e.to === id).map((e) => e.from);
+  const succs = wf.edges.filter((e) => e.kind !== "fail" && e.from === id).map((e) => e.to);
   const kept = wf.edges.filter(
     (e) => e.from !== id && e.to !== id,
   );
   const bridged: WfEdge[] = [];
   preds.forEach((p) =>
     succs.forEach((s) => {
-      if (!kept.some((e) => e.kind === "flow" && e.from === p && e.to === s))
+      if (!kept.some((e) => e.kind !== "fail" && e.from === p && e.to === s))
         bridged.push({ id: `e${p}${s}`, from: p, to: s, kind: "flow" });
     }),
   );
@@ -2152,6 +2160,111 @@ export function patchNode(wf: Workflow, id: string, patch: Partial<WfNode>): Wor
     },
     wf.orchestrator.contracts,
   );
+}
+
+export interface WorkflowGraphIssue {
+  code: string;
+  path: string;
+  message: string;
+}
+
+/** 只用 flow 边布局；fail 是返工路由，不能参与拓扑层级。 */
+function layoutNodes(nodes: WfNode[], edges: WfEdge[]): WfNode[] {
+  const flow = edges.filter((edge) => edge.kind !== "fail");
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const indegree = new Map(nodes.map((node) => [node.id, 0]));
+  const successors = new Map(nodes.map((node) => [node.id, [] as string[]]));
+  for (const edge of flow) {
+    if (!byId.has(edge.from) || !byId.has(edge.to)) continue;
+    indegree.set(edge.to, (indegree.get(edge.to) ?? 0) + 1);
+    successors.get(edge.from)!.push(edge.to);
+  }
+  const queue = nodes.filter((node) => indegree.get(node.id) === 0).map((node) => node.id);
+  const level = new Map(queue.map((id) => [id, 0]));
+  const visited: string[] = [];
+  while (queue.length) {
+    const id = queue.shift()!;
+    visited.push(id);
+    for (const target of successors.get(id) ?? []) {
+      level.set(target, Math.max(level.get(target) ?? 0, (level.get(id) ?? 0) + 1));
+      indegree.set(target, (indegree.get(target) ?? 1) - 1);
+      if (indegree.get(target) === 0) queue.push(target);
+    }
+  }
+  if (visited.length !== nodes.length) return nodes;
+  const columns = new Map<number, string[]>();
+  for (const node of nodes) {
+    const col = level.get(node.id) ?? 0;
+    columns.set(col, [...(columns.get(col) ?? []), node.id]);
+  }
+  return nodes.map((node) => {
+    const col = level.get(node.id) ?? 0;
+    return { ...node, col, lane: columns.get(col)!.indexOf(node.id) };
+  });
+}
+
+export function addWorkflowEdge(wf: Workflow, from: string, to: string, kind: EdgeKind, label?: string): Workflow {
+  if (!wf.nodes.some((node) => node.id === from) || !wf.nodes.some((node) => node.id === to) || from === to) return wf;
+  if (wf.edges.some((edge) => edge.from === from && edge.to === to && edge.kind === kind)) return wf;
+  const edge: WfEdge = { id: `edge-${Date.now().toString(36)}`, from, to, kind, ...(label ? { label } : {}) };
+  return rebuild({ ...wf, builtin: false, edges: [...wf.edges, edge] }, wf.orchestrator.contracts);
+}
+
+export function removeWorkflowEdge(wf: Workflow, edgeId: string): Workflow {
+  return rebuild({ ...wf, builtin: false, edges: wf.edges.filter((edge) => edge.id !== edgeId) }, wf.orchestrator.contracts);
+}
+
+export function patchWorkflowEdge(wf: Workflow, edgeId: string, patch: Partial<Pick<WfEdge, "kind" | "label">>): Workflow {
+  return rebuild({ ...wf, builtin: false, edges: wf.edges.map((edge) => edge.id === edgeId ? { ...edge, ...patch } : edge) }, wf.orchestrator.contracts);
+}
+
+export function validateWorkflowGraph(wf: Workflow): WorkflowGraphIssue[] {
+  const issues: WorkflowGraphIssue[] = [];
+  const nodeIds = new Set<string>();
+  for (const [index, node] of wf.nodes.entries()) {
+    if (nodeIds.has(node.id)) issues.push({ code: "DUPLICATE_NODE", path: `nodes[${index}].nodeId`, message: `节点 id 重复：${node.id}` });
+    nodeIds.add(node.id);
+  }
+  const edgeIds = new Set<string>();
+  const edgeKeys = new Set<string>();
+  for (const [index, edge] of wf.edges.entries()) {
+    if (edgeIds.has(edge.id)) issues.push({ code: "DUPLICATE_EDGE_ID", path: `edges[${index}].edgeId`, message: `边 id 重复：${edge.id}` });
+    edgeIds.add(edge.id);
+    if (!nodeIds.has(edge.from) || !nodeIds.has(edge.to)) issues.push({ code: "EDGE_ENDPOINT_MISSING", path: `edges[${index}]`, message: "边引用了不存在的节点" });
+    if (edge.from === edge.to) issues.push({ code: "SELF_EDGE", path: `edges[${index}]`, message: "节点不能连接到自身" });
+    const key = `${edge.kind}\0${edge.from}\0${edge.to}`;
+    if (edgeKeys.has(key)) issues.push({ code: "DUPLICATE_EDGE", path: `edges[${index}]`, message: `重复边：${edge.from} → ${edge.to}` });
+    edgeKeys.add(key);
+  }
+  const flow = wf.edges.filter((edge) => edge.kind !== "fail" && nodeIds.has(edge.from) && nodeIds.has(edge.to));
+  const entries = wf.nodes.filter((node) => !flow.some((edge) => edge.to === node.id));
+  if (entries.length !== 1) issues.push({ code: "ILLEGAL_ENTRY", path: "entryNodeIds", message: `工作流必须有且仅有一个入口，当前为 ${entries.length} 个` });
+  const reached = new Set<string>();
+  const queue = entries.map((node) => node.id);
+  while (queue.length) {
+    const id = queue.shift()!;
+    if (reached.has(id)) continue;
+    reached.add(id);
+    flow.filter((edge) => edge.from === id).forEach((edge) => queue.push(edge.to));
+  }
+  for (const node of wf.nodes) {
+    if (!reached.has(node.id)) issues.push({ code: "UNREACHABLE_NODE", path: `nodes.${node.id}`, message: `节点不可达：${node.name}` });
+    if (wf.nodes.length > 1 && !wf.edges.some((edge) => edge.from === node.id || edge.to === node.id)) issues.push({ code: "ISOLATED_NODE", path: `nodes.${node.id}`, message: `节点孤立：${node.name}` });
+  }
+  const indegree = new Map(wf.nodes.map((node) => [node.id, 0]));
+  for (const edge of flow) indegree.set(edge.to, (indegree.get(edge.to) ?? 0) + 1);
+  const topo = wf.nodes.filter((node) => indegree.get(node.id) === 0).map((node) => node.id);
+  let visited = 0;
+  while (topo.length) {
+    const id = topo.shift()!;
+    visited += 1;
+    for (const edge of flow.filter((candidate) => candidate.from === id)) {
+      indegree.set(edge.to, (indegree.get(edge.to) ?? 1) - 1);
+      if (indegree.get(edge.to) === 0) topo.push(edge.to);
+    }
+  }
+  if (visited !== wf.nodes.length) issues.push({ code: "FLOW_CYCLE", path: "edges", message: "流转边形成了环；失败返工应使用 fail 边" });
+  return issues;
 }
 
 /** 人工改写某节点的契约：标记 manual，后续结构变化不再覆盖它 */

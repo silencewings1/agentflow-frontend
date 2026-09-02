@@ -1,6 +1,6 @@
 import { Icon } from "./Icons";
 import type { Session } from "../data/mock";
-import type { ExecutorMode } from "../api";
+import type { ExecutorMode, TaskDetailDto } from "../api";
 import {
   evidenceChain,
   gateStateLabel,
@@ -27,6 +27,7 @@ export function TopBar({
   onOpenEvidence,
   executorMode,
   apiMode,
+  runtime,
 }: {
   /** 会话列表可能被删空，此时没有当前会话 */
   session: Session | undefined;
@@ -39,14 +40,19 @@ export function TopBar({
   onOpenEvidence: () => void;
   executorMode: ExecutorMode;
   apiMode: "http" | "fixture";
+  runtime: TaskDetailDto | null;
 }) {
   /* 门禁进度：已通过节点数决定“这条任务走到哪一步可以被信任” */
-  const passed = qualityGates.filter((g) => g.state === "passed").length;
-  const current = qualityGates.find((g) => g.state === "active" || g.state === "blocked");
+  const gates: Array<{ id: string; index: string; name: string; state: GateState }> = runtime
+    ? runtime.gates.map((gate, index) => ({ id: gate.gateId, index: String(index + 1), name: gate.gateId, state: gate.outcome === "pass" ? "passed" : "blocked" }))
+    : qualityGates;
+  const passed = gates.filter((g) => g.state === "passed").length;
+  const current = gates.find((g) => g.state === "active" || g.state === "blocked");
 
   /* 证据链就绪度：必需证据未闭环时，交付门禁不允许放行 */
-  const evReady = evidenceChain.filter((e) => e.confirmed).length;
-  const evBlocking = evidenceChain.filter((e) => !e.confirmed && e.required).length;
+  const evReady = runtime ? runtime.nodes.reduce((count, node) => count + node.evidenceRefs.length, 0) : evidenceChain.filter((e) => e.confirmed).length;
+  const evTotal = runtime ? Math.max(evReady, runtime.nodes.length + runtime.gitOperations.length) : evidenceChain.length;
+  const evBlocking = runtime ? runtime.nodes.filter((node) => node.status !== "accepted").length : evidenceChain.filter((e) => !e.confirmed && e.required).length;
 
   return (
     <header className="topbar">
@@ -85,12 +91,12 @@ export function TopBar({
       <button
         className="gateRail"
         onClick={onOpenEvidence}
-        title={`门禁 ${passed}/${qualityGates.length} 已通过${
+        title={`门禁 ${passed}/${gates.length} 已通过${
           current ? ` · 当前 ${current.index} ${current.name}（${gateStateLabel[current.state]}）` : ""
-        } · 证据链 ${evReady}/${evidenceChain.length} 已核实`}
+        } · 证据链 ${evReady}/${evTotal} 已核实`}
       >
         <span className="gateRail__pips">
-          {qualityGates.map((g) => {
+          {gates.map((g) => {
             const G = Icon[gateGlyph[g.state]];
             return (
               <i key={g.id} className="gateRail__pip" data-state={g.state}>
@@ -104,7 +110,7 @@ export function TopBar({
         <span className="gateRail__ev" data-blocking={evBlocking > 0}>
           <Icon.Book size={11} />
           <span className="mono">
-            {evReady}/{evidenceChain.length}
+            {evReady}/{evTotal}
           </span>
         </span>
       </button>

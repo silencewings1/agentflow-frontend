@@ -7,7 +7,12 @@ import type {
   AfErrorPayload,
   AfResponse,
   CreateTaskInput,
+  GitOperationDto,
   PushOperationInput,
+  TaskDetailDto,
+  TaskSummaryDto,
+  TrajectoryEventDto,
+  WorkflowDefinitionDto,
   WorkflowValidation,
   WorkflowVersion,
 } from "./types";
@@ -20,6 +25,14 @@ const profiles = [
   ["independent-reviewer", "独立审查智能体", true, "af.agent.independent-review.v1"],
 ] as const;
 
+const profilePolicy = {
+  "requirements-analyst": { responsibilities: ["澄清范围、假设与可验证验收条件"], nonResponsibilities: ["不修改代码、不批准外部写入"], tools: ["workspace.read", "git.read", "artifact.read", "shell.readonly"], output: "RequirementsDeliverable@1" },
+  "solution-architect": { responsibilities: ["形成最小方案、接口影响、测试与回滚策略"], nonResponsibilities: ["不修改代码、不代替独立审查"], tools: ["workspace.read", "git.read", "artifact.read", "shell.readonly"], output: "SolutionDesignDeliverable@1" },
+  "implementation-agent": { responsibilities: ["在隔离工作区实施声明范围内的变更"], nonResponsibilities: ["不 push/merge/release，不宣布门禁通过"], tools: ["workspace.read", "workspace.write", "git.read", "shell.declared", "artifact.read"], output: "ImplementationDeliverable@1" },
+  "test-analyst": { responsibilities: ["解释真实 Skill 结果、覆盖范围和复测建议"], nonResponsibilities: ["不伪造或直接执行测试命令"], tools: ["workspace.read", "git.read", "artifact.read", "shell.readonly"], output: "TestAnalysisDeliverable@1" },
+  "independent-reviewer": { responsibilities: ["在独立上下文核对 diff、范围、测试和安全证据"], nonResponsibilities: ["不修改文件、不生成 commit、不批准 SCM 写入"], tools: ["workspace.read", "git.read", "artifact.read", "shell.readonly"], output: "ReviewDeliverable@1" },
+} as const;
+
 const skills = [
   ["run-unit-tests", "单元测试"],
   ["run-integration-tests", "集成测试"],
@@ -28,12 +41,49 @@ const skills = [
   ["review-diff", "审查 Diff"],
 ] as const;
 
-function fixtureBootstrap(): AfBootstrapDto {
+function standardCodeChangeWorkflow(): WorkflowDefinitionDto {
+  const retry = { maxAttempts: 2, onExhaust: "human-takeover" as const };
+  return {
+    contractVersion: "1.0",
+    workflowId: "standard-code-change",
+    workflowVersion: 1,
+    nodes: [
+      { nodeId: "requirements", kind: "ai", agentProfileRef: { profileId: "requirements-analyst", profileVersion: "1.0.0" }, inputRefs: [], outputSchemaVersion: "RequirementsDeliverable@1", timeoutMs: 300000, retryPolicy: retry, gatePolicy: { gateId: "requirements-contract-v1", evaluatorVersion: "1.0.0" } },
+      { nodeId: "design", kind: "ai", agentProfileRef: { profileId: "solution-architect", profileVersion: "1.0.0" }, inputRefs: ["requirements"], outputSchemaVersion: "SolutionDesignDeliverable@1", timeoutMs: 300000, retryPolicy: retry, gatePolicy: { gateId: "solution-design-v1", evaluatorVersion: "1.0.0" } },
+      { nodeId: "implementation", kind: "ai", agentProfileRef: { profileId: "implementation-agent", profileVersion: "1.0.0" }, inputRefs: ["requirements", "design"], outputSchemaVersion: "ImplementationDeliverable@1", timeoutMs: 900000, retryPolicy: { maxAttempts: 3, onExhaust: "human-takeover" }, declaredPaths: ["src/**", "test/**", "docs/**"] },
+      { nodeId: "unit-tests", kind: "skill", skillRef: { skillId: "run-unit-tests", skillVersion: "1.0.0" }, inputRefs: ["implementation"], outputSchemaVersion: "SkillResult@1.0", timeoutMs: 600000, retryPolicy: { maxAttempts: 1, onExhaust: "terminate" } },
+      { nodeId: "integration-tests", kind: "skill", skillRef: { skillId: "run-integration-tests", skillVersion: "1.0.0" }, inputRefs: ["implementation"], outputSchemaVersion: "SkillResult@1.0", timeoutMs: 900000, retryPolicy: { maxAttempts: 1, onExhaust: "terminate" } },
+      { nodeId: "test-merge", kind: "gate", inputRefs: ["unit-tests", "integration-tests"], outputSchemaVersion: "GateResult@1", timeoutMs: 60000, retryPolicy: { maxAttempts: 1, onExhaust: "human-takeover" }, gatePolicy: { gateId: "test-analysis-v1", evaluatorVersion: "1.0.0" } },
+      { nodeId: "review", kind: "ai", agentProfileRef: { profileId: "independent-reviewer", profileVersion: "1.0.0" }, inputRefs: ["test-merge"], outputSchemaVersion: "ReviewDeliverable@1", timeoutMs: 300000, retryPolicy: retry, gatePolicy: { gateId: "independent-review-v1", evaluatorVersion: "1.0.0" } },
+      { nodeId: "prepare-change-set", kind: "git", inputRefs: ["implementation", "review"], outputSchemaVersion: "GitOperation@1.1", timeoutMs: 120000, retryPolicy: { maxAttempts: 1, onExhaust: "human-takeover" } },
+      { nodeId: "publish-via-mcp", kind: "git", inputRefs: ["prepare-change-set"], outputSchemaVersion: "GitOperation@1.1", timeoutMs: 120000, retryPolicy: { maxAttempts: 1, onExhaust: "human-takeover" } },
+    ],
+    edges: [
+      { edgeId: "e1", from: "requirements", to: "design", kind: "flow", required: true },
+      { edgeId: "e2", from: "design", to: "implementation", kind: "flow", required: true },
+      { edgeId: "e3", from: "implementation", to: "unit-tests", kind: "flow", required: true },
+      { edgeId: "e4", from: "implementation", to: "integration-tests", kind: "flow", required: true },
+      { edgeId: "e5", from: "unit-tests", to: "test-merge", kind: "flow", required: true },
+      { edgeId: "e6", from: "integration-tests", to: "test-merge", kind: "flow", required: true },
+      { edgeId: "e7", from: "test-merge", to: "review", kind: "flow", required: true },
+      { edgeId: "e8", from: "review", to: "prepare-change-set", kind: "flow", required: true },
+      { edgeId: "e9", from: "prepare-change-set", to: "publish-via-mcp", kind: "approve", required: true },
+      { edgeId: "fail-tests", from: "test-merge", to: "implementation", kind: "fail", label: "定向返工", required: false },
+    ],
+    entryNodeIds: ["requirements"],
+    exitNodeIds: ["publish-via-mcp"],
+    policyVersion: "1.0.0",
+    nodeSpecDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    presentation: { name: "标准代码变更", glyph: "Nodes", tint: "accent", builtin: true, summary: "需求与方案 → 实现 → 单元/集成并行 → 汇合门禁 → 独立审查 → source change set → MCP 确认写入", scene: "阶段 1.6 可信代码交付", maxRetry: 2, onExhaust: "人工接管" },
+  };
+}
+
+function fixtureBootstrap(tasks: TaskSummaryDto[] = sessions.map((task) => ({ taskId: task.id, title: task.title, repositoryRef: task.repo, baseBranch: "main", targetBranch: task.branch, state: task.state, updatedAt: task.time, workflowId: task.workflow, diff: task.diff, turns: task.turns }))): AfBootstrapDto {
   return {
     contractVersion: "1.0",
     executorMode: "demo-deterministic",
-    tasks: sessions.map((task) => ({ taskId: task.id, title: task.title, repositoryRef: task.repo, baseBranch: "main", targetBranch: task.branch, state: task.state, updatedAt: task.time, workflowId: task.workflow, diff: task.diff, turns: task.turns })),
-    workflows: workflowTemplates.map(toWorkflowDto),
+    tasks,
+    workflows: [standardCodeChangeWorkflow(), ...workflowTemplates.map(toWorkflowDto)],
     agentProfiles: profiles.map(([profileId, name, independent, promptId]) => ({
       profileId,
       profileVersion: "1.0.0",
@@ -41,6 +91,13 @@ function fixtureBootstrap(): AfBootstrapDto {
       independent,
       promptId,
       promptVersion: "1.0.0",
+      responsibilities: [...profilePolicy[profileId].responsibilities],
+      nonResponsibilities: [...profilePolicy[profileId].nonResponsibilities],
+      modelPolicy: { provider: "task-default", model: "task-default" },
+      toolPolicyVersion: "1.0.0",
+      tools: [...profilePolicy[profileId].tools],
+      inputSchemaVersion: "AcceptedUpstreamDeliverables@1",
+      outputSchemaVersion: profilePolicy[profileId].output,
     })),
     skills: skills.map(([skillId, name]) => ({
       skillId,
@@ -48,26 +105,201 @@ function fixtureBootstrap(): AfBootstrapDto {
       name,
       allowedCommands: [skillId],
     })),
+    scmProviders: [
+      {
+        provider: "github",
+        mcpServerRef: "github-official",
+        credentialRef: "GITHUB_AGENTFLOW_TOKEN",
+        available: true,
+        serverVersion: "hosted",
+        capabilitiesDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        tools: ["get_file_contents", "list_branches", "get_commit", "create_branch", "push_files"],
+        allowedRepositoryNamespaces: ["demo-org"],
+      },
+      {
+        provider: "gitlab",
+        mcpServerRef: "gitlab-development",
+        credentialRef: "GITLAB_AGENTFLOW_TOKEN",
+        available: false,
+        serverVersion: "2.1.56",
+        tools: ["get_file_contents", "get_branch", "get_commit", "create_branch", "push_files"],
+        allowedRepositoryNamespaces: ["demo-group"],
+        errorCode: "AF_CREDENTIAL_REF_INVALID",
+        errorMessage: "fixture 环境未配置自托管 GitLab 测试凭据",
+      },
+    ],
   };
 }
 
+const FIXTURE_DIGEST = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+
+function fixtureDetail(task: TaskSummaryDto, bootstrap: AfBootstrapDto): TaskDetailDto {
+  const workflow = bootstrap.workflows.find((item) => item.workflowId === task.workflowId) ?? bootstrap.workflows[0]!;
+  const terminal = task.state === "done" || task.state === "completed";
+  const failed = task.state === "failed";
+  const review = task.state === "review";
+  const created = task.state === "created";
+  const activeIndex = created ? -1 : failed ? Math.min(2, workflow.nodes.length - 1) : review ? workflow.nodes.length - 1 : Math.min(1, workflow.nodes.length - 1);
+  const nodes = workflow.nodes.map((node, index) => ({
+    nodeId: node.nodeId,
+    kind: node.kind,
+    status: (terminal || index < activeIndex ? "accepted" : index === activeIndex ? failed ? "rejected" : review && node.kind === "git" ? "awaiting_approval" : "running" : "pending") as TaskDetailDto["nodes"][number]["status"],
+    ...(index <= activeIndex ? { attemptId: `${task.taskId}.${node.nodeId}.r1`, inputDigest: FIXTURE_DIGEST, executorMode: "demo-deterministic" as const } : {}),
+    ...(node.agentProfileRef ? { agentProfileRef: node.agentProfileRef, provider: "fixture", model: "fixture-deterministic" } : {}),
+    ...(node.skillRef ? { skillRef: node.skillRef } : {}),
+    evidenceRefs: index <= activeIndex ? [`evidence://fixture/${task.taskId}/${node.nodeId}`] : [],
+    ...(failed && index === activeIndex ? { failureCode: "FIXTURE_INTEGRATION_TEST_FAILED", reworkTargetNodeId: workflow.nodes[Math.max(0, index - 1)]?.nodeId } : {}),
+  }));
+  const gitOperations: GitOperationDto[] = review || terminal ? [{
+    contractVersion: "1.1",
+    operationId: `${task.taskId}.git.publish.r1`,
+    provider: "github",
+    mcpServerRef: "github-official",
+    mcpServerVersion: "hosted",
+    mcpCapabilitiesDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    repositoryRef: task.repositoryRef,
+    credentialRef: "GITHUB_AGENTFLOW_TOKEN",
+    baseBranch: task.baseBranch,
+    baseRevision: "1111111111111111111111111111111111111111",
+    expectedRemoteRevision: "1111111111111111111111111111111111111111",
+    sourceRevision: "2222222222222222222222222222222222222222",
+    targetBranch: task.targetBranch,
+    changeSet: { digest: FIXTURE_DIGEST, files: [{ path: "src/example.ts", action: "update", contentDigest: FIXTURE_DIGEST }] },
+    commit: { message: "feat: fixture controlled delivery" },
+    status: terminal ? "committed" : "confirmation",
+    ...(terminal ? { remoteRevision: "3333333333333333333333333333333333333333" } : {}),
+    actor: "fixture-user",
+    createdAt: "2026-09-02T08:00:00.000Z",
+  }] : [];
+  return {
+    taskId: task.taskId,
+    title: task.title,
+    status: task.state,
+    executorMode: "demo-deterministic",
+    repositoryRef: task.repositoryRef,
+    baseBranch: task.baseBranch,
+    baseRevision: "1111111111111111111111111111111111111111",
+    targetBranch: task.targetBranch,
+    workflow: { workflowId: workflow.workflowId, workflowVersion: workflow.workflowVersion, nodeSpecDigest: workflow.nodeSpecDigest, frozen: true, policyVersion: workflow.policyVersion },
+    currentNodeId: nodes.find((node) => node.status === "running" || node.status === "rejected" || node.status === "awaiting_approval")?.nodeId,
+    nodes,
+    gates: nodes.filter((node) => node.status === "accepted" || node.status === "rejected").map((node) => ({ gateId: `${node.nodeId}.gate`, nodeId: node.nodeId, outcome: node.status === "rejected" ? "fail" as const : "pass" as const, evaluatorVersion: "fixture-1.0.0", ...(node.status === "rejected" ? { failureCode: node.failureCode } : {}), evidenceRef: node.evidenceRefs[0] })),
+    skills: nodes.filter((node) => node.skillRef && node.status !== "pending").map((node) => ({ nodeId: node.nodeId, skillId: node.skillRef!.skillId, skillVersion: node.skillRef!.skillVersion, status: node.status === "rejected" ? "failed" as const : "completed" as const, exitCode: node.status === "rejected" ? 1 : 0, durationMs: 1380, evidenceRef: node.evidenceRefs[0]! })),
+    gitOperations,
+    deliverables: nodes.filter((node) => node.status === "accepted").map((node, index) => ({ deliverableId: `${task.taskId}.${node.nodeId}.d1`, nodeId: node.nodeId, digest: FIXTURE_DIGEST, mediaType: "application/json", version: 1, status: index === 0 && failed ? "superseded" as const : "current" as const })),
+    updatedAt: task.updatedAt,
+  };
+}
+
+function fixtureTrajectory(detail: TaskDetailDto): TrajectoryEventDto[] {
+  return detail.nodes.filter((node) => node.status !== "pending").map((node, index) => ({
+    eventId: `${detail.taskId}.event.${index + 1}`,
+    seq: index + 1,
+    eventType: `node.${node.status}`,
+    actor: node.agentProfileRef?.profileId ?? node.skillRef?.skillId ?? "af-control-plane",
+    nodeId: node.nodeId,
+    occurredAt: "2026-09-02T08:00:00.000Z",
+    summary: `${node.nodeId} · ${node.status}`,
+    evidenceRefs: node.evidenceRefs,
+  }));
+}
+
+function validateWorkflowDto(workflow: WorkflowDefinitionDto): WorkflowValidation {
+  const errors: WorkflowValidation["errors"] = [];
+  const nodes = new Set(workflow.nodes.map((node) => node.nodeId));
+  const progression = workflow.edges.filter((edge) => edge.kind !== "fail");
+  workflow.nodes.forEach((node, index) => {
+    if (workflow.nodes.findIndex((candidate) => candidate.nodeId === node.nodeId) !== index) errors.push({ code: "DUPLICATE_NODE", path: `nodes[${index}]`, message: `节点 ID 重复：${node.nodeId}` });
+    if (node.kind === "ai" && !node.agentProfileRef) errors.push({ code: "AGENT_PROFILE_REQUIRED", path: `nodes[${index}].agentProfileRef`, message: `AI 节点 ${node.nodeId} 必须绑定版本化 Profile` });
+    if (node.kind === "skill" && !node.skillRef) errors.push({ code: "SKILL_REF_REQUIRED", path: `nodes[${index}].skillRef`, message: `Skill 节点 ${node.nodeId} 必须绑定版本化 Skill` });
+  });
+  workflow.edges.forEach((edge, index) => {
+    if (!nodes.has(edge.from) || !nodes.has(edge.to)) errors.push({ code: "EDGE_ENDPOINT_MISSING", path: `edges[${index}]`, message: "边引用了不存在的节点" });
+    if (edge.from === edge.to) errors.push({ code: "SELF_EDGE", path: `edges[${index}]`, message: "节点不能连接到自身" });
+    if (workflow.edges.findIndex((candidate) => candidate.kind === edge.kind && candidate.from === edge.from && candidate.to === edge.to) !== index) errors.push({ code: "DUPLICATE_EDGE", path: `edges[${index}]`, message: "存在重复边" });
+  });
+  const entries = workflow.nodes.filter((node) => !progression.some((edge) => edge.to === node.nodeId));
+  if (entries.length !== 1) errors.push({ code: "ILLEGAL_ENTRY", path: "entryNodeIds", message: `必须有且仅有一个入口，当前为 ${entries.length} 个` });
+  const reached = new Set<string>();
+  const queue = entries.map((node) => node.nodeId);
+  while (queue.length) {
+    const id = queue.shift()!;
+    if (reached.has(id)) continue;
+    reached.add(id);
+    progression.filter((edge) => edge.from === id).forEach((edge) => queue.push(edge.to));
+  }
+  workflow.nodes.filter((node) => !reached.has(node.nodeId)).forEach((node) => errors.push({ code: "UNREACHABLE_NODE", path: `nodes.${node.nodeId}`, message: `节点不可达：${node.nodeId}` }));
+  const indegree = new Map(workflow.nodes.map((node) => [node.nodeId, 0]));
+  progression.forEach((edge) => indegree.set(edge.to, (indegree.get(edge.to) ?? 0) + 1));
+  const topo = workflow.nodes.filter((node) => indegree.get(node.nodeId) === 0).map((node) => node.nodeId);
+  let visited = 0;
+  while (topo.length) {
+    const id = topo.shift()!;
+    visited += 1;
+    progression.filter((edge) => edge.from === id).forEach((edge) => {
+      indegree.set(edge.to, (indegree.get(edge.to) ?? 1) - 1);
+      if (indegree.get(edge.to) === 0) topo.push(edge.to);
+    });
+  }
+  if (visited !== workflow.nodes.length) errors.push({ code: "FLOW_CYCLE", path: "edges", message: "流转/审批边形成环" });
+  return { valid: errors.length === 0, errors };
+}
+
 function fixtureClient(): AfApiClient {
-  const bootstrap = fixtureBootstrap();
+  const tasks: TaskSummaryDto[] = sessions.map((task) => ({ taskId: task.id, title: task.title, repositoryRef: task.repo, baseBranch: "main", targetBranch: task.branch, state: task.state, updatedAt: task.time, workflowId: task.workflow, diff: task.diff, turns: task.turns }));
+  const operations = new Map<string, GitOperationDto>();
+  const details = new Map<string, TaskDetailDto>();
+  const currentBootstrap = () => fixtureBootstrap(tasks);
   return {
     mode: "fixture",
-    async bootstrap() { return bootstrap; },
-    async listTasks() { return bootstrap.tasks; },
-    async getTask(taskId) { return bootstrap.tasks.find((task) => task.taskId === taskId) ?? null; },
-    async validateWorkflow(_workflow) { return { valid: true, errors: [] }; },
-    async saveWorkflow(workflow) {
-      return { workflowId: workflow.workflowId, workflowVersion: workflow.workflowVersion, nodeSpecDigest: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", frozen: false };
+    async bootstrap() { return currentBootstrap(); },
+    async listTasks() { return tasks; },
+    async getTask(taskId) {
+      const task = tasks.find((item) => item.taskId === taskId);
+      if (!task) throw new AfApiError({ code: "AF_TASK_NOT_FOUND", message: "fixture 任务不存在", retryable: false });
+      const detail = details.get(taskId) ?? fixtureDetail(task, currentBootstrap());
+      details.set(taskId, detail);
+      return detail;
     },
-    async createTask(_input) { return { taskId: `fixture-${Date.now()}` }; },
-    async startTask(taskId) { return { taskId, status: "running" }; },
-    async getTrajectory() { return []; },
-    async createPushOperation(_taskId, input) { return { status: "confirmation", ...input }; },
-    async confirmPushOperation(operationId) { return { operationId, status: "committed" }; },
-    async getPushOperation(operationId) { return { operationId, status: "confirmation" }; },
+    async validateWorkflow(workflow) { return validateWorkflowDto(workflow); },
+    async saveWorkflow(workflow) {
+      const validation = validateWorkflowDto(workflow);
+      if (!validation.valid) throw new AfApiError({ code: "AF_WORKFLOW_INVALID", message: validation.errors[0]?.message ?? "工作流无效", retryable: false, details: { errors: validation.errors } });
+      return { workflowId: workflow.workflowId, workflowVersion: workflow.workflowVersion, nodeSpecDigest: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", frozen: true };
+    },
+    async createTask(input) {
+      const taskId = `fixture-${Date.now()}`;
+      tasks.unshift({ taskId, title: input.title, repositoryRef: input.repositoryRef, baseBranch: input.baseBranch, targetBranch: input.targetBranch, state: "created", updatedAt: "刚刚", workflowId: input.workflowId, diff: { added: 0, removed: 0, files: 0 }, turns: 0 });
+      return { taskId };
+    },
+    async startTask(taskId) {
+      const task = tasks.find((item) => item.taskId === taskId);
+      if (!task) throw new AfApiError({ code: "AF_TASK_NOT_FOUND", message: "fixture 任务不存在", retryable: false });
+      task.state = "running";
+      details.delete(taskId);
+      return { taskId, status: "running" };
+    },
+    async getTrajectory(taskId) { return fixtureTrajectory(await this.getTask(taskId)); },
+    async createPushOperation(taskId, input) {
+      const task = tasks.find((item) => item.taskId === taskId);
+      if (!task) throw new AfApiError({ code: "AF_TASK_NOT_FOUND", message: "fixture 任务不存在", retryable: false });
+      const operation: GitOperationDto = { contractVersion: "1.1", operationId: `${taskId}.git.${Date.now()}`, provider: input.provider, mcpServerRef: input.mcpServerRef, mcpCapabilitiesDigest: FIXTURE_DIGEST, repositoryRef: task.repositoryRef, credentialRef: input.credentialRef, baseBranch: task.baseBranch, baseRevision: "1111111111111111111111111111111111111111", expectedRemoteRevision: "1111111111111111111111111111111111111111", sourceRevision: input.sourceRevision, targetBranch: input.targetBranch, changeSet: { digest: input.changeSetDigest, files: [] }, commit: { message: input.commitMessage }, status: "confirmation", actor: "fixture-user", createdAt: new Date().toISOString() };
+      operations.set(operation.operationId, operation);
+      return operation;
+    },
+    async confirmPushOperation(operationId) {
+      const operation = operations.get(operationId) ?? [...details.values()].flatMap((detail) => detail.gitOperations).find((item) => item.operationId === operationId);
+      if (!operation) throw new AfApiError({ code: "AF_INVALID_REQUEST", message: "fixture Git operation 不存在", retryable: false });
+      const committed = { ...operation, status: "committed" as const, remoteRevision: "3333333333333333333333333333333333333333", updatedAt: new Date().toISOString() };
+      operations.set(operationId, committed);
+      for (const detail of details.values()) detail.gitOperations = detail.gitOperations.map((item) => item.operationId === operationId ? committed : item);
+      return committed;
+    },
+    async getPushOperation(operationId) {
+      const operation = operations.get(operationId) ?? [...details.values()].flatMap((detail) => detail.gitOperations).find((item) => item.operationId === operationId);
+      if (!operation) throw new AfApiError({ code: "AF_INVALID_REQUEST", message: "fixture Git operation 不存在", retryable: false });
+      return operation;
+    },
   };
 }
 
@@ -93,15 +325,15 @@ class HttpAfApiClient implements AfApiClient {
 
   bootstrap(signal?: AbortSignal) { return this.request<AfBootstrapDto>("/bootstrap", undefined, signal); }
   listTasks(signal?: AbortSignal) { return this.request<AfBootstrapDto>("/bootstrap", undefined, signal).then((data) => data.tasks); }
-  getTask(taskId: string, signal?: AbortSignal) { return this.request<unknown>(`/tasks/${encodeURIComponent(taskId)}`, undefined, signal); }
+  getTask(taskId: string, signal?: AbortSignal) { return this.request<TaskDetailDto>(`/tasks/${encodeURIComponent(taskId)}`, undefined, signal); }
   validateWorkflow(workflow: import("./types").WorkflowDefinitionDto, signal?: AbortSignal) { return this.request<WorkflowValidation>("/workflows/validate", { method: "POST", body: JSON.stringify({ workflow }) }, signal); }
   saveWorkflow(workflow: import("./types").WorkflowDefinitionDto, signal?: AbortSignal) { return this.request<WorkflowVersion>("/workflows", { method: "POST", body: JSON.stringify({ workflow }) }, signal); }
   createTask(input: CreateTaskInput, signal?: AbortSignal) { return this.request<{ taskId: string }>("/tasks", { method: "POST", body: JSON.stringify(input) }, signal); }
   startTask(taskId: string, signal?: AbortSignal) { return this.request<{ taskId: string; status: string }>(`/tasks/${encodeURIComponent(taskId)}/start`, { method: "POST" }, signal); }
-  getTrajectory(taskId: string, signal?: AbortSignal) { return this.request<unknown[]>(`/tasks/${encodeURIComponent(taskId)}/trajectory`, undefined, signal); }
-  createPushOperation(taskId: string, input: PushOperationInput, signal?: AbortSignal) { return this.request<unknown>(`/tasks/${encodeURIComponent(taskId)}/git-operations`, { method: "POST", body: JSON.stringify(input) }, signal); }
-  confirmPushOperation(operationId: string, signal?: AbortSignal) { return this.request<unknown>(`/git-operations/${encodeURIComponent(operationId)}/confirm`, { method: "POST" }, signal); }
-  getPushOperation(operationId: string, signal?: AbortSignal) { return this.request<unknown>(`/git-operations/${encodeURIComponent(operationId)}`, undefined, signal); }
+  getTrajectory(taskId: string, signal?: AbortSignal) { return this.request<TrajectoryEventDto[]>(`/tasks/${encodeURIComponent(taskId)}/trajectory`, undefined, signal); }
+  createPushOperation(taskId: string, input: PushOperationInput, signal?: AbortSignal) { return this.request<GitOperationDto>(`/tasks/${encodeURIComponent(taskId)}/git-operations`, { method: "POST", body: JSON.stringify(input) }, signal); }
+  confirmPushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}/confirm`, { method: "POST" }, signal); }
+  getPushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}`, undefined, signal); }
 }
 
 export class AfApiError extends Error {
