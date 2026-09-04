@@ -100,10 +100,9 @@ export function Sidebar({
                         {s.state === "running" && <i className="pulse" />}
                         {stateLabel[s.state]}
                       </span>
-                      <span className="delta mono">
-                        <b>+{s.diff.added}</b>
-                        <i>−{s.diff.removed}</i>
-                      </span>
+                      {s.diff
+                        ? <span className="delta mono"><b>+{s.diff.added}</b><i>−{s.diff.removed}</i></span>
+                        : <span className="delta mono">diff —</span>}
                     </span>
                   </button>
                   <button

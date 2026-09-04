@@ -57,7 +57,7 @@ export function Inspector({
             >
               {t.label}
               {t.key === "diff" && (
-                <span className="tab__badge mono">{session.diff.files}</span>
+                <span className="tab__badge mono">{session.diff?.files ?? "—"}</span>
               )}
               {t.key === "evidence" && (
                 <span className="tab__badge mono">

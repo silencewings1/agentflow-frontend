@@ -35,6 +35,17 @@ import {
 export type ApprovalMode = "auto" | "ask" | "readonly";
 type ApiLoadState = { status: "loading" } | { status: "ready" } | { status: "error"; code: string; message: string; retryable: boolean };
 
+function apiFailure(error: unknown, fallbackMessage: string): Omit<Extract<ApiLoadState, { status: "error" }>, "status"> {
+  if (error instanceof AfApiError) {
+    return { code: error.code, message: error.message, retryable: error.retryable };
+  }
+  return {
+    code: "AF_CLIENT_RESPONSE_INVALID",
+    message: error instanceof Error ? error.message : fallbackMessage,
+    retryable: true,
+  };
+}
+
 /* 会话 → 编排：每条会话记着自己走哪条流水线，切换会话时顶部要跟着换。
    找不到时回落到第一套，保证界面不会因为数据缺字段而空掉。 */
 function wfOf(id: string | undefined, catalog: Workflow[] = workflowTemplates): Workflow {
@@ -72,6 +83,9 @@ export default function App() {
   const [taskRuntime, setTaskRuntime] = useState<TaskDetailDto | null>(null);
   const [trajectory, setTrajectory] = useState<TrajectoryEventDto[]>([]);
   const [runtimeLoad, setRuntimeLoad] = useState<RuntimeLoadState>({ status: "idle" });
+  const [startingTaskId, setStartingTaskId] = useState<string | null>(null);
+  const [approvingNodeId, setApprovingNodeId] = useState<string | null>(null);
+  const [planningOperation, setPlanningOperation] = useState(false);
   const [confirmingOperationId, setConfirmingOperationId] = useState<string | null>(null);
   const [wfStep, setWfStep] = useState(1);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -134,8 +148,7 @@ export default function App() {
       setMode("session");
     }).catch((error: unknown) => {
       if (disposed) return;
-      const apiError = error instanceof AfApiError ? error : undefined;
-      setApiLoad({ status: "error", code: apiError?.code ?? "AF_NETWORK_ERROR", message: apiError?.message ?? "无法连接 AF API", retryable: apiError?.retryable ?? true });
+      setApiLoad({ status: "error", ...apiFailure(error, "无法读取 AF API 首屏数据") });
       setMode("welcome");
     });
     return () => { disposed = true; };
@@ -153,19 +166,18 @@ export default function App() {
       ]);
       setTaskRuntime(detail);
       setTrajectory(events);
-      setExecutorMode(detail.executorMode);
+      if (detail.executorMode) setExecutorMode(detail.executorMode);
       setRuntimeLoad({ status: "ready" });
       setSessionList((items) => items.map((item) => item.id === taskId ? {
         ...item,
-        state: detail.status === "completed" || detail.status === "done" ? "done"
+        state: detail.status === "completed" ? "done"
           : detail.status === "failed" || detail.status === "blocked_unavailable" || detail.status === "needs_reconcile" ? "failed"
-            : detail.status === "created" || detail.status === "review" ? "review"
-              : detail.status === "cancelled" || detail.status === "idle" ? "idle" : "running",
+            : detail.status === "created" || detail.status === "awaiting_human" ? "review"
+              : detail.status === "cancelled" ? "idle" : "running",
       } : item));
     } catch (error: unknown) {
       if (signal?.aborted) return;
-      const apiError = error instanceof AfApiError ? error : undefined;
-      setRuntimeLoad({ status: "error", code: apiError?.code ?? "AF_NETWORK_ERROR", message: apiError?.message ?? "无法读取任务状态", retryable: apiError?.retryable ?? true });
+      setRuntimeLoad({ status: "error", ...apiFailure(error, "无法读取任务状态") });
     }
   }, []);
 
@@ -435,7 +447,11 @@ export default function App() {
       let createdTask: { taskId: string };
       let versionedWorkflow = wf;
       try {
-        const workflowVersion = await afApi.saveWorkflow(toWorkflowDto(wf));
+        // bootstrap 返回的 frozen 版本已经由服务端校验并持久化。创建任务应
+        // 直接引用它；只有 UI 草稿才保存新版本，避免把有损的画布投影重存。
+        const workflowVersion = wf.frozen && wf.workflowVersion !== undefined && wf.nodeSpecDigest
+          ? { workflowId: wf.id, workflowVersion: wf.workflowVersion, nodeSpecDigest: wf.nodeSpecDigest, frozen: true }
+          : await afApi.saveWorkflow(toWorkflowDto(wf));
         const contractDigest = await digestValue(contract);
         versionedWorkflow = { ...wf, workflowVersion: workflowVersion.workflowVersion, nodeSpecDigest: workflowVersion.nodeSpecDigest, frozen: workflowVersion.frozen };
         createdTask = await afApi.createTask({
@@ -764,8 +780,46 @@ export default function App() {
   );
 
   const validateWorkflow = useCallback(async (candidate: Workflow): Promise<WorkflowValidation> => {
+    // 冻结版本来自当前 bootstrap，服务端已经校验；UI 只是在选择该版本，
+    // 并未提交一个需要重新验证的草稿。
+    if (candidate.frozen && candidate.workflowVersion !== undefined && candidate.nodeSpecDigest) {
+      return { valid: true, errors: [] };
+    }
     return afApi.validateWorkflow(toWorkflowDto(candidate));
   }, []);
+
+  const startLiveTask = useCallback(async () => {
+    if (!activeId) return;
+    setStartingTaskId(activeId);
+    try {
+      await afApi.startTask(activeId);
+      await fetchTaskRuntime(activeId);
+      loadBootstrap();
+      push({ tone: "ok", title: "任务已启动", body: "控制面已推进到下一人工检查点或终态。" });
+    } catch (error: unknown) {
+      const failure = apiFailure(error, "无法启动任务");
+      push({ tone: "warn", title: "任务启动失败", body: `${failure.code} · ${failure.message}` });
+    } finally {
+      setStartingTaskId(null);
+    }
+  }, [activeId, fetchTaskRuntime, loadBootstrap, push]);
+
+  const approveAndContinueTask = useCallback(async (nodeId: string) => {
+    if (!activeId) return;
+    setApprovingNodeId(nodeId);
+    try {
+      await afApi.approveTaskNode(activeId, nodeId);
+      await afApi.startTask(activeId);
+      await fetchTaskRuntime(activeId);
+      loadBootstrap();
+      push({ tone: "ok", title: "人工检查点已批准", body: `${nodeId} 已继续推进，控制面状态已刷新。` });
+    } catch (error: unknown) {
+      const failure = apiFailure(error, "无法批准任务节点");
+      push({ tone: "warn", title: "人工检查点批准失败", body: `${failure.code} · ${failure.message}` });
+    } finally {
+      setApprovingNodeId(null);
+    }
+  }, [activeId, fetchTaskRuntime, loadBootstrap, push]);
 
   const confirmGitOperation = useCallback(async (operationId: string) => {
     setConfirmingOperationId(operationId);
@@ -786,6 +840,38 @@ export default function App() {
       setConfirmingOperationId(null);
     }
   }, [activeId, fetchTaskRuntime, push]);
+
+  const planGitOperation = useCallback(async () => {
+    if (!activeId || !taskRuntime?.preparedDelivery) return;
+    const provider = scmProviders.find((candidate) =>
+      candidate.provider === taskRuntime.provider && candidate.mcpServerRef === taskRuntime.mcpServerRef,
+    );
+    if (!provider || !provider.available) {
+      push({ tone: "warn", title: "无法生成 SCM operation", body: provider?.errorMessage ?? "任务冻结的 SCM MCP Server 当前不可用。" });
+      return;
+    }
+    setPlanningOperation(true);
+    try {
+      const prepared = taskRuntime.preparedDelivery;
+      const operation = await afApi.createPushOperation(activeId, {
+        idempotencyKey: `git-plan:${activeId}:${prepared.sourceRevision}:${prepared.changeSet.digest}`,
+        provider: taskRuntime.provider,
+        mcpServerRef: taskRuntime.mcpServerRef,
+        credentialRef: provider.credentialRef,
+        targetBranch: prepared.targetBranch,
+        sourceRevision: prepared.sourceRevision,
+        changeSetDigest: prepared.changeSet.digest,
+        commitMessage: `feat: AgentFlow task ${activeId}`,
+      });
+      await fetchTaskRuntime(activeId);
+      push({ tone: "info", title: "SCM operation 已生成", body: `${operation.operationId} · ${operation.status}，等待人工确认远端写入。` });
+    } catch (error: unknown) {
+      const failure = apiFailure(error, "无法生成 SCM operation");
+      push({ tone: "warn", title: "SCM operation 生成失败", body: `${failure.code} · ${failure.message}` });
+    } finally {
+      setPlanningOperation(false);
+    }
+  }, [activeId, fetchTaskRuntime, push, scmProviders, taskRuntime]);
 
   return (
     <div
@@ -854,6 +940,12 @@ export default function App() {
               load={runtimeLoad}
               profiles={agentProfiles}
               apiMode={afApi.mode}
+              starting={startingTaskId === activeId}
+              onStart={() => void startLiveTask()}
+              approvingNodeId={approvingNodeId}
+              onApproveNode={(nodeId) => void approveAndContinueTask(nodeId)}
+              planningOperation={planningOperation}
+              onPlanOperation={() => void planGitOperation()}
               confirmingOperationId={confirmingOperationId}
               onConfirmOperation={(operationId) => void confirmGitOperation(operationId)}
               onRefresh={() => { if (activeId) void fetchTaskRuntime(activeId); }}

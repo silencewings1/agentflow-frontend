@@ -1,11 +1,13 @@
 import { sessions } from "../data/mock";
 import { workflowTemplates } from "../data/workflows";
-import { toWorkflowDto } from "./mappers";
+import { toTaskDetail, toTrajectory, toWorkflowDto } from "./mappers";
 import type {
   AfApiClient,
   AfBootstrapDto,
   AfErrorPayload,
   AfResponse,
+  AfTaskDetailDto,
+  AfTrajectoryDto,
   CreateTaskInput,
   GitOperationDto,
   PushOperationInput,
@@ -16,6 +18,45 @@ import type {
   WorkflowValidation,
   WorkflowVersion,
 } from "./types";
+
+const FIXTURE_TIME = "2026-09-02T08:00:00.000Z";
+const FIXTURE_DIGEST = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+
+function taskState(state: import("../data/mock").SessionState): TaskSummaryDto["state"] {
+  if (state === "done") return "completed";
+  if (state === "failed") return "failed";
+  if (state === "idle") return "created";
+  if (state === "review") return "awaiting_human";
+  return "running";
+}
+
+function fixtureTaskSummary(task: import("../data/mock").Session): TaskSummaryDto {
+  return {
+    taskId: task.id,
+    title: task.title,
+    repositoryRef: task.repo,
+    baseBranch: "main",
+    targetBranch: task.branch,
+    provider: "github",
+    mcpServerRef: "github-official",
+    state: taskState(task.state),
+    blockedReason: null,
+    workflowId: task.workflow,
+    workflowVersion: 1,
+    nodeSpecDigest: FIXTURE_DIGEST,
+    executorMode: "demo-deterministic",
+    createdAt: FIXTURE_TIME,
+    updatedAt: FIXTURE_TIME,
+    revision: 1,
+  };
+}
+
+function requestKey(prefix: string, value: unknown): string {
+  const json = JSON.stringify(value);
+  let hash = 2166136261;
+  for (let index = 0; index < json.length; index += 1) hash = Math.imul(hash ^ json.charCodeAt(index), 16777619);
+  return `${prefix}:${(hash >>> 0).toString(16)}`;
+}
 
 const profiles = [
   ["requirements-analyst", "需求分析智能体", false, "af.agent.requirements.v1"],
@@ -78,32 +119,37 @@ function standardCodeChangeWorkflow(): WorkflowDefinitionDto {
   };
 }
 
-function fixtureBootstrap(tasks: TaskSummaryDto[] = sessions.map((task) => ({ taskId: task.id, title: task.title, repositoryRef: task.repo, baseBranch: "main", targetBranch: task.branch, state: task.state, updatedAt: task.time, workflowId: task.workflow, diff: task.diff, turns: task.turns }))): AfBootstrapDto {
+function fixtureBootstrap(tasks: TaskSummaryDto[] = sessions.map(fixtureTaskSummary)): AfBootstrapDto {
   return {
     contractVersion: "1.0",
     executorMode: "demo-deterministic",
     tasks,
     workflows: [standardCodeChangeWorkflow(), ...workflowTemplates.map(toWorkflowDto)],
     agentProfiles: profiles.map(([profileId, name, independent, promptId]) => ({
+      contractVersion: "1.0",
       profileId,
       profileVersion: "1.0.0",
       name,
       independent,
-      promptId,
-      promptVersion: "1.0.0",
+      promptRef: { promptId, promptVersion: "1.0.0" },
       responsibilities: [...profilePolicy[profileId].responsibilities],
       nonResponsibilities: [...profilePolicy[profileId].nonResponsibilities],
-      modelPolicy: { provider: "task-default", model: "task-default" },
-      toolPolicyVersion: "1.0.0",
-      tools: [...profilePolicy[profileId].tools],
+      modelPolicy: { provider: "task-default", model: "task-default", allowRuntimeSwitch: false },
+      toolPolicy: { version: "1.0.0", allow: [...profilePolicy[profileId].tools], deny: ["git.push", "git.merge", "release.publish"] },
       inputSchemaVersion: "AcceptedUpstreamDeliverables@1",
       outputSchemaVersion: profilePolicy[profileId].output,
+      profileDigest: FIXTURE_DIGEST,
     })),
     skills: skills.map(([skillId, name]) => ({
+      contractVersion: "1.0",
       skillId,
       skillVersion: "1.0.0",
       name,
       allowedCommands: [skillId],
+      workingDirectoryPolicy: "workspace-relative-existing-directory-no-symlink-escape",
+      timeoutMs: 600_000,
+      writesEvidence: true,
+      outputSchemaVersion: "SkillResult@1",
     })),
     scmProviders: [
       {
@@ -112,7 +158,7 @@ function fixtureBootstrap(tasks: TaskSummaryDto[] = sessions.map((task) => ({ ta
         credentialRef: "GITHUB_AGENTFLOW_TOKEN",
         available: true,
         serverVersion: "hosted",
-        capabilitiesDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        mcpCapabilitiesDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         tools: ["get_file_contents", "list_branches", "get_commit", "create_branch", "push_files"],
         allowedRepositoryNamespaces: ["demo-org"],
       },
@@ -131,13 +177,11 @@ function fixtureBootstrap(tasks: TaskSummaryDto[] = sessions.map((task) => ({ ta
   };
 }
 
-const FIXTURE_DIGEST = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
-
 function fixtureDetail(task: TaskSummaryDto, bootstrap: AfBootstrapDto): TaskDetailDto {
   const workflow = bootstrap.workflows.find((item) => item.workflowId === task.workflowId) ?? bootstrap.workflows[0]!;
-  const terminal = task.state === "done" || task.state === "completed";
+  const terminal = task.state === "completed";
   const failed = task.state === "failed";
-  const review = task.state === "review";
+  const review = task.state === "awaiting_human";
   const created = task.state === "created";
   const activeIndex = created ? -1 : failed ? Math.min(2, workflow.nodes.length - 1) : review ? workflow.nodes.length - 1 : Math.min(1, workflow.nodes.length - 1);
   const nodes = workflow.nodes.map((node, index) => ({
@@ -153,6 +197,8 @@ function fixtureDetail(task: TaskSummaryDto, bootstrap: AfBootstrapDto): TaskDet
   const gitOperations: GitOperationDto[] = review || terminal ? [{
     contractVersion: "1.1",
     operationId: `${task.taskId}.git.publish.r1`,
+    idempotencyKey: `${task.taskId}:git:publish:1`,
+    taskId: task.taskId,
     provider: "github",
     mcpServerRef: "github-official",
     mcpServerVersion: "hosted",
@@ -171,6 +217,7 @@ function fixtureDetail(task: TaskSummaryDto, bootstrap: AfBootstrapDto): TaskDet
     actor: "fixture-user",
     createdAt: "2026-09-02T08:00:00.000Z",
   }] : [];
+  const currentNodeId = nodes.find((node) => node.status === "running" || node.status === "rejected" || node.status === "awaiting_approval")?.nodeId;
   return {
     taskId: task.taskId,
     title: task.title,
@@ -180,13 +227,17 @@ function fixtureDetail(task: TaskSummaryDto, bootstrap: AfBootstrapDto): TaskDet
     baseBranch: task.baseBranch,
     baseRevision: "1111111111111111111111111111111111111111",
     targetBranch: task.targetBranch,
+    provider: task.provider,
+    mcpServerRef: task.mcpServerRef,
+    contractDigest: FIXTURE_DIGEST,
     workflow: { workflowId: workflow.workflowId, workflowVersion: workflow.workflowVersion, nodeSpecDigest: workflow.nodeSpecDigest, frozen: true, policyVersion: workflow.policyVersion },
-    currentNodeId: nodes.find((node) => node.status === "running" || node.status === "rejected" || node.status === "awaiting_approval")?.nodeId,
+    ...(currentNodeId ? { currentNodeId } : {}),
     nodes,
-    gates: nodes.filter((node) => node.status === "accepted" || node.status === "rejected").map((node) => ({ gateId: `${node.nodeId}.gate`, nodeId: node.nodeId, outcome: node.status === "rejected" ? "fail" as const : "pass" as const, evaluatorVersion: "fixture-1.0.0", ...(node.status === "rejected" ? { failureCode: node.failureCode } : {}), evidenceRef: node.evidenceRefs[0] })),
+    gates: nodes.filter((node) => node.status === "accepted" || node.status === "rejected").map((node) => ({ gateId: `${node.nodeId}.gate`, nodeId: node.nodeId, outcome: node.status === "rejected" ? "fail" as const : "pass" as const, evaluatorVersion: "fixture-1.0.0", threshold: { passed: 1 }, actual: { passed: node.status === "rejected" ? 0 : 1 }, ...(node.status === "rejected" ? { failureCode: node.failureCode } : {}), evidenceRef: node.evidenceRefs[0] ?? `evidence://fixture/${task.taskId}/${node.nodeId}` })),
     skills: nodes.filter((node) => node.skillRef && node.status !== "pending").map((node) => ({ nodeId: node.nodeId, skillId: node.skillRef!.skillId, skillVersion: node.skillRef!.skillVersion, status: node.status === "rejected" ? "failed" as const : "completed" as const, exitCode: node.status === "rejected" ? 1 : 0, durationMs: 1380, evidenceRef: node.evidenceRefs[0]! })),
+    preparedDelivery: null,
     gitOperations,
-    deliverables: nodes.filter((node) => node.status === "accepted").map((node, index) => ({ deliverableId: `${task.taskId}.${node.nodeId}.d1`, nodeId: node.nodeId, digest: FIXTURE_DIGEST, mediaType: "application/json", version: 1, status: index === 0 && failed ? "superseded" as const : "current" as const })),
+    deliverables: nodes.filter((node) => node.status === "accepted").map((node, index) => ({ deliverableId: `${task.taskId}.${node.nodeId}.d1`, nodeId: node.nodeId, digest: FIXTURE_DIGEST, mediaType: "application/json", schemaVersion: "FixtureDeliverable@1", status: index === 0 && failed ? "superseded" as const : "current" as const })),
     updatedAt: task.updatedAt,
   };
 }
@@ -246,7 +297,7 @@ function validateWorkflowDto(workflow: WorkflowDefinitionDto): WorkflowValidatio
 }
 
 function fixtureClient(): AfApiClient {
-  const tasks: TaskSummaryDto[] = sessions.map((task) => ({ taskId: task.id, title: task.title, repositoryRef: task.repo, baseBranch: "main", targetBranch: task.branch, state: task.state, updatedAt: task.time, workflowId: task.workflow, diff: task.diff, turns: task.turns }));
+  const tasks: TaskSummaryDto[] = sessions.map(fixtureTaskSummary);
   const operations = new Map<string, GitOperationDto>();
   const details = new Map<string, TaskDetailDto>();
   const currentBootstrap = () => fixtureBootstrap(tasks);
@@ -269,7 +320,7 @@ function fixtureClient(): AfApiClient {
     },
     async createTask(input) {
       const taskId = `fixture-${Date.now()}`;
-      tasks.unshift({ taskId, title: input.title, repositoryRef: input.repositoryRef, baseBranch: input.baseBranch, targetBranch: input.targetBranch, state: "created", updatedAt: "刚刚", workflowId: input.workflowId, diff: { added: 0, removed: 0, files: 0 }, turns: 0 });
+      tasks.unshift({ taskId, title: input.title, repositoryRef: input.repositoryRef, baseBranch: input.baseBranch, targetBranch: input.targetBranch, provider: input.provider, mcpServerRef: input.mcpServerRef, state: "created", blockedReason: null, workflowId: input.workflowId, workflowVersion: input.workflowVersion, nodeSpecDigest: FIXTURE_DIGEST, executorMode: "demo-deterministic", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), revision: 1 });
       return { taskId };
     },
     async startTask(taskId) {
@@ -277,13 +328,18 @@ function fixtureClient(): AfApiClient {
       if (!task) throw new AfApiError({ code: "AF_TASK_NOT_FOUND", message: "fixture 任务不存在", retryable: false });
       task.state = "running";
       details.delete(taskId);
-      return { taskId, status: "running" };
+      return { taskId, state: "running" };
+    },
+    async approveTaskNode(taskId, nodeId) {
+      const task = tasks.find((item) => item.taskId === taskId);
+      if (!task) throw new AfApiError({ code: "AF_TASK_NOT_FOUND", message: "fixture 任务不存在", retryable: false });
+      return { taskId, nodeId, state: task.state, revision: task.revision + 1 };
     },
     async getTrajectory(taskId) { return fixtureTrajectory(await this.getTask(taskId)); },
     async createPushOperation(taskId, input) {
       const task = tasks.find((item) => item.taskId === taskId);
       if (!task) throw new AfApiError({ code: "AF_TASK_NOT_FOUND", message: "fixture 任务不存在", retryable: false });
-      const operation: GitOperationDto = { contractVersion: "1.1", operationId: `${taskId}.git.${Date.now()}`, provider: input.provider, mcpServerRef: input.mcpServerRef, mcpCapabilitiesDigest: FIXTURE_DIGEST, repositoryRef: task.repositoryRef, credentialRef: input.credentialRef, baseBranch: task.baseBranch, baseRevision: "1111111111111111111111111111111111111111", expectedRemoteRevision: "1111111111111111111111111111111111111111", sourceRevision: input.sourceRevision, targetBranch: input.targetBranch, changeSet: { digest: input.changeSetDigest, files: [] }, commit: { message: input.commitMessage }, status: "confirmation", actor: "fixture-user", createdAt: new Date().toISOString() };
+      const operation: GitOperationDto = { contractVersion: "1.1", operationId: `${taskId}.git.${Date.now()}`, idempotencyKey: input.idempotencyKey, taskId, provider: input.provider, mcpServerRef: input.mcpServerRef, mcpCapabilitiesDigest: FIXTURE_DIGEST, repositoryRef: task.repositoryRef, credentialRef: input.credentialRef, baseBranch: task.baseBranch, baseRevision: "1111111111111111111111111111111111111111", expectedRemoteRevision: "1111111111111111111111111111111111111111", sourceRevision: input.sourceRevision, targetBranch: input.targetBranch, changeSet: { digest: input.changeSetDigest, files: [{ path: ".agentflow/fixture.txt", action: "create", contentDigest: FIXTURE_DIGEST }] }, commit: { message: input.commitMessage }, status: "confirmation", actor: "fixture-user", createdAt: new Date().toISOString() };
       operations.set(operation.operationId, operation);
       return operation;
     },
@@ -300,6 +356,7 @@ function fixtureClient(): AfApiClient {
       if (!operation) throw new AfApiError({ code: "AF_INVALID_REQUEST", message: "fixture Git operation 不存在", retryable: false });
       return operation;
     },
+    async reconcilePushOperation(operationId) { return this.getPushOperation(operationId); },
   };
 }
 
@@ -308,14 +365,35 @@ class HttpAfApiClient implements AfApiClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
 
-  constructor(baseUrl: string, fetchImpl: typeof fetch = fetch) {
+  constructor(baseUrl: string, fetchImpl?: typeof fetch) {
     this.baseUrl = baseUrl;
-    this.fetchImpl = fetchImpl;
+    // Chromium 的原生 fetch 依赖 Window receiver。直接保存后再以
+    // this.fetchImpl(...) 调用会把 HttpAfApiClient 误当 receiver，触发
+    // `Illegal invocation`；注入的测试实现则应保持原样。
+    this.fetchImpl = fetchImpl ?? globalThis.fetch.bind(globalThis);
   }
 
   private async request<T>(path: string, init?: RequestInit, signal?: AbortSignal): Promise<T> {
-    const response = await this.fetchImpl(`${this.baseUrl.replace(/\/$/, "")}${path}`, { ...init, signal, headers: { "content-type": "application/json", ...init?.headers } });
-    const body = (await response.json()) as AfResponse<T>;
+    let response: Response;
+    try {
+      response = await this.fetchImpl(`${this.baseUrl.replace(/\/$/, "")}${path}`, { ...init, signal, headers: { "content-type": "application/json", ...init?.headers } });
+    } catch (error) {
+      throw new AfApiError({
+        code: "AF_NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "无法连接 AF API",
+        retryable: true,
+      });
+    }
+    let body: AfResponse<T>;
+    try {
+      body = (await response.json()) as AfResponse<T>;
+    } catch {
+      throw new AfApiError({
+        code: "AF_RESPONSE_INVALID",
+        message: `AF API 返回的不是有效 JSON（HTTP ${response.status}）`,
+        retryable: response.status >= 500,
+      }, response.status);
+    }
     if (!response.ok || !body.ok) {
       const payload: AfErrorPayload = body.ok ? { code: `AF_HTTP_${response.status}`, message: `AF API 请求失败（HTTP ${response.status}）`, retryable: response.status >= 500 } : body.error;
       throw new AfApiError(payload, response.status);
@@ -325,15 +403,17 @@ class HttpAfApiClient implements AfApiClient {
 
   bootstrap(signal?: AbortSignal) { return this.request<AfBootstrapDto>("/bootstrap", undefined, signal); }
   listTasks(signal?: AbortSignal) { return this.request<AfBootstrapDto>("/bootstrap", undefined, signal).then((data) => data.tasks); }
-  getTask(taskId: string, signal?: AbortSignal) { return this.request<TaskDetailDto>(`/tasks/${encodeURIComponent(taskId)}`, undefined, signal); }
-  validateWorkflow(workflow: import("./types").WorkflowDefinitionDto, signal?: AbortSignal) { return this.request<WorkflowValidation>("/workflows/validate", { method: "POST", body: JSON.stringify({ workflow }) }, signal); }
-  saveWorkflow(workflow: import("./types").WorkflowDefinitionDto, signal?: AbortSignal) { return this.request<WorkflowVersion>("/workflows", { method: "POST", body: JSON.stringify({ workflow }) }, signal); }
+  getTask(taskId: string, signal?: AbortSignal) { return this.request<AfTaskDetailDto>(`/tasks/${encodeURIComponent(taskId)}`, undefined, signal).then(toTaskDetail); }
+  validateWorkflow(workflow: import("./types").WorkflowDefinitionDto, signal?: AbortSignal) { return this.request<WorkflowValidation>("/workflows/validate", { method: "POST", body: JSON.stringify({ draft: workflow }) }, signal); }
+  saveWorkflow(workflow: import("./types").WorkflowDefinitionDto, signal?: AbortSignal) { return this.request<WorkflowVersion>("/workflows", { method: "POST", body: JSON.stringify({ workflowId: workflow.workflowId, draft: workflow, idempotencyKey: requestKey("workflow-save", workflow) }) }, signal); }
   createTask(input: CreateTaskInput, signal?: AbortSignal) { return this.request<{ taskId: string }>("/tasks", { method: "POST", body: JSON.stringify(input) }, signal); }
-  startTask(taskId: string, signal?: AbortSignal) { return this.request<{ taskId: string; status: string }>(`/tasks/${encodeURIComponent(taskId)}/start`, { method: "POST" }, signal); }
-  getTrajectory(taskId: string, signal?: AbortSignal) { return this.request<TrajectoryEventDto[]>(`/tasks/${encodeURIComponent(taskId)}/trajectory`, undefined, signal); }
+  startTask(taskId: string, signal?: AbortSignal) { return this.request<{ taskId: string; state: import("./types").TaskState }>(`/tasks/${encodeURIComponent(taskId)}/start`, { method: "POST", body: JSON.stringify({ idempotencyKey: requestKey("task-start", taskId) }) }, signal); }
+  approveTaskNode(taskId: string, nodeId: string, signal?: AbortSignal) { return this.request<import("./types").ApproveTaskNodeResult>(`/tasks/${encodeURIComponent(taskId)}/approve`, { method: "POST", body: JSON.stringify({ nodeId }) }, signal); }
+  getTrajectory(taskId: string, signal?: AbortSignal) { return this.request<AfTrajectoryDto>(`/tasks/${encodeURIComponent(taskId)}/trajectory`, undefined, signal).then(toTrajectory); }
   createPushOperation(taskId: string, input: PushOperationInput, signal?: AbortSignal) { return this.request<GitOperationDto>(`/tasks/${encodeURIComponent(taskId)}/git-operations`, { method: "POST", body: JSON.stringify(input) }, signal); }
-  confirmPushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}/confirm`, { method: "POST" }, signal); }
+  confirmPushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}/confirm`, { method: "POST", body: JSON.stringify({ idempotencyKey: requestKey("git-confirm", operationId) }) }, signal); }
   getPushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}`, undefined, signal); }
+  reconcilePushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}/reconcile`, { method: "POST", body: JSON.stringify({ idempotencyKey: requestKey("git-reconcile", operationId) }) }, signal); }
 }
 
 export class AfApiError extends Error {

@@ -22,6 +22,12 @@ export function RuntimeConsole({
   load,
   profiles,
   apiMode,
+  starting,
+  onStart,
+  approvingNodeId,
+  onApproveNode,
+  planningOperation,
+  onPlanOperation,
   confirmingOperationId,
   onConfirmOperation,
   onRefresh,
@@ -31,6 +37,12 @@ export function RuntimeConsole({
   load: RuntimeLoadState;
   profiles: AgentProfileSummaryDto[];
   apiMode: "http" | "fixture";
+  starting: boolean;
+  onStart: () => void;
+  approvingNodeId: string | null;
+  onApproveNode: (nodeId: string) => void;
+  planningOperation: boolean;
+  onPlanOperation: () => void;
   confirmingOperationId: string | null;
   onConfirmOperation: (operationId: string) => void;
   onRefresh: () => void;
@@ -50,6 +62,11 @@ export function RuntimeConsole({
 
   const accepted = detail.nodes.filter((node) => node.status === "accepted").length;
   const current = detail.nodes.find((node) => node.nodeId === detail.currentNodeId);
+  const preparedOperation = detail.preparedDelivery === null ? undefined : detail.gitOperations.find((operation) =>
+    operation.sourceRevision === detail.preparedDelivery?.sourceRevision &&
+    operation.changeSet.digest === detail.preparedDelivery.changeSet.digest &&
+    operation.targetBranch === detail.preparedDelivery.targetBranch,
+  );
 
   return (
     <section className="runtime" data-mode={apiMode}>
@@ -59,6 +76,12 @@ export function RuntimeConsole({
           <strong>{detail.status} · {accepted}/{detail.nodes.length} 节点已接受</strong>
         </div>
         <div className="runtime__badges">
+          {apiMode === "http" && detail.status === "created" && (
+            <button className="btn btn--accent btn--sm" disabled={starting} onClick={onStart}>
+              <Icon.Sparkle size={12} />
+              {starting ? "启动中…" : "启动任务"}
+            </button>
+          )}
           <span className="tag tag--xs mono">{detail.executorMode}</span>
           <span className="tag tag--xs mono">{detail.workflow.workflowId}@{detail.workflow.workflowVersion}</span>
           <span className="tag tag--xs" data-tone={detail.workflow.frozen ? "ok" : "warn"}>{detail.workflow.frozen ? "版本已冻结" : "草稿版本"}</span>
@@ -93,6 +116,12 @@ export function RuntimeConsole({
                   </p>
                   <small className="mono">attempt {node.attemptId ?? "—"} · evidence {node.evidenceRefs.length}</small>
                   {node.failureCode && <b className="runtimeNodes__failure">{node.failureCode}{node.reworkTargetNodeId ? ` → 定向返工 ${node.reworkTargetNodeId}` : ""}</b>}
+                  {apiMode === "http" && node.status === "awaiting_approval" && (
+                    <button className="btn btn--accent btn--sm" disabled={approvingNodeId === node.nodeId || (node.kind === "git" && detail.preparedDelivery !== null && preparedOperation?.status !== "committed")} onClick={() => onApproveNode(node.nodeId)}>
+                      <Icon.Shield size={12} />
+                      {approvingNodeId === node.nodeId ? "批准并继续中…" : node.kind === "git" && detail.preparedDelivery !== null && preparedOperation?.status !== "committed" ? "先确认 MCP 写入" : "批准并继续"}
+                    </button>
+                  )}
                 </li>
               );
             })}
@@ -123,6 +152,20 @@ export function RuntimeConsole({
         <section className="runtimeBlock runtimeBlock--git">
           <header><Icon.Branch size={13} /><strong>SCM MCP 操作</strong></header>
           <div className="gitOps">
+            {detail.preparedDelivery !== null && preparedOperation === undefined && (
+              <article data-status="prepared">
+                <div className="gitOps__top"><strong>本地 change set 已准备</strong><span className="tag tag--xs">prepared</span></div>
+                <dl>
+                  <div><dt>source</dt><dd><code>{detail.preparedDelivery.sourceRevision}</code></dd></div>
+                  <div><dt>change set</dt><dd><code>{detail.preparedDelivery.changeSet.digest}</code></dd></div>
+                  <div><dt>files</dt><dd>{detail.preparedDelivery.changeSet.files.length}</dd></div>
+                </dl>
+                <button className="btn btn--accent btn--sm" disabled={planningOperation} onClick={onPlanOperation}>
+                  <Icon.Branch size={12} />
+                  {planningOperation ? "生成中…" : "生成 SCM operation"}
+                </button>
+              </article>
+            )}
             {detail.gitOperations.map((operation) => (
               <article key={operation.operationId} data-status={operation.status}>
                 <div className="gitOps__top">
@@ -135,7 +178,7 @@ export function RuntimeConsole({
                   <div><dt>change set</dt><dd><code>{operation.changeSet.digest}</code></dd></div>
                   <div><dt>MCP capabilities</dt><dd><code>{operation.mcpCapabilitiesDigest}</code></dd></div>
                 </dl>
-                {operation.status === "confirmation" && (
+                {(operation.status === "planned" || operation.status === "confirmation") && (
                   <button className="btn btn--accent btn--sm" disabled={confirmingOperationId === operation.operationId} onClick={() => onConfirmOperation(operation.operationId)}>
                     <Icon.Shield size={12} />
                     {confirmingOperationId === operation.operationId ? "确认中…" : "确认 MCP 功能分支写入"}
@@ -145,7 +188,7 @@ export function RuntimeConsole({
                 {operation.errorMessage && operation.status !== "unknown" && <p className="gitOps__warning">{operation.errorMessage}</p>}
               </article>
             ))}
-            {!detail.gitOperations.length && <p className="runtimeEmpty">尚未生成 SCM operation；前置测试、审查和 source change set 必须先通过。</p>}
+            {!detail.gitOperations.length && detail.preparedDelivery === null && <p className="runtimeEmpty">尚未生成 SCM operation；前置测试、审查和 source change set 必须先通过。</p>}
           </div>
         </section>
 

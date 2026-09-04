@@ -12,8 +12,9 @@ export interface Session {
   state: SessionState;
   time: string;
   bucket: "今天" | "昨天" | "更早";
-  diff: { added: number; removed: number; files: number };
-  turns: number;
+  /** 仅 fixture/真实 diff API 可用时存在；AF TaskSummary 不伪造这些 UI 指标。 */
+  diff?: { added: number; removed: number; files: number };
+  turns?: number;
   /** 该会话所用的编排（workflowTemplates 的 id）。
       不同类型的任务本就该走不同流水线：全都是「需求开发」会让人以为
       这套编排只有一条路径。切换会话时顶部流水线要跟着换。 */
