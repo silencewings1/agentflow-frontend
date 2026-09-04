@@ -9,6 +9,11 @@ export default defineConfig({
     // 而不是静默递增到 5177、5178，避免同时跑起多个开发服务器
     port: 5176,
     strictPort: true,
+    host: true,
+    // 开发时把 AF API 请求转发给后端（dsh web 5090），避免浏览器 CORS
+    proxy: {
+      '/api/af': 'http://127.0.0.1:5090',
+    },
   },
   preview: {
     // 部署形态：构建产物由 vite preview 提供，与 dev 同占 5176

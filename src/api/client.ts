@@ -1,4 +1,4 @@
-import { sessions } from "../data/mock";
+import { sessions, type Session } from "../data/mock";
 import { workflowTemplates } from "../data/workflows";
 import { toTaskDetail, toTrajectory, toWorkflowDto } from "./mappers";
 import type {
@@ -183,8 +183,8 @@ function fixtureDetail(task: TaskSummaryDto, bootstrap: AfBootstrapDto): TaskDet
   const failed = task.state === "failed";
   const review = task.state === "awaiting_human";
   const created = task.state === "created";
-  const activeIndex = created ? -1 : failed ? Math.min(2, workflow.nodes.length - 1) : review ? workflow.nodes.length - 1 : Math.min(1, workflow.nodes.length - 1);
-  const nodes = workflow.nodes.map((node, index) => ({
+  const activeIndex = created ? -1 : failed ? Math.min(2, def.nodes.length - 1) : review ? def.nodes.length - 1 : Math.min(1, def.nodes.length - 1);
+  const nodes = def.nodes.map((node, index) => ({
     nodeId: node.nodeId,
     kind: node.kind,
     status: (terminal || index < activeIndex ? "accepted" : index === activeIndex ? failed ? "rejected" : review && node.kind === "git" ? "awaiting_approval" : "running" : "pending") as TaskDetailDto["nodes"][number]["status"],
@@ -192,7 +192,7 @@ function fixtureDetail(task: TaskSummaryDto, bootstrap: AfBootstrapDto): TaskDet
     ...(node.agentProfileRef ? { agentProfileRef: node.agentProfileRef, provider: "fixture", model: "fixture-deterministic" } : {}),
     ...(node.skillRef ? { skillRef: node.skillRef } : {}),
     evidenceRefs: index <= activeIndex ? [`evidence://fixture/${task.taskId}/${node.nodeId}`] : [],
-    ...(failed && index === activeIndex ? { failureCode: "FIXTURE_INTEGRATION_TEST_FAILED", reworkTargetNodeId: workflow.nodes[Math.max(0, index - 1)]?.nodeId } : {}),
+    ...(failed && index === activeIndex ? { failureCode: "FIXTURE_INTEGRATION_TEST_FAILED", reworkTargetNodeId: def.nodes[Math.max(0, index - 1)]?.nodeId } : {}),
   }));
   const gitOperations: GitOperationDto[] = review || terminal ? [{
     contractVersion: "1.1",
@@ -203,13 +203,13 @@ function fixtureDetail(task: TaskSummaryDto, bootstrap: AfBootstrapDto): TaskDet
     mcpServerRef: "github-official",
     mcpServerVersion: "hosted",
     mcpCapabilitiesDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    repositoryRef: task.repositoryRef,
+    repositoryRef: session.repo,
     credentialRef: "GITHUB_AGENTFLOW_TOKEN",
-    baseBranch: task.baseBranch,
+    baseBranch: "main",
     baseRevision: "1111111111111111111111111111111111111111",
     expectedRemoteRevision: "1111111111111111111111111111111111111111",
     sourceRevision: "2222222222222222222222222222222222222222",
-    targetBranch: task.targetBranch,
+    targetBranch: session.branch,
     changeSet: { digest: FIXTURE_DIGEST, files: [{ path: "src/example.ts", action: "update", contentDigest: FIXTURE_DIGEST }] },
     commit: { message: "feat: fixture controlled delivery" },
     status: terminal ? "committed" : "confirmation",
@@ -223,8 +223,8 @@ function fixtureDetail(task: TaskSummaryDto, bootstrap: AfBootstrapDto): TaskDet
     title: task.title,
     status: task.state,
     executorMode: "demo-deterministic",
-    repositoryRef: task.repositoryRef,
-    baseBranch: task.baseBranch,
+    repositoryRef: session.repo,
+    baseBranch: "main",
     baseRevision: "1111111111111111111111111111111111111111",
     targetBranch: task.targetBranch,
     provider: task.provider,
@@ -334,6 +334,11 @@ function fixtureClient(): AfApiClient {
       const task = tasks.find((item) => item.taskId === taskId);
       if (!task) throw new AfApiError({ code: "AF_TASK_NOT_FOUND", message: "fixture 任务不存在", retryable: false });
       return { taskId, nodeId, state: task.state, revision: task.revision + 1 };
+    },
+    async approve(taskId, nodeId) {
+      const task = tasks.find((item) => item.taskId === taskId);
+      if (!task) throw new AfApiError({ code: "AF_TASK_NOT_FOUND", message: "fixture 任务不存在", retryable: false });
+      return { taskId, nodeId, state: task.state, revision: 1 };
     },
     async getTrajectory(taskId) { return fixtureTrajectory(await this.getTask(taskId)); },
     async createPushOperation(taskId, input) {

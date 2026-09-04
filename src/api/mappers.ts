@@ -1,5 +1,5 @@
 import type { IconName } from "../components/Icons";
-import type { Session } from "../data/mock";
+import type { AgentEvent, Session } from "../data/mock";
 import { withOrchestrator, type WfEdge, type WfNode, type Workflow } from "../data/workflows";
 import type {
   AfBootstrapDto,
@@ -198,4 +198,40 @@ export function toWorkflowDto(workflow: Workflow): WorkflowDefinitionDto {
   // presentation 是 bootstrap 的只读 UI 投影，不属于严格的
   // WorkflowDefinition 写入契约；保存/校验时不能回传。
   return { contractVersion: "1.0", workflowId: workflow.id, workflowVersion: workflow.workflowVersion ?? 1, nodes, edges: workflow.edges.map((edge) => ({ edgeId: edge.id, from: edge.from, to: edge.to, kind: edge.kind, label: edge.label })), entryNodeIds: workflow.nodes.filter((node) => !workflow.edges.some((edge) => edge.kind !== "fail" && edge.to === node.id)).map((node) => node.id), exitNodeIds: workflow.nodes.filter((node) => !workflow.edges.some((edge) => edge.kind !== "fail" && edge.from === node.id)).map((node) => node.id), policyVersion: "1.0.0", nodeSpecDigest: workflow.nodeSpecDigest ?? "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" };
+}
+
+/** 把真实 detail 里各节点的结构化产出（changeSet/gate/test/gitWrite/approval）映射为 Stream 可渲染的 rich 事件。 */
+export function structuredToEvents(t: TaskDetailDto | null): AgentEvent[] {
+  const ev: AgentEvent[] = [];
+  for (const n of t?.nodes ?? []) {
+    if (n.status === "pending" || n.status === "todo") continue;
+    const s = (n.structured ?? {}) as Record<string, any>;
+    if (!s || typeof s !== "object") continue;
+    if (s.kind === "gate" && s.gate) {
+      const g = s.gate as any;
+      ev.push({ id: "ev:" + n.nodeId + ":gate", kind: "gate", gate: g.gateId ?? n.nodeId, node: n.nodeId, verdict: g.outcome === "pass" ? "pass" : "block", checks: ((g.dimensions as any[]) ?? []).map((d) => ({ dim: d.name ?? "维度", state: d.passed ? "pass" : "fail", note: "" })), reviewer: s.agent ?? "af", evidence: [] });
+    } else if (s.kind === "skill" && s.test) {
+      const tt = s.test as any;
+      ev.push({ id: "ev:" + n.nodeId + ":tests", kind: "tests", passed: tt.passed ?? 0, failed: tt.failed ?? 0, skipped: 0, ms: 0 });
+    } else if (s.changeSet || s.files) {
+      ev.push({ id: "ev:" + n.nodeId + ":diff", kind: "diff", summary: s.summary ?? "改动摘要", files: ((s.files as any[]) ?? []).map((f) => ({ path: f.path, added: f.added ?? 0, removed: f.removed ?? 0 })) });
+    }
+    if (s.kind === "git") {
+      if (s.gitWrite) {
+        const gw = s.gitWrite as any;
+        ev.push({ id: "ev:" + n.nodeId + ":git", kind: "controlled", conn: gw.repositoryRef ?? "git", tier: s.approval ? "highrisk" : "write", action: "创建合并请求 " + (gw.targetBranch ?? "") + " → " + (gw.baseBranch ?? ""), steps: [{ label: "写入 " + (gw.mcpServerRef ?? "git"), state: "ok" }], traceId: gw.changeSetDigest ?? "git-" + n.nodeId });
+      }
+      if (s.approval) {
+        const ap = s.approval as any;
+        ev.push({ id: "ev:" + n.nodeId + ":ckpt", kind: "checkpoint", node: ap.nodeId ?? n.nodeId, question: ap.prompt ?? "", facts: [], options: ((ap.options as any[]) ?? []).map((o) => o.label ?? o), decided: ap.decision });
+      }
+    }
+  }
+  // 真实审批入口：节点 requiresApproval 且待执行/被阻断时，给出基于真实 nodeId 的批准卡片（接到 afApi.approve）。
+  for (const n of t?.nodes ?? []) {
+    if (n.requiresApproval && (n.status === "pending" || n.status === "blocked_unavailable") && !n.structured) {
+      ev.push({ id: "ev:" + n.nodeId + ":approval", kind: "checkpoint", node: n.nodeId, question: "节点 " + n.nodeId + " 需要人工批准后才能继续", facts: [{ label: "节点", value: n.nodeId, tone: "info" }], options: ["同意放行", "退回开发"], decided: undefined } as any);
+    }
+  }
+  return ev;
 }
