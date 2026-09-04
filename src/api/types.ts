@@ -161,9 +161,9 @@ export interface CreateTaskInput {
   repositoryRef: string;
   baseBranch: string;
   targetBranch: string;
-  credentialRef: string;
-  provider: "github" | "gitlab";
-  mcpServerRef: string;
+  credentialRef?: string;
+  provider?: "github" | "gitlab";
+  mcpServerRef?: string;
   workflowId: string;
   workflowVersion: number;
   contractDigest: string;
@@ -348,6 +348,9 @@ export interface NodeRuntimeDto {
   evidenceRefs: string[];
   failureCode?: string;
   reworkTargetNodeId?: string;
+  requiresApproval?: boolean;
+  /** 节点结构化产出（changeSet/gate/test/gitWrite/approval），由真实 detail 的 attempts[].structured 归一化而来，供前端渲染参考站形态。 */
+  structured?: Record<string, unknown>;
 }
 
 export interface GateResultDto {
@@ -416,6 +419,8 @@ export interface TrajectoryEventDto {
   summary: string;
   evidenceRefs?: string[];
 }
+
+export interface ApproveResultDto { taskId: string; nodeId: string; state: TaskSummaryDto["state"]; revision: number; }
 
 export interface AfApiClient {
   readonly mode: "http" | "fixture";

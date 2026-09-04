@@ -5,7 +5,8 @@ import {
   type Session,
   type Theme,
 } from "./data/mock";
-import { afApi, AfApiError, toUiBootstrap, toWorkflowDto } from "./api";
+import { afApi, AfApiError, structuredToEvents, toUiBootstrap, toWorkflowDto } from "./api";
+import { realInspectorBundle } from "./api/inspectorMapper";
 import type { AgentProfileSummaryDto, ExecutorMode, ScmProviderDto, SkillSummaryDto, TaskDetailDto, TrajectoryEventDto, WorkflowValidation } from "./api";
 import { conversationOf } from "./data/streams";
 import { inspectorOf } from "./data/inspector";
@@ -221,6 +222,12 @@ export default function App() {
     [active?.workflow],
   );
 
+  /* http 模式：检查面板用真实 detail/trajectory 归一化出的现场（文件树/diff/证据/回放）。 */
+  const realBundle = useMemo(
+    () => realInspectorBundle(taskRuntime, trajectory),
+    [taskRuntime, trajectory],
+  );
+
   /* 当前查看的文件必须属于当前会话：切换会话后原路径往往不在新现场里，
      此时回落到该会话改动的第一个文件，而不是让「改动」页空白。 */
   const shownFile = useMemo(() => {
@@ -230,9 +237,13 @@ export default function App() {
 
   const events = useMemo(
     () => afApi.mode === "http"
-      ? trajectory.map((event) => ({ id: event.eventId, kind: "text" as const, body: `#${event.seq} · ${event.eventType} · ${event.summary}（${event.actor}）` }))
+      ? (() => {
+          const rich = structuredToEvents(taskRuntime);
+          if (rich.length) return rich;
+          return trajectory.map((event) => ({ id: event.eventId, kind: "text" as const, body: `#${event.seq} · ${event.eventType} · ${event.summary}（${event.actor}）` }));
+        })()
       : [...baseConversation.slice(0, visible), ...extra],
-    [baseConversation, visible, extra, trajectory],
+    [baseConversation, visible, extra, trajectory, taskRuntime],
   );
 
   /* 当前模板的模拟运行现场：换编排即换整套消息与最终态 */
@@ -453,7 +464,7 @@ export default function App() {
           ? { workflowId: wf.id, workflowVersion: wf.workflowVersion, nodeSpecDigest: wf.nodeSpecDigest, frozen: true }
           : await afApi.saveWorkflow(toWorkflowDto(wf));
         const contractDigest = await digestValue(contract);
-        versionedWorkflow = { ...wf, workflowVersion: workflowVersion.workflowVersion, nodeSpecDigest: workflowVersion.nodeSpecDigest, frozen: workflowVersion.frozen };
+        versionedWorkflow = { ...wf, workflowVersion: version.workflowVersion, nodeSpecDigest: version.nodeSpecDigest, frozen: version.frozen };
         createdTask = await afApi.createTask({
           idempotencyKey: `task-create:${sid}`,
           title: prompt.length > 28 ? `${prompt.slice(0, 28)}…` : prompt,
@@ -464,8 +475,8 @@ export default function App() {
           credentialRef: scm.credentialRef,
           provider: scm.provider,
           mcpServerRef: scm.mcpServerRef,
-          workflowId: workflowVersion.workflowId,
-          workflowVersion: workflowVersion.workflowVersion,
+          workflowId: version.workflowId,
+          workflowVersion: version.workflowVersion,
           contractDigest,
         });
       } catch (error: unknown) {
@@ -491,8 +502,10 @@ export default function App() {
         preferredActiveRef.current = createdTask.taskId;
         setActiveId(createdTask.taskId);
         setMode("session");
-        push({ tone: "info", title: "任务已创建", body: `任务 ${createdTask.taskId} 已进入控制面，等待刷新状态。` });
+        push({ tone: "info", title: "任务已创建", body: `任务 ${createdTask.taskId} 已进入控制面，正在启动执行。` });
         loadBootstrap();
+        // 真实任务创建后自动启动（http 模式无 fixture 的“确认规划”步骤），随后由轮询推进。
+        await afApi.startTask(createdTask.taskId).catch(() => {});
         await fetchTaskRuntime(createdTask.taskId);
         return;
       }
@@ -675,6 +688,22 @@ export default function App() {
     },
     [push],
   );
+
+  /** 真实审批：人工检查点判定 → approve 节点 → 推进 + 刷新。 */
+  const handleCheckpoint = useCallback(async (nodeId: string, option: string) => {
+    if (!activeId) return;
+    try {
+      await afApi.approve(activeId, nodeId);
+      push({ tone: "ok", title: "已批准", body: `节点 ${nodeId} 已批准（${option}）` });
+      if (afApi.mode === "http") {
+        await afApi.startTask(activeId).catch(() => {});
+        await fetchTaskRuntime(activeId);
+      }
+    } catch (error: unknown) {
+      const apiError = error instanceof AfApiError ? error : undefined;
+      push({ tone: "warn", title: "审批失败", body: `${apiError?.code ?? "AF_NETWORK_ERROR"} · ${apiError?.message ?? "无法连接 AF API"}` });
+    }
+  }, [activeId, fetchTaskRuntime, push]);
 
   const stop = useCallback(() => {
     timers.current.forEach(clearTimeout);
@@ -934,7 +963,8 @@ export default function App() {
               focusNode={focusNode}
               onNodeSelect={afApi.mode === "fixture" ? setFocusNode : undefined}
             />
-            <RuntimeConsole
+            {/* AF 控制面事实面板：默认隐藏，主区聚焦事件流。需要时可取消注释。 */}
+            {/* <RuntimeConsole
               detail={taskRuntime}
               trajectory={trajectory}
               load={runtimeLoad}
@@ -949,7 +979,7 @@ export default function App() {
               confirmingOperationId={confirmingOperationId}
               onConfirmOperation={(operationId) => void confirmGitOperation(operationId)}
               onRefresh={() => { if (activeId) void fetchTaskRuntime(activeId); }}
-            />
+            /> */}
             {/* 点开 DAG 节点后，会话区整体切换为该节点视图；否则为正常事件流 */}
             {focusNode ? (
               <NodeConversation
@@ -966,6 +996,7 @@ export default function App() {
                 streaming={streaming}
                 pendingApproval={pendingApproval}
                 onApprove={resolveApproval}
+                onCheckpoint={handleCheckpoint}
                 planPending={planPending}
                 onAcceptPlan={acceptPlan}
                 onOpenFile={(p) => {
@@ -996,14 +1027,14 @@ export default function App() {
 
       {/* 没有会话时检查面板无内容可查（文件、改动、证据链都属于某条会话），
           整块不渲染，而不是渲染一个各处为空的空壳 */}
-      {active && afApi.mode === "fixture" && (
+      {active && (
         <Inspector
           tab={inspectorTab}
           onTab={setInspectorTab}
           activeFile={shownFile}
           onFile={setActiveFile}
           session={active}
-          bundle={inspectorBundle}
+          bundle={afApi.mode === "http" ? realBundle : inspectorBundle}
           onClose={() => setInspectorOpen(false)}
           onToast={push}
         />

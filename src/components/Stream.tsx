@@ -9,6 +9,7 @@ export function Stream({
   streaming,
   pendingApproval,
   onApprove,
+  onCheckpoint,
   onOpenFile,
   onCopy,
   planPending,
@@ -18,6 +19,7 @@ export function Stream({
   streaming: boolean;
   pendingApproval: string | null;
   onApprove: (id: string, ok: boolean) => void;
+  onCheckpoint?: (nodeId: string, option: string) => void;
   onOpenFile: (path: string) => void;
   onCopy: () => void;
   /** 规划待确认：决定规划卡片是否可操作 */
@@ -41,6 +43,7 @@ export function Stream({
             index={i}
             pending={pendingApproval === e.id}
             onApprove={onApprove}
+            onCheckpoint={onCheckpoint}
             onOpenFile={onOpenFile}
             onCopy={onCopy}
             planPending={planPending}
@@ -59,6 +62,7 @@ function Event({
   index,
   pending,
   onApprove,
+  onCheckpoint,
   onOpenFile,
   onCopy,
   planPending,
@@ -68,6 +72,7 @@ function Event({
   index: number;
   pending: boolean;
   onApprove: (id: string, ok: boolean) => void;
+  onCheckpoint?: (nodeId: string, option: string) => void;
   onOpenFile: (path: string) => void;
   onCopy: () => void;
   planPending?: boolean;
@@ -277,7 +282,7 @@ function Event({
       return <Controlled e={e} style={style} />;
 
     case "checkpoint":
-      return <Checkpoint e={e} style={style} />;
+      return <Checkpoint e={e} style={style} onDecide={onCheckpoint} />;
 
     case "contract":
       return <Contract e={e} style={style} />;
@@ -719,8 +724,9 @@ function Controlled({ e, style }: { e: Extract<AgentEvent, { kind: "controlled" 
 
 /* ===================== 人工检查点（第一节人工检查层） ================= */
 
-function Checkpoint({ e, style }: { e: Extract<AgentEvent, { kind: "checkpoint" }>; style: object }) {
+function Checkpoint({ e, style, onDecide }: { e: Extract<AgentEvent, { kind: "checkpoint" }>; style: object; onDecide?: (nodeId: string, option: string) => void }) {
   const [pick, setPick] = useState<string | null>(e.decided ?? null);
+  const select = (o: string) => { setPick(o); const nid = (e as any).afNodeId ?? e.node; onDecide?.(nid, o); };
   return (
     <article className="ev ev--card" style={style}>
       <div className="ev__gutter" />
@@ -748,7 +754,7 @@ function Checkpoint({ e, style }: { e: Extract<AgentEvent, { kind: "checkpoint" 
               key={o}
               className="ckpt__opt"
               data-active={pick === o ? "true" : undefined}
-              onClick={() => setPick(o)}
+              onClick={() => select(o)}
             >
               {pick === o && <Icon.Check size={11} />}
               {o}

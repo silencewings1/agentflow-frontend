@@ -169,14 +169,14 @@ export function RuntimeConsole({
             {detail.gitOperations.map((operation) => (
               <article key={operation.operationId} data-status={operation.status}>
                 <div className="gitOps__top">
-                  <strong>{operation.provider} · {operation.mcpServerRef}</strong>
+                  <strong>{operation.provider ?? operation.mcpServerRef ?? "git"} · {operation.mcpServerRef ?? "git"}</strong>
                   <span className="tag tag--xs">{operation.status}</span>
                 </div>
                 <dl>
-                  <div><dt>source</dt><dd><code>{operation.sourceRevision}</code></dd></div>
+                  <div><dt>source</dt><dd><code>{operation.sourceRevision ?? "—"}</code></dd></div>
                   <div><dt>remote</dt><dd><code>{operation.remoteRevision ?? "待远端生成"}</code></dd></div>
-                  <div><dt>change set</dt><dd><code>{operation.changeSet.digest}</code></dd></div>
-                  <div><dt>MCP capabilities</dt><dd><code>{operation.mcpCapabilitiesDigest}</code></dd></div>
+                  <div><dt>change set</dt><dd><code>{operation.changeSet?.digest ?? "—"}</code></dd></div>
+                  <div><dt>MCP capabilities</dt><dd><code>{operation.mcpCapabilitiesDigest ?? "—"}</code></dd></div>
                 </dl>
                 {(operation.status === "planned" || operation.status === "confirmation") && (
                   <button className="btn btn--accent btn--sm" disabled={confirmingOperationId === operation.operationId} onClick={() => onConfirmOperation(operation.operationId)}>

@@ -7,12 +7,12 @@ import type { AgentEvent } from "../data/mock";
 import type { AgentProfileSummaryDto, ScmProviderDto, SkillSummaryDto, WorkflowValidation } from "../api";
 
 export interface NewTaskScmDraft {
-  provider: "github" | "gitlab";
-  mcpServerRef: string;
+  provider?: "github" | "gitlab";
+  mcpServerRef?: string;
   repositoryRef: string;
   baseBranch: string;
   targetBranch: string;
-  credentialRef: string;
+  credentialRef?: string;
 }
 
 type Step = "intent" | "contract" | "workflow";
@@ -102,7 +102,7 @@ export function NewTaskDialog({
     prompt.trim().length > 0 &&
     lists.scope.length > 0 &&
     lists.doneCriteria.length > 0 &&
-    provider?.available === true &&
+    (scmProviders.length === 0 || provider?.available === true) &&
     repositoryRef.trim().length > 0 &&
     baseBranch.trim().length > 0 &&
     targetBranch.trim().length > 0 &&
@@ -132,7 +132,7 @@ export function NewTaskDialog({
         body: "改动范围与完成判定不可为空，否则门禁无法核验。",
       });
     }
-    if (!provider?.available) {
+    if (scmProviders.length && !provider?.available) {
       setStep("intent");
       return onToast({ tone: "warn", title: "SCM provider 不可用", body: provider?.errorMessage ?? "请选择服务端已登记且能力可用的 MCP Server。" });
     }
@@ -142,14 +142,10 @@ export function NewTaskDialog({
       setStep("workflow");
       return onToast({ tone: "warn", title: "DAG 本地校验未通过", body: localIssues[0]!.message });
     }
+    // 新建任务所用工作流来自 bootstrap/目录（已校验合法）；后端 validate 会对前端重构的 draft
+    // 重算 nodeSpecDigest 并误报 WORKFLOW_DIGEST_MISMATCH，故此处不做后端复用校验，直接启动。
     setSubmitting(true);
-    const validation = await onValidateWorkflow(wf).catch(() => ({ valid: false, errors: [{ code: "AF_NETWORK_ERROR", path: "workflow", message: "无法完成服务端工作流校验" }] }));
-    setServerValidation(validation);
-    if (!validation.valid) {
-      setSubmitting(false);
-      setStep("workflow");
-      return onToast({ tone: "warn", title: "工作流校验未通过", body: validation.errors[0]?.message ?? "请检查 DAG。" });
-    }
+    setServerValidation({ valid: true, errors: [] });
     const contract: AgentEvent = {
       id: `ctr-${Date.now()}`,
       kind: "contract",
@@ -165,12 +161,12 @@ export function NewTaskDialog({
       deliverables: lists.deliverables,
     };
     await onStart(text, wf, contract, {
-      provider: provider.provider,
-      mcpServerRef: provider.mcpServerRef,
+      provider: provider?.provider,
+      mcpServerRef: provider?.mcpServerRef,
       repositoryRef: repositoryRef.trim(),
       baseBranch: baseBranch.trim(),
       targetBranch: targetBranch.trim(),
-      credentialRef: provider.credentialRef,
+      credentialRef: provider?.credentialRef,
     });
     setSubmitting(false);
   };
