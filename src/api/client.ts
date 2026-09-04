@@ -1,4 +1,4 @@
-import { sessions, type Session } from "../data/mock";
+import { sessions } from "../data/mock";
 import { workflowTemplates } from "../data/workflows";
 import { toTaskDetail, toTrajectory, toWorkflowDto } from "./mappers";
 import type {
@@ -179,6 +179,7 @@ function fixtureBootstrap(tasks: TaskSummaryDto[] = sessions.map(fixtureTaskSumm
 
 function fixtureDetail(task: TaskSummaryDto, bootstrap: AfBootstrapDto): TaskDetailDto {
   const workflow = bootstrap.workflows.find((item) => item.workflowId === task.workflowId) ?? bootstrap.workflows[0]!;
+  const def = workflow;
   const terminal = task.state === "completed";
   const failed = task.state === "failed";
   const review = task.state === "awaiting_human";
@@ -203,13 +204,13 @@ function fixtureDetail(task: TaskSummaryDto, bootstrap: AfBootstrapDto): TaskDet
     mcpServerRef: "github-official",
     mcpServerVersion: "hosted",
     mcpCapabilitiesDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    repositoryRef: session.repo,
+    repositoryRef: task.repositoryRef,
     credentialRef: "GITHUB_AGENTFLOW_TOKEN",
     baseBranch: "main",
     baseRevision: "1111111111111111111111111111111111111111",
     expectedRemoteRevision: "1111111111111111111111111111111111111111",
     sourceRevision: "2222222222222222222222222222222222222222",
-    targetBranch: session.branch,
+    targetBranch: task.targetBranch,
     changeSet: { digest: FIXTURE_DIGEST, files: [{ path: "src/example.ts", action: "update", contentDigest: FIXTURE_DIGEST }] },
     commit: { message: "feat: fixture controlled delivery" },
     status: terminal ? "committed" : "confirmation",
@@ -223,7 +224,7 @@ function fixtureDetail(task: TaskSummaryDto, bootstrap: AfBootstrapDto): TaskDet
     title: task.title,
     status: task.state,
     executorMode: "demo-deterministic",
-    repositoryRef: session.repo,
+    repositoryRef: task.repositoryRef,
     baseBranch: "main",
     baseRevision: "1111111111111111111111111111111111111111",
     targetBranch: task.targetBranch,
@@ -320,7 +321,7 @@ function fixtureClient(): AfApiClient {
     },
     async createTask(input) {
       const taskId = `fixture-${Date.now()}`;
-      tasks.unshift({ taskId, title: input.title, repositoryRef: input.repositoryRef, baseBranch: input.baseBranch, targetBranch: input.targetBranch, provider: input.provider, mcpServerRef: input.mcpServerRef, state: "created", blockedReason: null, workflowId: input.workflowId, workflowVersion: input.workflowVersion, nodeSpecDigest: FIXTURE_DIGEST, executorMode: "demo-deterministic", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), revision: 1 });
+      tasks.unshift({ taskId, title: input.title, repositoryRef: input.repositoryRef, baseBranch: input.baseBranch, targetBranch: input.targetBranch, provider: input.provider ?? "github", mcpServerRef: input.mcpServerRef ?? "github-official", state: "created", blockedReason: null, workflowId: input.workflowId, workflowVersion: input.workflowVersion, nodeSpecDigest: FIXTURE_DIGEST, executorMode: "demo-deterministic", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), revision: 1 });
       return { taskId };
     },
     async startTask(taskId) {
@@ -334,11 +335,6 @@ function fixtureClient(): AfApiClient {
       const task = tasks.find((item) => item.taskId === taskId);
       if (!task) throw new AfApiError({ code: "AF_TASK_NOT_FOUND", message: "fixture 任务不存在", retryable: false });
       return { taskId, nodeId, state: task.state, revision: task.revision + 1 };
-    },
-    async approve(taskId, nodeId) {
-      const task = tasks.find((item) => item.taskId === taskId);
-      if (!task) throw new AfApiError({ code: "AF_TASK_NOT_FOUND", message: "fixture 任务不存在", retryable: false });
-      return { taskId, nodeId, state: task.state, revision: 1 };
     },
     async getTrajectory(taskId) { return fixtureTrajectory(await this.getTask(taskId)); },
     async createPushOperation(taskId, input) {

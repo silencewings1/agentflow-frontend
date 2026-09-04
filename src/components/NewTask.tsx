@@ -142,6 +142,12 @@ export function NewTaskDialog({
       setStep("workflow");
       return onToast({ tone: "warn", title: "DAG 本地校验未通过", body: localIssues[0]!.message });
     }
+    const serverResult = await onValidateWorkflow(wf);
+    if (!serverResult.valid) {
+      setServerValidation(serverResult);
+      setStep("workflow");
+      return onToast({ tone: "warn", title: "DAG 服务端校验未通过", body: serverResult.errors[0]?.message ?? "工作流无效" });
+    }
     // 新建任务所用工作流来自 bootstrap/目录（已校验合法）；后端 validate 会对前端重构的 draft
     // 重算 nodeSpecDigest 并误报 WORKFLOW_DIGEST_MISMATCH，故此处不做后端复用校验，直接启动。
     setSubmitting(true);

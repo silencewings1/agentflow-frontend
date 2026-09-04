@@ -460,7 +460,7 @@ export default function App() {
       try {
         // bootstrap 返回的 frozen 版本已经由服务端校验并持久化。创建任务应
         // 直接引用它；只有 UI 草稿才保存新版本，避免把有损的画布投影重存。
-        const workflowVersion = wf.frozen && wf.workflowVersion !== undefined && wf.nodeSpecDigest
+        const version = wf.frozen && wf.workflowVersion !== undefined && wf.nodeSpecDigest
           ? { workflowId: wf.id, workflowVersion: wf.workflowVersion, nodeSpecDigest: wf.nodeSpecDigest, frozen: true }
           : await afApi.saveWorkflow(toWorkflowDto(wf));
         const contractDigest = await digestValue(contract);
@@ -693,7 +693,7 @@ export default function App() {
   const handleCheckpoint = useCallback(async (nodeId: string, option: string) => {
     if (!activeId) return;
     try {
-      await afApi.approve(activeId, nodeId);
+      await afApi.approveTaskNode(activeId, nodeId);
       push({ tone: "ok", title: "已批准", body: `节点 ${nodeId} 已批准（${option}）` });
       if (afApi.mode === "http") {
         await afApi.startTask(activeId).catch(() => {});
@@ -964,7 +964,7 @@ export default function App() {
               onNodeSelect={afApi.mode === "fixture" ? setFocusNode : undefined}
             />
             {/* AF 控制面事实面板：默认隐藏，主区聚焦事件流。需要时可取消注释。 */}
-            {/* <RuntimeConsole
+            <RuntimeConsole
               detail={taskRuntime}
               trajectory={trajectory}
               load={runtimeLoad}
@@ -979,7 +979,7 @@ export default function App() {
               confirmingOperationId={confirmingOperationId}
               onConfirmOperation={(operationId) => void confirmGitOperation(operationId)}
               onRefresh={() => { if (activeId) void fetchTaskRuntime(activeId); }}
-            /> */}
+            />
             {/* 点开 DAG 节点后，会话区整体切换为该节点视图；否则为正常事件流 */}
             {focusNode ? (
               <NodeConversation

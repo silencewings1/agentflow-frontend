@@ -53,7 +53,7 @@ export function realInspectorBundle(t: TaskDetailDto | null, trajectory: Traject
   const diffs: Record<string, DiffLine[]> = {};
   for (const f of files) diffs[f.path] = synthDiff(f);
 
-  const replay: ReplayStep[] = (trajectory ?? []).slice(-20).map((ev, i) => ({
+  const replay: ReplayStep[] = (trajectory ?? []).slice(-20).map((ev) => ({
     id: ev.eventId, stage: ev.eventType, actor: ev.actor, action: ev.summary, materials: "", tier: "write", result: "ok", at: new Date(ev.occurredAt).toLocaleTimeString(),
   }));
 

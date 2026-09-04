@@ -204,7 +204,7 @@ export function toWorkflowDto(workflow: Workflow): WorkflowDefinitionDto {
 export function structuredToEvents(t: TaskDetailDto | null): AgentEvent[] {
   const ev: AgentEvent[] = [];
   for (const n of t?.nodes ?? []) {
-    if (n.status === "pending" || n.status === "todo") continue;
+    if (n.status === "pending") continue;
     const s = (n.structured ?? {}) as Record<string, any>;
     if (!s || typeof s !== "object") continue;
     if (s.kind === "gate" && s.gate) {
