@@ -940,42 +940,6 @@
   color: var(--accent-text);
 }
 
-.mpAdd {
-  display: grid;
-  gap: 6px;
-  padding: 9px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--accent-line);
-  background: color-mix(in oklab, var(--accent) 5%, transparent);
-}
-
-.mpAdd input {
-  width: 100%;
-  min-width: 0;
-  padding: 6px 8px;
-  border-radius: var(--r-xs);
-  border: 1px solid var(--line);
-  background: var(--bg);
-  font-size: var(--step--2);
-  font-family: inherit;
-  color: var(--text);
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-.mpAdd input:focus {
-  border-color: var(--accent-line);
-}
-
-.mpAdd input::placeholder {
-  color: var(--text-4);
-}
-
-.mpAdd__act {
-  display: flex;
-  gap: 6px;
-}
-
 /* --------------------------- 右栏：供应商配置 --------------------------- */
 
 .mpForm {
@@ -1746,3 +1710,20 @@
 .scmForm small { font-size: 9px; line-height: 1.45; color: var(--text-4); }
 .scmUnavailable { grid-column: 1 / -1; margin: 0; padding: 8px 9px; border: 1px solid color-mix(in oklab, var(--gold) 45%, var(--line)); border-radius: var(--r-xs); color: var(--gold); font-size: 10px; }
 @media (max-width: 620px) { .scmForm { grid-template-columns: minmax(0, 1fr); } .scmForm__wide { grid-column: auto; } }
+
+/* AF 真实模型配置提示条 */
+.mpNotice {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in oklab, var(--accent) 35%, var(--line));
+  border-radius: var(--r-xs);
+  background: color-mix(in oklab, var(--accent) 8%, var(--surface));
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.mpNotice--error {
+  border-color: color-mix(in oklab, var(--rose) 45%, var(--line));
+  background: color-mix(in oklab, var(--rose) 8%, var(--surface));
+  color: var(--rose);
+}

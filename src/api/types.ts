@@ -422,6 +422,30 @@ export interface TrajectoryEventDto {
 
 export interface ApproveResultDto { taskId: string; nodeId: string; state: TaskSummaryDto["state"]; revision: number; }
 
+export interface AfModelInfo { id: string; name: string; description?: string; }
+export interface AfModelProviderDto {
+  id: string;
+  name: string;
+  models: AfModelInfo[];
+  baseURL?: string;
+  api?: string;
+  apiKeyEnv?: string;
+}
+export interface AfModelProvidersDto {
+  providers: AfModelProviderDto[];
+  defaultModel: { provider: string; model: string } | null;
+}
+
+export interface AfProviderModelInput { id: string; name?: string; contextWindow?: number; }
+export interface AfProviderInput {
+  id: string;
+  displayName: string;
+  baseURL: string;
+  api: string;
+  apiKey?: string;
+  models: AfProviderModelInput[];
+}
+
 export interface AfApiClient {
   readonly mode: "http" | "fixture";
   bootstrap(signal?: AbortSignal): Promise<AfBootstrapDto>;
@@ -437,4 +461,16 @@ export interface AfApiClient {
   confirmPushOperation(operationId: string, signal?: AbortSignal): Promise<GitOperationDto>;
   getPushOperation(operationId: string, signal?: AbortSignal): Promise<GitOperationDto>;
   reconcilePushOperation(operationId: string, signal?: AbortSignal): Promise<GitOperationDto>;
+  listModelProviders(signal?: AbortSignal): Promise<AfModelProvidersDto>;
+  createProvider(input: AfProviderInput, signal?: AbortSignal): Promise<AfModelProvidersDto>;
+  updateProvider(id: string, input: AfProviderInput, signal?: AbortSignal): Promise<AfModelProvidersDto>;
+  removeProvider(id: string, signal?: AbortSignal): Promise<AfModelProvidersDto>;
+  testModel(providerId: string, modelId: string, signal?: AbortSignal): Promise<AfModelTestResult>;
+}
+
+export interface AfModelTestResult {
+  ok: boolean;
+  reply?: string;
+  error?: string;
+  durationMs: number;
 }
