@@ -360,6 +360,14 @@
   height: 26px;
 }
 
+.iconBtn--spin svg {
+  animation: iconSpin 0.8s linear infinite;
+}
+
+@keyframes iconSpin {
+  to { transform: rotate(360deg); }
+}
+
 /* --------------------------- session list ------------------------------ */
 
 .sidebar__list {

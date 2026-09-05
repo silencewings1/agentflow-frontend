@@ -5,6 +5,9 @@ import type {
   AfApiClient,
   AfBootstrapDto,
   AfErrorPayload,
+  AfModelProvidersDto,
+  AfModelTestResult,
+  AfProviderInput,
   AfResponse,
   AfTaskDetailDto,
   AfTrajectoryDto,
@@ -358,6 +361,11 @@ function fixtureClient(): AfApiClient {
       return operation;
     },
     async reconcilePushOperation(operationId) { return this.getPushOperation(operationId); },
+    async listModelProviders() { return { providers: [], defaultModel: null } satisfies AfModelProvidersDto; },
+    async createProvider(_input: AfProviderInput) { return { providers: [], defaultModel: null } satisfies AfModelProvidersDto; },
+    async updateProvider(_id: string, _input: AfProviderInput) { return { providers: [], defaultModel: null } satisfies AfModelProvidersDto; },
+    async removeProvider(_id: string) { return { providers: [], defaultModel: null } satisfies AfModelProvidersDto; },
+    async testModel(_providerId: string, _modelId: string) { return { ok: true, reply: "hello", durationMs: 120 } satisfies AfModelTestResult; },
   };
 }
 
@@ -415,6 +423,11 @@ class HttpAfApiClient implements AfApiClient {
   confirmPushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}/confirm`, { method: "POST", body: JSON.stringify({ idempotencyKey: requestKey("git-confirm", operationId) }) }, signal); }
   getPushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}`, undefined, signal); }
   reconcilePushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}/reconcile`, { method: "POST", body: JSON.stringify({ idempotencyKey: requestKey("git-reconcile", operationId) }) }, signal); }
+  listModelProviders(signal?: AbortSignal) { return this.request<AfModelProvidersDto>("/model-providers", undefined, signal); }
+  createProvider(input: AfProviderInput, signal?: AbortSignal) { return this.request<AfModelProvidersDto>("/model-providers", { method: "POST", body: JSON.stringify(input) }, signal); }
+  updateProvider(id: string, input: AfProviderInput, signal?: AbortSignal) { return this.request<AfModelProvidersDto>(`/model-providers/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }, signal); }
+  removeProvider(id: string, signal?: AbortSignal) { return this.request<AfModelProvidersDto>(`/model-providers/${encodeURIComponent(id)}`, { method: "DELETE" }, signal); }
+  testModel(providerId: string, modelId: string, signal?: AbortSignal) { return this.request<AfModelTestResult>(`/model-providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}/test`, { method: "POST" }, signal); }
 }
 
 export class AfApiError extends Error {
