@@ -1,5 +1,7 @@
 export type ExecutorMode = "fresh-spawn" | "demo-deterministic";
-export type TaskState = "created" | "running" | "blocked_unavailable" | "needs_reconcile" | "awaiting_human" | "completed" | "failed" | "cancelled";
+export type RunMode = "real" | "rehearsal-real" | "fault-injection" | "fixture/test-double";
+export interface FaultInjectionDto { kind: string; label?: string; appliedAt?: string; }
+export type TaskState = "created" | "draft" | "planning" | "awaiting_plan_approval" | "ready" | "queued" | "running" | "blocked_unavailable" | "needs_reconcile" | "compiler_rejected" | "stale" | "awaiting_human" | "completed" | "failed" | "cancelled";
 
 export interface AfErrorPayload {
   code: string;
@@ -139,6 +141,8 @@ export interface TaskSummaryDto {
   workflowVersion: number;
   nodeSpecDigest: string;
   executorMode: ExecutorMode | null;
+  runMode?: RunMode;
+  faultInjection?: FaultInjectionDto;
   createdAt: string;
   updatedAt: string;
   revision: number;
@@ -147,6 +151,7 @@ export interface TaskSummaryDto {
 export interface AfBootstrapDto {
   contractVersion: "1.0";
   executorMode: ExecutorMode;
+  runMode?: RunMode;
   tasks: TaskSummaryDto[];
   workflows: WorkflowDefinitionDto[];
   agentProfiles: AgentProfileDto[];
@@ -166,7 +171,205 @@ export interface CreateTaskInput {
   mcpServerRef?: string;
   workflowId: string;
   workflowVersion: number;
-  contractDigest: string;
+  contractDigest?: string;
+  runMode?: RunMode;
+  faultInjection?: FaultInjectionDto;
+}
+
+/** Phase 1.7 immutable WorkSpec snapshot and draft input. */
+export interface WorkSpecArtifactRefDto { digest: string; mediaType: string; byteLength: number; }
+export interface WorkSpecScopeDto { included: string[]; excluded: string[]; }
+export interface WorkSpecInputDto { ref: string; description: string; artifactRef?: WorkSpecArtifactRefDto; }
+export interface WorkSpecEvidencePolicyDto { evidenceTypes: string[]; minCount: number; retention: string; }
+export interface WorkSpecCriterionDto {
+  criterionId: string;
+  required: boolean;
+  description: string;
+  verifierId: string;
+  verifierVersion: string;
+  expected: string;
+  evidencePolicy: WorkSpecEvidencePolicyDto;
+}
+export interface WorkSpecDeliverableSpecDto { deliverableId: string; kind: string; description: string; criterionIds?: string[]; }
+export interface WorkSpecRepositoryDto { provider: "github" | "gitlab"; mcpServerRef: string; repositoryRef: string; baseBranch: string; targetBranch: string; credentialRef: string; }
+export interface WorkSpecSkillRefDto { skillId: string; skillVersion: string; }
+export interface WorkSpecConstraintsDto {
+  allowedPaths: string[];
+  forbiddenPaths: string[];
+  allowedCommands: string[];
+  skillRefs?: WorkSpecSkillRefDto[];
+  maxNodes: number;
+  maxAttempts: number;
+  maxWallTimeMs: number;
+  workspaceWriteConcurrency: 1;
+  externalWrite: { requiresApproval: boolean; allowedBranches: string[]; forbiddenBranches?: string[] };
+}
+export interface WorkSpecPoliciesDto { policyVersion: string; approval?: string; rework?: string; }
+export interface WorkSpecTemplateRefDto { templateId: string; templateVersion: string; }
+export interface WorkSpecDto {
+  schemaVersion: 1;
+  workSpecId: string;
+  workSpecRevision: number;
+  taskId: string;
+  workSpecDigest: string;
+  payload?: unknown;
+  artifactRef?: WorkSpecArtifactRefDto | null;
+  createdAt: string;
+  createdBy?: string;
+  title?: string;
+  objective?: string;
+  background?: string;
+  scope?: WorkSpecScopeDto;
+  inputs?: WorkSpecInputDto[];
+  doneCriteria?: WorkSpecCriterionDto[];
+  deliverables?: WorkSpecDeliverableSpecDto[];
+  repository?: WorkSpecRepositoryDto;
+  constraints?: WorkSpecConstraintsDto;
+  policies?: WorkSpecPoliciesDto;
+  templateRef?: WorkSpecTemplateRefDto;
+}
+export type WorkSpecDraftInput = Omit<WorkSpecDto, "schemaVersion" | "workSpecId" | "workSpecRevision" | "taskId" | "workSpecDigest" | "createdAt" | "createdBy" | "payload" | "artifactRef"> & { schemaVersion?: 1; payload?: unknown; artifactRef?: WorkSpecArtifactRefDto | null; };
+
+/** Phase 1.7 Supervisor proposal and deterministic compilation facts. */
+export interface ProposalDto {
+  schemaVersion: 1;
+  proposalId: string;
+  taskId: string;
+  proposalDigest: string;
+  status: "proposed" | "modified" | "accepted" | "rejected" | "expired";
+  workSpecRevision: number;
+  workSpecDigest: string;
+  governanceDigest: string;
+  payload?: unknown;
+  artifactRef?: WorkSpecArtifactRefDto | null;
+  createdAt?: string;
+  [key: string]: unknown;
+}
+export interface CompilationCheckDto { checkId: string; version: string; outcome: "pass" | "fail"; actual: string; expected: string; reason: string; evidenceRef?: string; }
+export interface CompilationReportDto {
+  schemaVersion: 1;
+  reportId: string;
+  reportDigest: string;
+  taskId: string;
+  workSpecDigest: string;
+  proposalDigest: string;
+  outcome: "pass" | "rejected";
+  checks: CompilationCheckDto[];
+  createdAt: string;
+}
+export interface PlanSlotBindingDto { slotId: string; nodeId: string; bindingDigest: string; profileRef?: { profileId: string; profileVersion: string }; skillRef?: { skillId: string; skillVersion: string }; gateRef?: { gateId: string; evaluatorVersion: string }; declaredPaths?: string[]; declaredCommands?: string[]; }
+export interface PlanCriterionBindingDto { criterionId: string; nodeId: string; verifierId: string; verifierVersion: string; required: boolean; }
+export interface PlanDto {
+  schemaVersion: 1;
+  planRevisionId: string;
+  taskId: string;
+  planVersion: number;
+  planDigest: string;
+  workSpecRevision: number;
+  workSpecDigest: string;
+  proposalRef: string;
+  proposalDigest: string;
+  status?: "draft" | "ready" | "rejected" | "superseded";
+  governanceWorkflowRef?: string;
+  governanceDigest?: string;
+  frozenWorkflowRef?: string;
+  readonlyPlanRef?: string;
+  slotBindings?: PlanSlotBindingDto[];
+  criterionBindings?: PlanCriterionBindingDto[];
+  catalogDigest?: string;
+  policyVersion?: string;
+  capabilitySnapshotDigest?: string;
+  compilationReportRef?: string;
+  payload?: unknown;
+  artifactRef?: WorkSpecArtifactRefDto | null;
+  createdAt: string;
+  [key: string]: unknown;
+}
+export interface CompilePlanInput { proposalId?: string; proposalDigest?: string; [key: string]: unknown; }
+export interface CompilePlanResultDto { report: CompilationReportDto; plan: PlanDto | null; readonlyPlan?: unknown; }
+export interface PlanDecisionDto {
+  schemaVersion: 1;
+  factType?: "PlanDecision";
+  decisionId: string;
+  taskId: string;
+  workSpecDigest: string;
+  governanceDigest: string;
+  proposalDigest: string;
+  actor: string;
+  decision: "pending" | "approved" | "rejected" | "superseded";
+  reason: string;
+  createdAt: string;
+}
+export type PlanDecisionInput = Pick<PlanDecisionDto, "schemaVersion" | "decisionId" | "governanceDigest" | "decision" | "reason"> & Partial<Pick<PlanDecisionDto, "factType" | "proposalDigest" | "workSpecDigest" | "taskId" | "actor" | "createdAt">>;
+export interface RunIntentDto {
+  schemaVersion: 1;
+  runId: string;
+  taskId: string;
+  planRevisionId: string;
+  workSpecDigest: string;
+  kind: "start" | "continue" | "reconcile" | "cancel";
+  idempotencyKey: string;
+  requestedBy: string;
+  requestedAt: string;
+  status: "queued" | "claimed" | "running" | "yielded" | "completed" | "failed" | "cancelled";
+  notBefore?: string;
+  leaseGeneration: number;
+  lastError?: string;
+  lastAdvanceAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  runMode?: RunMode;
+  faultInjection?: FaultInjectionDto;
+}
+export interface StartResultDto { taskId: string; state: TaskState; terminal?: boolean; steps?: string[]; blockedReason?: string | null; approvableNodeIds?: string[]; revision?: number; runId?: string; accepted?: boolean; }
+export interface CriterionAssessmentDto {
+  schemaVersion: 1;
+  assessmentId: string;
+  taskId: string;
+  criterionId: string;
+  workSpecDigest: string;
+  verifierId: string;
+  verifierVersion: string;
+  expected: string;
+  actual: string;
+  outcome: "pending" | "pass" | "fail" | "unavailable" | "pending-human";
+  attemptId?: string;
+  gateId?: string;
+  operationId?: string;
+  evidenceRefs: string[];
+  reason: string;
+  actor: string;
+  assessedAt: string;
+  supersededBy?: string;
+}
+export type CriterionAssessmentInput = Omit<CriterionAssessmentDto, "taskId" | "workSpecDigest" | "actor" | "assessedAt"> & Partial<Pick<CriterionAssessmentDto, "taskId" | "workSpecDigest" | "actor" | "assessedAt">>;
+export interface EvidenceMatrixRowDto { criterionId: string; outcome: string; evidenceRefs: string[]; [key: string]: unknown; }
+export interface EvidenceMatrixDto { schemaVersion: 1; matrixId: string; taskId: string; workSpecDigest?: string; rows: EvidenceMatrixRowDto[]; generatedAt: string; }
+export type ApprovalDecision = "approved" | "rejected";
+export interface NodeApprovalDto { approvalId: string; taskId: string; nodeId: string; decision: "approved"; actor: string; occurredAt: string; createdAt?: string; sourceEventId: string; attemptId?: string | null; inputDigest?: string | null; policyVersion?: string | null; reason?: string; }
+export interface GitOperationConfirmationDto { confirmationId: string; taskId: string; operationId: string; decision: "confirmed" | "rejected" | "unknown"; actor: string | null; occurredAt: string; createdAt?: string; status: GitOperationDto["status"]; inputDigest?: string | null; policyVersion?: string | null; reason?: string; }
+export interface ApprovalQueryDto { taskId: string; nodeApprovals: NodeApprovalDto[]; gitOperationConfirmations: GitOperationConfirmationDto[]; }
+export type TrustedDeliveryEvidenceKind = "task" | "node" | "work-spec" | "proposal" | "plan" | "attempt" | "deliverable" | "gate" | "criterion-assessment" | "approval" | "git-operation" | "task-event";
+export interface TrustedDeliveryEvidenceRefDto { evidenceId: string; kind: TrustedDeliveryEvidenceKind; recordId: string; nodeId: string | null; attemptId: string | null; criterionId?: string | null; digest: string | null; operationId: string | null; }
+export interface TrustedDeliveryEventDto { eventId: string; revision: number; eventType: string; actor: string; occurredAt: string; payload: unknown; }
+export interface TrustedDeliveryDto {
+  schemaVersion?: 1;
+  taskId: string;
+  contractVersion: string;
+  workSpecDigest?: string;
+  proposalDigest?: string;
+  planDigest?: string;
+  frozenWorkflow: { workflowId: string; workflowVersion: number; policyVersion: string; nodeSpecDigest: string; frozenAt: string | null };
+  acceptedExitNodes: string[];
+  acceptedAttempts: AttemptDetailDto[];
+  deliverables: AfDeliverableDto[];
+  gates: AfGateDetailDto[];
+  gitOperations: GitOperationDto[];
+  events: Array<TrustedDeliveryEventDto | TrajectoryEventDto>;
+  evidenceRefs: TrustedDeliveryEvidenceRefDto[];
+  generatedAt: string;
+  runMode?: RunMode;
+  faultInjection?: FaultInjectionDto;
 }
 
 export interface WorkflowValidationIssue { code: string; path: string; message: string; nodeId?: string; edgeId?: string; relatedNodeIds?: string[]; }
@@ -222,6 +425,7 @@ export interface GitOperationDto {
   errorMessage?: string;
   actor: string;
   executorMode?: ExecutorMode;
+  runMode?: RunMode;
   createdAt: string;
   updatedAt?: string;
 }
@@ -260,6 +464,8 @@ export interface AttemptDetailDto {
   sessionId: string | null;
   stopReason: string | null;
   executorMode: ExecutorMode | null;
+  runMode?: RunMode;
+  faultInjection?: FaultInjectionDto;
   startedAt: string;
   finishedAt: string | null;
   error: string | null;
@@ -321,6 +527,8 @@ export interface AfTaskDetailDto {
   nodeSpecDigest: string;
   policyVersion: string;
   executorMode: ExecutorMode | null;
+  runMode?: RunMode;
+  faultInjection?: FaultInjectionDto;
   createdAt: string;
   updatedAt: string;
   nodes: AfNodeDetailDto[];
@@ -343,6 +551,8 @@ export interface NodeRuntimeDto {
   agentProfileRef?: WorkflowNodeDto["agentProfileRef"];
   skillRef?: WorkflowNodeDto["skillRef"];
   executorMode?: ExecutorMode;
+  runMode?: RunMode;
+  faultInjection?: FaultInjectionDto;
   provider?: string;
   model?: string;
   evidenceRefs: string[];
@@ -388,6 +598,8 @@ export interface TaskDetailDto {
   title: string;
   status: TaskState;
   executorMode: ExecutorMode | null;
+  runMode?: RunMode;
+  faultInjection?: FaultInjectionDto;
   repositoryRef: string;
   baseBranch: string;
   baseRevision?: string;
@@ -398,6 +610,8 @@ export interface TaskDetailDto {
   workflow: { workflowId: string; workflowVersion: number; nodeSpecDigest: string; frozen: boolean; policyVersion: string };
   currentNodeId?: string;
   nodes: NodeRuntimeDto[];
+  attempts?: AttemptDetailDto[];
+  rawGates?: AfGateDetailDto[];
   gates: GateResultDto[];
   skills: SkillResultDto[];
   preparedDelivery: PreparedDeliveryRefDto | null;
@@ -429,10 +643,34 @@ export interface AfApiClient {
   getTask(taskId: string, signal?: AbortSignal): Promise<TaskDetailDto>;
   validateWorkflow(workflow: WorkflowDefinitionDto, signal?: AbortSignal): Promise<WorkflowValidation>;
   saveWorkflow(workflow: WorkflowDefinitionDto, signal?: AbortSignal): Promise<WorkflowVersion>;
-  createTask(input: CreateTaskInput, signal?: AbortSignal): Promise<{ taskId: string }>;
-  startTask(taskId: string, signal?: AbortSignal): Promise<{ taskId: string; state: TaskState }>;
+  createTask(input: CreateTaskInput, signal?: AbortSignal): Promise<{ taskId: string; summary?: TaskSummaryDto; idempotent?: boolean }>;
+  startTask(taskId: string, signal?: AbortSignal, runMode?: RunMode, faultInjection?: FaultInjectionDto): Promise<StartResultDto>;
+  continueTask(taskId: string, signal?: AbortSignal, runMode?: RunMode, faultInjection?: FaultInjectionDto): Promise<StartResultDto>;
   approveTaskNode(taskId: string, nodeId: string, signal?: AbortSignal): Promise<ApproveTaskNodeResult>;
   getTrajectory(taskId: string, signal?: AbortSignal): Promise<TrajectoryEventDto[]>;
+  listWorkSpecs(taskId: string, signal?: AbortSignal): Promise<WorkSpecDto[]>;
+  getWorkSpec(taskId: string, revision?: number, signal?: AbortSignal): Promise<WorkSpecDto>;
+  saveWorkSpec(taskId: string, input: WorkSpecDraftInput, signal?: AbortSignal): Promise<WorkSpecDto>;
+  requestSupervisor(taskId: string, kind: "intake" | "initial-plan" | "context-brief" | "rework-advice" | "final-summary", input: Record<string, unknown>, signal?: AbortSignal): Promise<{ supervisor: unknown; proposal?: ProposalDto | null; persistenceError?: AfErrorPayload | null }>;
+  listProposals(taskId: string, signal?: AbortSignal): Promise<ProposalDto[]>;
+  getProposal(taskId: string, proposalId: string, signal?: AbortSignal): Promise<ProposalDto>;
+  saveProposal(taskId: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<ProposalDto>;
+  compilePlan(taskId: string, input?: CompilePlanInput, signal?: AbortSignal): Promise<CompilePlanResultDto>;
+  listCompilationReports(taskId: string, signal?: AbortSignal): Promise<CompilationReportDto[]>;
+  listPlans(taskId: string, signal?: AbortSignal): Promise<PlanDto[]>;
+  getPlan(taskId: string, planRevisionId: string, signal?: AbortSignal): Promise<PlanDto>;
+  savePlan(taskId: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<PlanDto>;
+  listPlanDecisions(taskId: string, signal?: AbortSignal): Promise<PlanDecisionDto[]>;
+  getPlanDecision(taskId: string, decisionId: string, signal?: AbortSignal): Promise<PlanDecisionDto>;
+  savePlanDecision(taskId: string, input: PlanDecisionInput, signal?: AbortSignal): Promise<PlanDecisionDto>;
+  listRunIntents(taskId: string, signal?: AbortSignal): Promise<RunIntentDto[]>;
+  getRunIntent(taskId: string, runId: string, signal?: AbortSignal): Promise<RunIntentDto>;
+  listCriterionAssessments(taskId: string, signal?: AbortSignal): Promise<CriterionAssessmentDto[]>;
+  getCriterionAssessment(taskId: string, assessmentId: string, signal?: AbortSignal): Promise<CriterionAssessmentDto>;
+  saveCriterionAssessment(taskId: string, input: CriterionAssessmentInput, signal?: AbortSignal): Promise<CriterionAssessmentDto>;
+  getEvidenceMatrix(taskId: string, signal?: AbortSignal): Promise<EvidenceMatrixDto>;
+  getTrustedDelivery(taskId: string, signal?: AbortSignal): Promise<TrustedDeliveryDto>;
+  getApprovals(taskId: string, signal?: AbortSignal): Promise<ApprovalQueryDto>;
   createPushOperation(taskId: string, input: PushOperationInput, signal?: AbortSignal): Promise<GitOperationDto>;
   confirmPushOperation(operationId: string, signal?: AbortSignal): Promise<GitOperationDto>;
   getPushOperation(operationId: string, signal?: AbortSignal): Promise<GitOperationDto>;

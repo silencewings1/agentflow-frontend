@@ -8,12 +8,28 @@ import type {
   AfResponse,
   AfTaskDetailDto,
   AfTrajectoryDto,
+  ApprovalQueryDto,
+  CompilePlanInput,
+  CompilePlanResultDto,
+  CompilationReportDto,
+  CriterionAssessmentDto,
+  CriterionAssessmentInput,
+  EvidenceMatrixDto,
   CreateTaskInput,
   GitOperationDto,
+  PlanDecisionDto,
+  PlanDecisionInput,
+  PlanDto,
+  ProposalDto,
   PushOperationInput,
+  RunIntentDto,
+  StartResultDto,
   TaskDetailDto,
   TaskSummaryDto,
   TrajectoryEventDto,
+  TrustedDeliveryDto,
+  WorkSpecDto,
+  WorkSpecDraftInput,
   WorkflowDefinitionDto,
   WorkflowValidation,
   WorkflowVersion,
@@ -45,6 +61,7 @@ function fixtureTaskSummary(task: import("../data/mock").Session): TaskSummaryDt
     workflowVersion: 1,
     nodeSpecDigest: FIXTURE_DIGEST,
     executorMode: "demo-deterministic",
+    runMode: "fixture/test-double",
     createdAt: FIXTURE_TIME,
     updatedAt: FIXTURE_TIME,
     revision: 1,
@@ -123,6 +140,7 @@ function fixtureBootstrap(tasks: TaskSummaryDto[] = sessions.map(fixtureTaskSumm
   return {
     contractVersion: "1.0",
     executorMode: "demo-deterministic",
+    runMode: "fixture/test-double",
     tasks,
     workflows: [standardCodeChangeWorkflow(), ...workflowTemplates.map(toWorkflowDto)],
     agentProfiles: profiles.map(([profileId, name, independent, promptId]) => ({
@@ -224,6 +242,7 @@ function fixtureDetail(task: TaskSummaryDto, bootstrap: AfBootstrapDto): TaskDet
     title: task.title,
     status: task.state,
     executorMode: "demo-deterministic",
+    runMode: "fixture/test-double",
     repositoryRef: task.repositoryRef,
     baseBranch: "main",
     baseRevision: "1111111111111111111111111111111111111111",
@@ -297,11 +316,103 @@ function validateWorkflowDto(workflow: WorkflowDefinitionDto): WorkflowValidatio
   return { valid: errors.length === 0, errors };
 }
 
+function fixtureWorkSpec(task: TaskSummaryDto): WorkSpecDto {
+  return {
+    schemaVersion: 1,
+    workSpecId: `${task.taskId}:work-spec:1`,
+    workSpecRevision: 1,
+    taskId: task.taskId,
+    workSpecDigest: FIXTURE_DIGEST,
+    title: task.title,
+    objective: task.title,
+    scope: { included: ["src/**", "test/**"], excluded: [".git/**"] },
+    doneCriteria: [{ criterionId: "fixture-criterion", required: true, description: "fixture criteria", verifierId: "fixture-verifier", verifierVersion: "1.0.0", expected: "fixture pass", evidencePolicy: { evidenceTypes: ["test"], minCount: 1, retention: "task" } }],
+    deliverables: [{ deliverableId: "fixture-deliverable", kind: "change-set", description: "fixture change set", criterionIds: ["fixture-criterion"] }],
+    repository: { provider: task.provider, mcpServerRef: task.mcpServerRef, repositoryRef: task.repositoryRef, baseBranch: task.baseBranch, targetBranch: task.targetBranch, credentialRef: "fixture-credential" },
+    constraints: { allowedPaths: ["src/**", "test/**"], forbiddenPaths: [".git/**"], allowedCommands: ["npm test"], maxNodes: 10, maxAttempts: 3, maxWallTimeMs: 60_000, workspaceWriteConcurrency: 1, externalWrite: { requiresApproval: true, allowedBranches: [task.targetBranch] } },
+    policies: { policyVersion: "fixture-1.0.0" },
+    templateRef: { templateId: "standard-code-change", templateVersion: "1.7" },
+    createdAt: FIXTURE_TIME,
+    createdBy: "fixture-user",
+  };
+}
+
+function fixtureProposal(task: TaskSummaryDto): ProposalDto {
+  return { schemaVersion: 1, proposalId: `${task.taskId}:proposal:1`, taskId: task.taskId, proposalDigest: FIXTURE_DIGEST, status: "proposed", workSpecRevision: 1, workSpecDigest: FIXTURE_DIGEST, governanceDigest: FIXTURE_DIGEST, payload: { slotBindings: [] }, createdAt: FIXTURE_TIME };
+}
+
+function fixturePlan(task: TaskSummaryDto): PlanDto {
+  return { schemaVersion: 1, planRevisionId: `${task.taskId}:plan:1`, taskId: task.taskId, planVersion: 1, planDigest: FIXTURE_DIGEST, workSpecRevision: 1, workSpecDigest: FIXTURE_DIGEST, proposalRef: `${task.taskId}:proposal:1`, proposalDigest: FIXTURE_DIGEST, status: "ready", createdAt: FIXTURE_TIME };
+}
+
+function fixtureRun(task: TaskSummaryDto): RunIntentDto {
+  return { schemaVersion: 1, runId: `${task.taskId}:run:1`, taskId: task.taskId, planRevisionId: `${task.taskId}:plan:1`, workSpecDigest: FIXTURE_DIGEST, kind: "start", idempotencyKey: `${task.taskId}:start:1`, requestedBy: "fixture-user", requestedAt: FIXTURE_TIME, status: task.state === "running" ? "running" : "completed", leaseGeneration: 1, createdAt: FIXTURE_TIME, updatedAt: task.updatedAt, runMode: "fixture/test-double" };
+}
+
+function fixtureAssessment(task: TaskSummaryDto): CriterionAssessmentDto {
+  return { schemaVersion: 1, assessmentId: `${task.taskId}:assessment:1`, taskId: task.taskId, criterionId: "fixture-criterion", workSpecDigest: FIXTURE_DIGEST, verifierId: "fixture-verifier", verifierVersion: "1.0.0", expected: "fixture pass", actual: "fixture pass", outcome: task.state === "failed" ? "fail" : "pass", evidenceRefs: [`evidence://fixture/${task.taskId}/criterion`], reason: "fixture assessment", actor: "fixture-verifier", assessedAt: task.updatedAt };
+}
+
+function fixtureTrustedDelivery(detail: TaskDetailDto): TrustedDeliveryDto {
+  return { schemaVersion: 1, taskId: detail.taskId, contractVersion: "1.7", workSpecDigest: FIXTURE_DIGEST, planDigest: FIXTURE_DIGEST, frozenWorkflow: { workflowId: detail.workflow.workflowId, workflowVersion: detail.workflow.workflowVersion, policyVersion: detail.workflow.policyVersion, nodeSpecDigest: detail.workflow.nodeSpecDigest, frozenAt: FIXTURE_TIME }, acceptedExitNodes: detail.nodes.filter((node) => node.status === "accepted").map((node) => node.nodeId), acceptedAttempts: [], deliverables: detail.deliverables.map((item) => ({ deliverableId: item.deliverableId, nodeId: item.nodeId, attemptId: `${item.nodeId}:r1`, digest: item.digest, mediaType: item.mediaType, schemaVersion: item.schemaVersion, status: item.status, byteLength: 0, createdAt: FIXTURE_TIME })), gates: detail.gates.map((gate) => ({ gateId: gate.gateId, nodeId: gate.nodeId, outcome: gate.outcome, evaluatorVersion: gate.evaluatorVersion, threshold: gate.threshold, actual: gate.actual, failureCode: gate.failureCode ?? null, evidenceRef: gate.evidenceRef, attemptId: `${gate.nodeId}:r1`, inputDigest: FIXTURE_DIGEST, gateType: "fixture", artifactDigest: null, createdAt: FIXTURE_TIME })), gitOperations: detail.gitOperations, events: [], evidenceRefs: [], generatedAt: detail.updatedAt, runMode: "fixture/test-double" };
+}
+
 function fixtureClient(): AfApiClient {
   const tasks: TaskSummaryDto[] = sessions.map(fixtureTaskSummary);
   const operations = new Map<string, GitOperationDto>();
   const details = new Map<string, TaskDetailDto>();
+  const workSpecs = new Map<string, WorkSpecDto>();
+  const proposals = new Map<string, ProposalDto>();
+  const plans = new Map<string, PlanDto>();
+  const decisions = new Map<string, PlanDecisionDto>();
+  const runs = new Map<string, RunIntentDto>();
+  const assessments = new Map<string, CriterionAssessmentDto>();
   const currentBootstrap = () => fixtureBootstrap(tasks);
+  const taskOrThrow = (taskId: string) => {
+    const task = tasks.find((item) => item.taskId === taskId);
+    if (!task) throw new AfApiError({ code: "AF_TASK_NOT_FOUND", message: "fixture 任务不存在", retryable: false });
+    return task;
+  };
+  const ensureWorkSpec = (taskId: string) => {
+    const task = taskOrThrow(taskId);
+    const existing = workSpecs.get(taskId);
+    if (existing) return existing;
+    const value = fixtureWorkSpec(task);
+    workSpecs.set(taskId, value);
+    return value;
+  };
+  const ensureProposal = (taskId: string) => {
+    const task = taskOrThrow(taskId);
+    const existing = proposals.get(taskId);
+    if (existing) return existing;
+    const value = fixtureProposal(task);
+    proposals.set(taskId, value);
+    return value;
+  };
+  const ensurePlan = (taskId: string) => {
+    const task = taskOrThrow(taskId);
+    const existing = plans.get(taskId);
+    if (existing) return existing;
+    const value = fixturePlan(task);
+    plans.set(taskId, value);
+    return value;
+  };
+  const ensureRun = (taskId: string) => {
+    const task = taskOrThrow(taskId);
+    const existing = runs.get(taskId);
+    if (existing) return existing;
+    const value = fixtureRun(task);
+    runs.set(taskId, value);
+    return value;
+  };
+  const ensureAssessment = (taskId: string) => {
+    const task = taskOrThrow(taskId);
+    const existing = assessments.get(taskId);
+    if (existing) return existing;
+    const value = fixtureAssessment(task);
+    assessments.set(taskId, value);
+    return value;
+  };
   return {
     mode: "fixture",
     async bootstrap() { return currentBootstrap(); },
@@ -325,11 +436,15 @@ function fixtureClient(): AfApiClient {
       return { taskId };
     },
     async startTask(taskId) {
-      const task = tasks.find((item) => item.taskId === taskId);
-      if (!task) throw new AfApiError({ code: "AF_TASK_NOT_FOUND", message: "fixture 任务不存在", retryable: false });
+      const task = taskOrThrow(taskId);
       task.state = "running";
       details.delete(taskId);
-      return { taskId, state: "running" };
+      const run = { ...ensureRun(taskId), status: "running" as const, updatedAt: new Date().toISOString() };
+      runs.set(taskId, run);
+      return { taskId, state: "running", runId: run.runId, accepted: true, terminal: false, revision: task.revision };
+    },
+    async continueTask(taskId) {
+      return this.startTask(taskId);
     },
     async approveTaskNode(taskId, nodeId) {
       const task = tasks.find((item) => item.taskId === taskId);
@@ -337,6 +452,70 @@ function fixtureClient(): AfApiClient {
       return { taskId, nodeId, state: task.state, revision: task.revision + 1 };
     },
     async getTrajectory(taskId) { return fixtureTrajectory(await this.getTask(taskId)); },
+    async listWorkSpecs(taskId) { return [ensureWorkSpec(taskId)]; },
+    async getWorkSpec(taskId) { return ensureWorkSpec(taskId); },
+    async saveWorkSpec(taskId, input) {
+      taskOrThrow(taskId);
+      const previous = ensureWorkSpec(taskId);
+      const value: WorkSpecDto = { ...previous, ...input, schemaVersion: 1, taskId, workSpecId: `${taskId}:work-spec:${previous.workSpecRevision + 1}`, workSpecRevision: previous.workSpecRevision + 1, workSpecDigest: FIXTURE_DIGEST, createdAt: new Date().toISOString(), createdBy: "fixture-user" };
+      workSpecs.set(taskId, value);
+      return value;
+    },
+    async requestSupervisor(taskId, kind, input) {
+      taskOrThrow(taskId);
+      if (kind === "initial-plan") ensureWorkSpec(taskId);
+      const proposal = kind === "initial-plan" ? ensureProposal(taskId) : null;
+      return { supervisor: { schemaVersion: 1, kind, taskId, facts: input }, proposal };
+    },
+    async listProposals(taskId) { return [ensureProposal(taskId)]; },
+    async getProposal(taskId) { return ensureProposal(taskId); },
+    async saveProposal(taskId, input) {
+      const current = ensureProposal(taskId);
+      const value = { ...current, ...input, taskId, proposalDigest: FIXTURE_DIGEST, status: "proposed" as const };
+      proposals.set(taskId, value);
+      return value;
+    },
+    async compilePlan(taskId) {
+      const plan = ensurePlan(taskId);
+      return { report: { schemaVersion: 1, reportId: `${taskId}:report:1`, reportDigest: FIXTURE_DIGEST, taskId, workSpecDigest: FIXTURE_DIGEST, proposalDigest: FIXTURE_DIGEST, outcome: "pass" as const, checks: [], createdAt: FIXTURE_TIME }, plan };
+    },
+    async listCompilationReports(taskId) { return [(await this.compilePlan(taskId)).report]; },
+    async listPlans(taskId) { return [ensurePlan(taskId)]; },
+    async getPlan(taskId) { return ensurePlan(taskId); },
+    async savePlan(taskId, input) {
+      const current = ensurePlan(taskId);
+      const value = { ...current, ...input, taskId, planDigest: FIXTURE_DIGEST };
+      plans.set(taskId, value);
+      return value;
+    },
+    async listPlanDecisions(taskId) { return decisions.has(taskId) ? [decisions.get(taskId)!] : []; },
+    async getPlanDecision(taskId) {
+      const value = decisions.get(taskId);
+      if (value) return value;
+      throw new AfApiError({ code: "AF_TASK_NOT_FOUND", message: "fixture PlanDecision 不存在", retryable: false });
+    },
+    async savePlanDecision(taskId, input) {
+      taskOrThrow(taskId);
+      const value: PlanDecisionDto = { schemaVersion: 1, factType: "PlanDecision", decisionId: input.decisionId, taskId, workSpecDigest: FIXTURE_DIGEST, governanceDigest: input.governanceDigest, proposalDigest: input.proposalDigest ?? FIXTURE_DIGEST, actor: input.actor ?? "fixture-user", decision: input.decision, reason: input.reason, createdAt: new Date().toISOString() };
+      decisions.set(taskId, value);
+      return value;
+    },
+    async listRunIntents(taskId) { return [ensureRun(taskId)]; },
+    async getRunIntent(taskId) { return ensureRun(taskId); },
+    async listCriterionAssessments(taskId) { return [ensureAssessment(taskId)]; },
+    async getCriterionAssessment(taskId) { return ensureAssessment(taskId); },
+    async saveCriterionAssessment(taskId, input) {
+      const current = ensureAssessment(taskId);
+      const value: CriterionAssessmentDto = { ...current, ...input, taskId, workSpecDigest: FIXTURE_DIGEST, actor: input.actor ?? "fixture-user", assessedAt: new Date().toISOString() };
+      assessments.set(taskId, value);
+      return value;
+    },
+    async getEvidenceMatrix(taskId) {
+      const assessment = ensureAssessment(taskId);
+      return { schemaVersion: 1, matrixId: `${taskId}:evidence-matrix`, taskId, workSpecDigest: FIXTURE_DIGEST, rows: [{ criterionId: assessment.criterionId, outcome: assessment.outcome, evidenceRefs: assessment.evidenceRefs }], generatedAt: new Date().toISOString() };
+    },
+    async getTrustedDelivery(taskId) { return fixtureTrustedDelivery(await this.getTask(taskId)); },
+    async getApprovals(taskId) { taskOrThrow(taskId); return { taskId, nodeApprovals: [], gitOperationConfirmations: [] }; },
     async createPushOperation(taskId, input) {
       const task = tasks.find((item) => item.taskId === taskId);
       if (!task) throw new AfApiError({ code: "AF_TASK_NOT_FOUND", message: "fixture 任务不存在", retryable: false });
@@ -375,6 +554,9 @@ class HttpAfApiClient implements AfApiClient {
   }
 
   private async request<T>(path: string, init?: RequestInit, signal?: AbortSignal): Promise<T> {
+    if (!this.baseUrl) {
+      throw new AfApiError({ code: "AF_API_NOT_CONFIGURED", message: "AF API 地址未配置；当前环境已 fail-closed，请显式启用 fixture/test-double 适配器。", retryable: false });
+    }
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.baseUrl.replace(/\/$/, "")}${path}`, { ...init, signal, headers: { "content-type": "application/json", ...init?.headers } });
@@ -408,9 +590,38 @@ class HttpAfApiClient implements AfApiClient {
   validateWorkflow(workflow: import("./types").WorkflowDefinitionDto, signal?: AbortSignal) { return this.request<WorkflowValidation>("/workflows/validate", { method: "POST", body: JSON.stringify({ draft: workflow }) }, signal); }
   saveWorkflow(workflow: import("./types").WorkflowDefinitionDto, signal?: AbortSignal) { return this.request<WorkflowVersion>("/workflows", { method: "POST", body: JSON.stringify({ workflowId: workflow.workflowId, draft: workflow, idempotencyKey: requestKey("workflow-save", workflow) }) }, signal); }
   createTask(input: CreateTaskInput, signal?: AbortSignal) { return this.request<{ taskId: string }>("/tasks", { method: "POST", body: JSON.stringify(input) }, signal); }
-  startTask(taskId: string, signal?: AbortSignal) { return this.request<{ taskId: string; state: import("./types").TaskState }>(`/tasks/${encodeURIComponent(taskId)}/start`, { method: "POST", body: JSON.stringify({ idempotencyKey: requestKey("task-start", taskId) }) }, signal); }
+  startTask(taskId: string, signal?: AbortSignal, runMode?: import("./types").RunMode, faultInjection?: import("./types").FaultInjectionDto) { return this.request<StartResultDto>(`/tasks/${encodeURIComponent(taskId)}/start`, { method: "POST", body: JSON.stringify({ idempotencyKey: requestKey("task-start", taskId), ...(runMode === undefined ? {} : { runMode }), ...(faultInjection === undefined ? {} : { faultInjection }) }) }, signal); }
+  continueTask(taskId: string, signal?: AbortSignal, runMode?: import("./types").RunMode, faultInjection?: import("./types").FaultInjectionDto) { return this.request<StartResultDto>(`/tasks/${encodeURIComponent(taskId)}/continue`, { method: "POST", body: JSON.stringify({ idempotencyKey: requestKey("task-continue", taskId), ...(runMode === undefined ? {} : { runMode }), ...(faultInjection === undefined ? {} : { faultInjection }) }) }, signal); }
   approveTaskNode(taskId: string, nodeId: string, signal?: AbortSignal) { return this.request<import("./types").ApproveTaskNodeResult>(`/tasks/${encodeURIComponent(taskId)}/approve`, { method: "POST", body: JSON.stringify({ nodeId }) }, signal); }
   getTrajectory(taskId: string, signal?: AbortSignal) { return this.request<AfTrajectoryDto>(`/tasks/${encodeURIComponent(taskId)}/trajectory`, undefined, signal).then(toTrajectory); }
+  listWorkSpecs(taskId: string, signal?: AbortSignal) { return this.request<WorkSpecDto[]>(`/tasks/${encodeURIComponent(taskId)}/work-specs`, undefined, signal); }
+  getWorkSpec(taskId: string, revision?: number, signal?: AbortSignal) { return this.request<WorkSpecDto>(`/tasks/${encodeURIComponent(taskId)}/work-specs${revision === undefined ? "" : `/${revision}`}`, undefined, signal); }
+  saveWorkSpec(taskId: string, input: WorkSpecDraftInput, signal?: AbortSignal) { return this.request<WorkSpecDto>(`/tasks/${encodeURIComponent(taskId)}/work-specs`, { method: "POST", body: JSON.stringify(input) }, signal); }
+  requestSupervisor(taskId: string, kind: "intake" | "initial-plan" | "context-brief" | "rework-advice" | "final-summary", input: Record<string, unknown>, signal?: AbortSignal) {
+    // Initial-plan facts and digests are assembled by the AF API; never trust
+    // browser-supplied inputSnapshot/catalog identities for this operation.
+    const body = kind === "initial-plan" ? { schemaVersion: 1 } : input;
+    return this.request<{ supervisor: unknown; proposal?: ProposalDto | null; persistenceError?: AfErrorPayload | null }>(`/tasks/${encodeURIComponent(taskId)}/supervisor/${kind}`, { method: "POST", body: JSON.stringify(body) }, signal);
+  }
+  listProposals(taskId: string, signal?: AbortSignal) { return this.request<ProposalDto[]>(`/tasks/${encodeURIComponent(taskId)}/proposals`, undefined, signal); }
+  getProposal(taskId: string, proposalId: string, signal?: AbortSignal) { return this.request<ProposalDto>(`/tasks/${encodeURIComponent(taskId)}/proposals/${encodeURIComponent(proposalId)}`, undefined, signal); }
+  saveProposal(taskId: string, input: Record<string, unknown>, signal?: AbortSignal) { return this.request<ProposalDto>(`/tasks/${encodeURIComponent(taskId)}/proposals`, { method: "POST", body: JSON.stringify(input) }, signal); }
+  compilePlan(taskId: string, input: CompilePlanInput = {}, signal?: AbortSignal) { return this.request<CompilePlanResultDto>(`/tasks/${encodeURIComponent(taskId)}/compile`, { method: "POST", body: JSON.stringify(input) }, signal); }
+  listCompilationReports(taskId: string, signal?: AbortSignal) { return this.request<CompilationReportDto[]>(`/tasks/${encodeURIComponent(taskId)}/compilation-reports`, undefined, signal); }
+  listPlans(taskId: string, signal?: AbortSignal) { return this.request<PlanDto[]>(`/tasks/${encodeURIComponent(taskId)}/plans`, undefined, signal); }
+  getPlan(taskId: string, planRevisionId: string, signal?: AbortSignal) { return this.request<PlanDto>(`/tasks/${encodeURIComponent(taskId)}/plans/${encodeURIComponent(planRevisionId)}`, undefined, signal); }
+  savePlan(taskId: string, input: Record<string, unknown>, signal?: AbortSignal) { return this.request<PlanDto>(`/tasks/${encodeURIComponent(taskId)}/plans`, { method: "POST", body: JSON.stringify(input) }, signal); }
+  listPlanDecisions(taskId: string, signal?: AbortSignal) { return this.request<PlanDecisionDto[]>(`/tasks/${encodeURIComponent(taskId)}/plan-decisions`, undefined, signal); }
+  getPlanDecision(taskId: string, decisionId: string, signal?: AbortSignal) { return this.request<PlanDecisionDto>(`/tasks/${encodeURIComponent(taskId)}/plan-decisions/${encodeURIComponent(decisionId)}`, undefined, signal); }
+  savePlanDecision(taskId: string, input: PlanDecisionInput, signal?: AbortSignal) { return this.request<PlanDecisionDto>(`/tasks/${encodeURIComponent(taskId)}/plan-decisions`, { method: "POST", body: JSON.stringify(input) }, signal); }
+  listRunIntents(taskId: string, signal?: AbortSignal) { return this.request<RunIntentDto[]>(`/tasks/${encodeURIComponent(taskId)}/runs`, undefined, signal); }
+  getRunIntent(taskId: string, runId: string, signal?: AbortSignal) { return this.request<RunIntentDto>(`/tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}`, undefined, signal); }
+  listCriterionAssessments(taskId: string, signal?: AbortSignal) { return this.request<CriterionAssessmentDto[]>(`/tasks/${encodeURIComponent(taskId)}/criterion-assessments`, undefined, signal); }
+  getCriterionAssessment(taskId: string, assessmentId: string, signal?: AbortSignal) { return this.request<CriterionAssessmentDto>(`/tasks/${encodeURIComponent(taskId)}/criterion-assessments/${encodeURIComponent(assessmentId)}`, undefined, signal); }
+  saveCriterionAssessment(taskId: string, input: CriterionAssessmentInput, signal?: AbortSignal) { return this.request<CriterionAssessmentDto>(`/tasks/${encodeURIComponent(taskId)}/criterion-assessments`, { method: "POST", body: JSON.stringify(input) }, signal); }
+  getEvidenceMatrix(taskId: string, signal?: AbortSignal) { return this.request<EvidenceMatrixDto>(`/tasks/${encodeURIComponent(taskId)}/evidence-matrix`, undefined, signal); }
+  getTrustedDelivery(taskId: string, signal?: AbortSignal) { return this.request<TrustedDeliveryDto>(`/tasks/${encodeURIComponent(taskId)}/trusted-delivery`, undefined, signal); }
+  getApprovals(taskId: string, signal?: AbortSignal) { return this.request<ApprovalQueryDto>(`/tasks/${encodeURIComponent(taskId)}/approvals`, undefined, signal); }
   createPushOperation(taskId: string, input: PushOperationInput, signal?: AbortSignal) { return this.request<GitOperationDto>(`/tasks/${encodeURIComponent(taskId)}/git-operations`, { method: "POST", body: JSON.stringify(input) }, signal); }
   confirmPushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}/confirm`, { method: "POST", body: JSON.stringify({ idempotencyKey: requestKey("git-confirm", operationId) }) }, signal); }
   getPushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}`, undefined, signal); }
@@ -433,9 +644,14 @@ export class AfApiError extends Error {
   }
 }
 
-export function createAfApiClient(options: { baseUrl?: string; fetchImpl?: typeof fetch } = {}): AfApiClient {
+export function createAfApiClient(options: { baseUrl?: string; fetchImpl?: typeof fetch; mode?: "http" | "fixture" } = {}): AfApiClient {
   const baseUrl = options.baseUrl ?? import.meta.env.VITE_AF_API_BASE_URL;
-  return baseUrl ? new HttpAfApiClient(baseUrl, options.fetchImpl) : fixtureClient();
+  const requestedMode = options.mode ?? import.meta.env.VITE_AF_API_MODE;
+  // Fixture is a deliberate development/test adapter. Production builds with
+  // no API URL return a fail-closed HTTP client instead of silently presenting
+  // test-double facts as governance truth.
+  if (!baseUrl && (requestedMode === "fixture" || import.meta.env.DEV)) return fixtureClient();
+  return new HttpAfApiClient(baseUrl ?? "", options.fetchImpl);
 }
 
 export const afApi = createAfApiClient();

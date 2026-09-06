@@ -7,7 +7,7 @@ import {
 } from "./data/mock";
 import { afApi, AfApiError, structuredToEvents, toUiBootstrap, toWorkflowDto } from "./api";
 import { realInspectorBundle } from "./api/inspectorMapper";
-import type { AgentProfileSummaryDto, ExecutorMode, ScmProviderDto, SkillSummaryDto, TaskDetailDto, TrajectoryEventDto, WorkflowValidation } from "./api";
+import type { AgentProfileSummaryDto, ApprovalQueryDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, SkillSummaryDto, TaskDetailDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
 import { conversationOf } from "./data/streams";
 import { inspectorOf } from "./data/inspector";
 import { Rail } from "./components/Rail";
@@ -23,6 +23,7 @@ import { SettingsOverlay, type ArchJump, type SettingsPane } from "./components/
 import { NewTaskDialog, type NewTaskScmDraft } from "./components/NewTask";
 import { WorkflowStrip, NodeConversation } from "./components/Workflow";
 import { RuntimeConsole, type RuntimeLoadState } from "./components/RuntimeConsole";
+import { GovernanceView } from "./components/GovernanceView";
 import { defaultModel, modelOptions } from "./data/settings";
 import {
   buildOrchestratorPlan,
@@ -35,6 +36,21 @@ import {
 
 export type ApprovalMode = "auto" | "ask" | "readonly";
 type ApiLoadState = { status: "loading" } | { status: "ready" } | { status: "error"; code: string; message: string; retryable: boolean };
+type GovernanceLoadState = { status: "idle" | "loading" | "ready" } | { status: "error"; code: string; message: string; retryable: boolean };
+type GovernanceSnapshot = {
+  workSpec: WorkSpecDto | null;
+  proposal: ProposalDto | null;
+  compilationReport: CompilationReportDto | null;
+  plan: PlanDto | null;
+  planDecision: PlanDecisionDto | null;
+  runIntent: RunIntentDto | null;
+  assessments: CriterionAssessmentDto[];
+  evidenceMatrix: EvidenceMatrixDto | null;
+  approvals: ApprovalQueryDto | null;
+  trustedDelivery: TrustedDeliveryDto | null;
+  runMode?: RunMode;
+  faultInjection?: FaultInjectionDto;
+};
 
 function apiFailure(error: unknown, fallbackMessage: string): Omit<Extract<ApiLoadState, { status: "error" }>, "status"> {
   if (error instanceof AfApiError) {
@@ -51,12 +67,6 @@ function apiFailure(error: unknown, fallbackMessage: string): Omit<Extract<ApiLo
    找不到时回落到第一套，保证界面不会因为数据缺字段而空掉。 */
 function wfOf(id: string | undefined, catalog: Workflow[] = workflowTemplates): Workflow {
   return catalog.find((w) => w.id === id) ?? catalog[0] ?? workflowTemplates[0]!;
-}
-
-async function digestValue(value: unknown): Promise<string> {
-  const bytes = new TextEncoder().encode(JSON.stringify(value));
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return `sha256:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
 let toastSeq = 0;
@@ -84,6 +94,9 @@ export default function App() {
   const [taskRuntime, setTaskRuntime] = useState<TaskDetailDto | null>(null);
   const [trajectory, setTrajectory] = useState<TrajectoryEventDto[]>([]);
   const [runtimeLoad, setRuntimeLoad] = useState<RuntimeLoadState>({ status: "idle" });
+  const [governanceLoad, setGovernanceLoad] = useState<GovernanceLoadState>({ status: "idle" });
+  const [governance, setGovernance] = useState<GovernanceSnapshot>({ workSpec: null, proposal: null, compilationReport: null, plan: null, planDecision: null, runIntent: null, assessments: [], evidenceMatrix: null, approvals: null, trustedDelivery: null });
+  const [workSpecDraft, setWorkSpecDraft] = useState<WorkSpecDraftInput | undefined>(undefined);
   const [startingTaskId, setStartingTaskId] = useState<string | null>(null);
   const [approvingNodeId, setApprovingNodeId] = useState<string | null>(null);
   const [planningOperation, setPlanningOperation] = useState(false);
@@ -182,6 +195,49 @@ export default function App() {
     }
   }, []);
 
+  const fetchGovernance = useCallback(async (taskId: string, signal?: AbortSignal, quiet = false) => {
+    if (!taskId) return;
+    if (!quiet) setGovernanceLoad({ status: "loading" });
+    const optional = async <T,>(load: () => Promise<T>, fallback: T): Promise<T> => {
+      try { return await load(); } catch { return fallback; }
+    };
+    try {
+      // Core governance facts are required. Swallowing failures here would
+      // turn an unavailable API into an apparently empty task, which breaks
+      // the trusted-display contract. Only facts that are legitimately not
+      // generated yet use an explicit empty/null fallback.
+      const [workSpecs, proposals, reports, plans, decisions, runs, assessments, evidenceMatrix, approvals, trustedDelivery] = await Promise.all([
+        afApi.listWorkSpecs(taskId, signal),
+        afApi.listProposals(taskId, signal),
+        afApi.listCompilationReports(taskId, signal),
+        afApi.listPlans(taskId, signal),
+        afApi.listPlanDecisions(taskId, signal),
+        afApi.listRunIntents(taskId, signal),
+        optional(() => afApi.listCriterionAssessments(taskId, signal), []),
+        optional(() => afApi.getEvidenceMatrix(taskId, signal), null),
+        optional(() => afApi.getApprovals(taskId, signal), null),
+        optional(() => afApi.getTrustedDelivery(taskId, signal), null),
+      ]);
+      const latest = <T,>(items: T[]): T | null => items.length ? items[items.length - 1]! : null;
+      setGovernance({
+        workSpec: latest(workSpecs),
+        proposal: latest(proposals),
+        compilationReport: latest(reports),
+        plan: latest(plans),
+        planDecision: latest(decisions),
+        runIntent: latest(runs),
+        assessments,
+        evidenceMatrix,
+        approvals,
+        trustedDelivery,
+      });
+      setGovernanceLoad({ status: "ready" });
+    } catch (error: unknown) {
+      if (signal?.aborted) return;
+      setGovernanceLoad({ status: "error", ...apiFailure(error, "无法读取 1.7 治理事实") });
+    }
+  }, []);
+
   useEffect(() => {
     if (!activeId) {
       setTaskRuntime(null);
@@ -193,14 +249,18 @@ export default function App() {
     setTaskRuntime(null);
     setTrajectory([]);
     void fetchTaskRuntime(activeId, controller.signal);
+    void fetchGovernance(activeId, controller.signal);
     const interval = window.setInterval(() => {
-      if (afApi.mode === "http") void fetchTaskRuntime(activeId, controller.signal, true);
+      if (afApi.mode === "http") {
+        void fetchTaskRuntime(activeId, controller.signal, true);
+        void fetchGovernance(activeId, controller.signal, true);
+      }
     }, 2_000);
     return () => {
       controller.abort();
       clearInterval(interval);
     };
-  }, [activeId, fetchTaskRuntime]);
+  }, [activeId, fetchGovernance, fetchTaskRuntime]);
 
   /* 会话可能被删空：此时没有「当前会话」，类型上必须如实反映为可空，
      否则 TopBar 里读 active.repo 会在空态下崩掉（sessionList[0] 也是 undefined） */
@@ -463,7 +523,6 @@ export default function App() {
         const version = wf.frozen && wf.workflowVersion !== undefined && wf.nodeSpecDigest
           ? { workflowId: wf.id, workflowVersion: wf.workflowVersion, nodeSpecDigest: wf.nodeSpecDigest, frozen: true }
           : await afApi.saveWorkflow(toWorkflowDto(wf));
-        const contractDigest = await digestValue(contract);
         versionedWorkflow = { ...wf, workflowVersion: version.workflowVersion, nodeSpecDigest: version.nodeSpecDigest, frozen: version.frozen };
         createdTask = await afApi.createTask({
           idempotencyKey: `task-create:${sid}`,
@@ -477,7 +536,6 @@ export default function App() {
           mcpServerRef: scm.mcpServerRef,
           workflowId: version.workflowId,
           workflowVersion: version.workflowVersion,
-          contractDigest,
         });
       } catch (error: unknown) {
         const apiError = error instanceof AfApiError ? error : undefined;
@@ -502,11 +560,11 @@ export default function App() {
         preferredActiveRef.current = createdTask.taskId;
         setActiveId(createdTask.taskId);
         setMode("session");
-        push({ tone: "info", title: "任务已创建", body: `任务 ${createdTask.taskId} 已进入控制面，正在启动执行。` });
+        push({ tone: "info", title: "任务已创建", body: `任务 ${createdTask.taskId} 已进入控制面，请先填写并冻结 WorkSpec。` });
         loadBootstrap();
-        // 真实任务创建后自动启动（http 模式无 fixture 的“确认规划”步骤），随后由轮询推进。
-        await afApi.startTask(createdTask.taskId).catch(() => {});
+        // 1.7 主路径先冻结 WorkSpec、生成 Proposal 和 PlanDecision；不在任务壳创建后隐式启动。
         await fetchTaskRuntime(createdTask.taskId);
+        await fetchGovernance(createdTask.taskId);
         return;
       }
       const taskId = createdTask.taskId;
@@ -543,7 +601,7 @@ export default function App() {
         body: `${wf.nodes.length} 个节点的契约与增强提示词待你确认`,
       });
     },
-    [fetchTaskRuntime, loadBootstrap, push],
+    [fetchGovernance, fetchTaskRuntime, loadBootstrap, push],
   );
 
   /** 用户确认规划 → 正式推进流水线（原 startTask 尾部的推进逻辑迁移至此） */
@@ -821,8 +879,8 @@ export default function App() {
     if (!activeId) return;
     setStartingTaskId(activeId);
     try {
-      await afApi.startTask(activeId);
-      await fetchTaskRuntime(activeId);
+      await afApi.startTask(activeId, undefined, taskRuntime?.runMode ?? "real", taskRuntime?.faultInjection);
+      await Promise.all([fetchTaskRuntime(activeId), fetchGovernance(activeId)]);
       loadBootstrap();
       push({ tone: "ok", title: "任务已启动", body: "控制面已推进到下一人工检查点或终态。" });
     } catch (error: unknown) {
@@ -831,15 +889,15 @@ export default function App() {
     } finally {
       setStartingTaskId(null);
     }
-  }, [activeId, fetchTaskRuntime, loadBootstrap, push]);
+  }, [activeId, fetchGovernance, fetchTaskRuntime, loadBootstrap, push, taskRuntime]);
 
   const approveAndContinueTask = useCallback(async (nodeId: string) => {
     if (!activeId) return;
     setApprovingNodeId(nodeId);
     try {
       await afApi.approveTaskNode(activeId, nodeId);
-      await afApi.startTask(activeId);
-      await fetchTaskRuntime(activeId);
+      await afApi.continueTask(activeId, undefined, taskRuntime?.runMode ?? "real", taskRuntime?.faultInjection);
+      await Promise.all([fetchTaskRuntime(activeId), fetchGovernance(activeId)]);
       loadBootstrap();
       push({ tone: "ok", title: "人工检查点已批准", body: `${nodeId} 已继续推进，控制面状态已刷新。` });
     } catch (error: unknown) {
@@ -848,7 +906,7 @@ export default function App() {
     } finally {
       setApprovingNodeId(null);
     }
-  }, [activeId, fetchTaskRuntime, loadBootstrap, push]);
+  }, [activeId, fetchGovernance, fetchTaskRuntime, loadBootstrap, push, taskRuntime]);
 
   const confirmGitOperation = useCallback(async (operationId: string) => {
     setConfirmingOperationId(operationId);
@@ -901,6 +959,90 @@ export default function App() {
       setPlanningOperation(false);
     }
   }, [activeId, fetchTaskRuntime, push, scmProviders, taskRuntime]);
+
+  const freezeWorkSpec = useCallback(async (draft: WorkSpecDraftInput) => {
+    if (!activeId || !active) return;
+    const provider = scmProviders.find((item) => item.provider === (draft.repository?.provider ?? taskRuntime?.provider) && item.mcpServerRef === (draft.repository?.mcpServerRef ?? taskRuntime?.mcpServerRef));
+    const repository = draft.repository ?? {
+      provider: taskRuntime?.provider ?? provider?.provider ?? "github",
+      mcpServerRef: taskRuntime?.mcpServerRef ?? provider?.mcpServerRef ?? "github-official",
+      repositoryRef: taskRuntime?.repositoryRef ?? active.repo,
+      baseBranch: taskRuntime?.baseBranch ?? "main",
+      targetBranch: taskRuntime?.targetBranch ?? active.branch,
+      credentialRef: provider?.credentialRef ?? "GITHUB_AGENTFLOW_TOKEN",
+    };
+    const criteria = (draft.doneCriteria ?? []).map((criterion, index) => ({
+      criterionId: criterion.criterionId || `criterion-${index + 1}`,
+      required: criterion.required !== false,
+      description: criterion.description.trim(),
+      verifierId: criterion.verifierId || "human-review",
+      verifierVersion: criterion.verifierVersion || "1.0.0",
+      expected: criterion.expected?.trim() || "由服务端确定性验证器确认",
+      evidencePolicy: { evidenceTypes: criterion.evidencePolicy?.evidenceTypes?.length ? criterion.evidencePolicy.evidenceTypes : ["task-event"], minCount: criterion.evidencePolicy?.minCount ?? 1, retention: criterion.evidencePolicy?.retention || "task" },
+    }));
+    const payload: WorkSpecDraftInput = {
+      schemaVersion: 1,
+      title: draft.title?.trim() || active.title,
+      objective: draft.objective?.trim() || active.title,
+      background: draft.background ?? "",
+      scope: draft.scope ?? { included: ["src/**", "test/**"], excluded: [".git/**"] },
+      inputs: draft.inputs ?? [],
+      doneCriteria: criteria,
+      deliverables: draft.deliverables?.length ? draft.deliverables : [{ deliverableId: "source-change", kind: "change-set", description: "受限源码变更", criterionIds: criteria.map((criterion) => criterion.criterionId) }],
+      repository,
+      constraints: draft.constraints ?? { allowedPaths: ["src/**", "test/**"], forbiddenPaths: [".git/**"], allowedCommands: [], maxNodes: 9, maxAttempts: 3, maxWallTimeMs: 3_600_000, workspaceWriteConcurrency: 1, externalWrite: { requiresApproval: true, allowedBranches: [repository.targetBranch] } },
+      policies: draft.policies ?? { policyVersion: taskRuntime?.workflow.policyVersion ?? "1.0.0", approval: "human", rework: "fail-target" },
+      templateRef: draft.templateRef ?? { templateId: "standard-code-change", templateVersion: "1.7" },
+    };
+    try {
+      setGovernanceLoad({ status: "loading" });
+      await afApi.saveWorkSpec(activeId, payload);
+      await Promise.all([fetchGovernance(activeId), fetchTaskRuntime(activeId)]);
+      push({ tone: "ok", title: "WorkSpec 已冻结", body: "服务端已生成不可变 revision 与 digest，后续规划将引用该事实。" });
+    } catch (error: unknown) {
+      const failure = apiFailure(error, "无法保存 WorkSpec");
+      setGovernanceLoad({ status: "error", ...failure });
+      push({ tone: "warn", title: "WorkSpec 冻结失败", body: `${failure.code} · ${failure.message}` });
+    }
+  }, [active, activeId, fetchGovernance, fetchTaskRuntime, push, scmProviders, taskRuntime]);
+
+  const requestProposal = useCallback(async () => {
+    if (!activeId || !governance.workSpec) return;
+    try {
+      // WorkSpec, catalog/template identities and inputSnapshotDigest are
+      // server-owned. The browser only requests initial planning.
+      await afApi.requestSupervisor(activeId, "initial-plan", { schemaVersion: 1 });
+      await fetchGovernance(activeId);
+      push({ tone: "ok", title: "Proposal 已生成", body: "Supervisor 提案已进入服务端治理事实。" });
+    } catch (error: unknown) {
+      const failure = apiFailure(error, "无法生成 Supervisor Proposal");
+      push({ tone: "warn", title: "Proposal 生成失败", body: `${failure.code} · ${failure.message}` });
+    }
+  }, [activeId, fetchGovernance, governance.workSpec, push]);
+
+  const compilePlan = useCallback(async () => {
+    if (!activeId || !governance.proposal) return;
+    try {
+      await afApi.compilePlan(activeId);
+      await fetchGovernance(activeId);
+      push({ tone: "ok", title: "CompilationReport 已生成", body: "确定性 Compiler 已保存报告与 ExecutionPlanRevision。" });
+    } catch (error: unknown) {
+      const failure = apiFailure(error, "无法运行 Plan Compiler");
+      push({ tone: "warn", title: "Compiler 拒绝", body: `${failure.code} · ${failure.message}` });
+    }
+  }, [activeId, fetchGovernance, governance.proposal, push]);
+
+  const decidePlan = useCallback(async (decision: "approved" | "rejected") => {
+    if (!activeId || !governance.plan || !governance.proposal) return;
+    try {
+      await afApi.savePlanDecision(activeId, { schemaVersion: 1, decisionId: `decision-${Date.now()}`, governanceDigest: governance.plan.governanceDigest ?? taskRuntime?.workflow.nodeSpecDigest ?? governance.proposal.governanceDigest, proposalDigest: governance.proposal.proposalDigest, decision, reason: decision === "approved" ? "人工审阅通过当前冻结计划" : "人工审阅拒绝当前冻结计划" });
+      await fetchGovernance(activeId);
+      push({ tone: decision === "approved" ? "ok" : "warn", title: decision === "approved" ? "计划已批准" : "计划已拒绝", body: "PlanDecision 已由服务端记录。" });
+    } catch (error: unknown) {
+      const failure = apiFailure(error, "无法记录 PlanDecision");
+      push({ tone: "warn", title: "计划决策失败", body: `${failure.code} · ${failure.message}` });
+    }
+  }, [activeId, fetchGovernance, governance.plan, governance.proposal, push, taskRuntime]);
 
   return (
     <div
@@ -980,6 +1122,36 @@ export default function App() {
               onConfirmOperation={(operationId) => void confirmGitOperation(operationId)}
               onRefresh={() => { if (activeId) void fetchTaskRuntime(activeId); }}
             />
+            {activeId && (
+              <GovernanceView
+                key={activeId}
+                taskId={activeId}
+                taskStatus={taskRuntime?.status ?? active?.state}
+                workSpec={governance.workSpec}
+                proposal={governance.proposal}
+                compilationReport={governance.compilationReport}
+                plan={governance.plan}
+                planDecision={governance.planDecision}
+                runIntent={governance.runIntent}
+                attempts={taskRuntime?.attempts ?? []}
+                gates={taskRuntime?.rawGates ?? []}
+                approvals={governance.approvals}
+                evidenceMatrix={governance.evidenceMatrix}
+                scmOperations={taskRuntime?.gitOperations ?? []}
+                trustedDelivery={governance.trustedDelivery}
+                runMode={taskRuntime?.runMode ?? governance.runMode}
+                apiMode={afApi.mode}
+                workSpecEditable={!governance.workSpec}
+                workSpecDraft={workSpecDraft}
+                onWorkSpecDraftChange={setWorkSpecDraft}
+                onFreezeWorkSpec={(draft) => void freezeWorkSpec(draft)}
+                onRequestProposal={() => void requestProposal()}
+                onCompile={() => void compilePlan()}
+                onPlanDecision={(decision) => void decidePlan(decision)}
+                onRun={() => void startLiveTask()}
+                busyAction={governanceLoad.status === "loading" ? "governance" : startingTaskId === activeId ? "run" : null}
+              />
+            )}
             {/* 点开 DAG 节点后，会话区整体切换为该节点视图；否则为正常事件流 */}
             {focusNode ? (
               <NodeConversation
