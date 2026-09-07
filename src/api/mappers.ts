@@ -27,7 +27,8 @@ const profileRole: Record<string, WfNode["role"]> = {
 function toSession(task: TaskSummaryDto): Session {
   const repository = task.repositoryRef.split("/").pop() ?? task.repositoryRef;
   const state: Session["state"] = task.state === "completed" ? "done"
-    : task.state === "created" || task.state === "awaiting_human" ? "review"
+    : task.state === "created" ? "draft"
+      : task.state === "awaiting_human" ? "review"
       : task.state === "blocked_unavailable" || task.state === "needs_reconcile" || task.state === "failed" ? "failed"
         : task.state === "cancelled" ? "idle" : "running";
   return { id: task.taskId, title: task.title, repo: repository, branch: task.targetBranch, state, time: task.updatedAt, bucket: "今天", workflow: task.workflowId };

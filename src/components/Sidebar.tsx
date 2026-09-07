@@ -8,6 +8,7 @@ const stateLabel: Record<SessionState, string> = {
   done: "已完成",
   failed: "失败",
   idle: "空闲",
+  draft: "待配置",
 };
 
 export function Sidebar({

@@ -190,7 +190,8 @@ export default function App() {
         ...item,
         state: detail.status === "completed" ? "done"
           : detail.status === "failed" || detail.status === "blocked_unavailable" || detail.status === "needs_reconcile" ? "failed"
-            : detail.status === "created" || detail.status === "awaiting_human" ? "review"
+            : detail.status === "created" ? "draft"
+              : detail.status === "awaiting_human" ? "review"
               : detail.status === "cancelled" ? "idle" : "running",
       } : item));
     } catch (error: unknown) {

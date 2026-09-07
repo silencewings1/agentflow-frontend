@@ -2,7 +2,7 @@ import type { AgentRole, PermTier } from "./settings";
 
 export type Theme = "lumen" | "ink";
 
-export type SessionState = "running" | "review" | "done" | "failed" | "idle";
+export type SessionState = "running" | "review" | "done" | "failed" | "idle" | "draft";
 
 export interface Session {
   id: string;
