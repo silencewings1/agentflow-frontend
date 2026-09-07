@@ -50,6 +50,7 @@ export interface GovernanceViewProps {
   workSpecDraft?: WorkSpecDraftInput;
   onWorkSpecDraftChange?: (draft: WorkSpecDraftInput) => void;
   onFreezeWorkSpec?: (draft: WorkSpecDraftInput) => void;
+  onCreateWorkSpecRevision?: () => void;
   onRequestProposal?: () => void;
   onCompile?: () => void;
   onPlanDecision?: (decision: "approved" | "rejected") => void;
@@ -229,6 +230,7 @@ export function GovernanceView({
   workSpecDraft,
   onWorkSpecDraftChange,
   onFreezeWorkSpec,
+  onCreateWorkSpecRevision,
   onRequestProposal,
   onCompile,
   onPlanDecision,
@@ -255,8 +257,10 @@ export function GovernanceView({
 
       <div className="govActions">
         {!workSpec && onFreezeWorkSpec && <span className="govHint">先完成 WorkSpec，服务端才会生成规划事实。</span>}
+        {workSpec && onCreateWorkSpecRevision && <button className="btn btn--ghost btn--sm" disabled={busyAction !== null} onClick={onCreateWorkSpecRevision}>创建 WorkSpec 新 revision</button>}
         {workSpec && !proposal && onRequestProposal && <button className="btn btn--accent btn--sm" disabled={busyAction !== null} onClick={onRequestProposal}>{busyAction === "proposal" ? "生成 Proposal…" : "请求 Supervisor Proposal"}</button>}
         {proposal && !compilationReport && onCompile && <button className="btn btn--accent btn--sm" disabled={busyAction !== null} onClick={onCompile}>{busyAction === "compile" ? "编译中…" : "运行 Plan Compiler"}</button>}
+        {compilationReport?.outcome === "rejected" && <span className="govHint govHint--warn">Compiler 已拒绝当前 revision；先创建新 revision 修正 WorkSpec，再重新请求 Proposal。</span>}
         {plan && !planDecision && onPlanDecision && <button className="btn btn--accent btn--sm" disabled={busyAction !== null} onClick={() => onPlanDecision("approved")}>{busyAction === "decision" ? "提交中…" : "批准 Execution Plan"}</button>}
         {planDecision?.decision === "approved" && onRun && <button className="btn btn--accent btn--sm" disabled={busyAction !== null || ["completed", "cancelled"].includes(String(taskStatus))} onClick={onRun}>{busyAction === "run" ? "排队中…" : "创建 RunIntent"}</button>}
       </div>

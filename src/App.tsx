@@ -52,6 +52,106 @@ type GovernanceSnapshot = {
   faultInjection?: FaultInjectionDto;
 };
 
+const standardCriterionDefaults = [
+  {
+    criterionId: "health-build-version",
+    verifierId: "health-contract-v1",
+    verifierVersion: "1.0.0",
+    expected: "可验证的构建/版本或接口结果符合任务约定",
+    evidenceTypes: ["test-report", "api-schema"],
+  },
+  {
+    criterionId: "unit-integration-tests",
+    verifierId: "test-suite-v1",
+    verifierVersion: "1.0.0",
+    expected: "单元测试与集成测试均由真实 Skill 执行并通过",
+    evidenceTypes: ["skill-result", "test-log"],
+  },
+  {
+    criterionId: "remote-digest-match",
+    verifierId: "scm-reconcile-v1",
+    verifierVersion: "1.0.0",
+    expected: "source changeSet.digest 与远端回读 digest 对账通过",
+    evidenceTypes: ["git-operation", "remote-revision"],
+  },
+] as const;
+
+function slug(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "item";
+}
+
+function criterionDefaultFor(text: string, index: number) {
+  if (index < standardCriterionDefaults.length) return standardCriterionDefaults[index]!;
+  const lower = text.toLowerCase();
+  if (lower.includes("test") || lower.includes("测试") || lower.includes("覆盖")) return standardCriterionDefaults[1];
+  if (lower.includes("remote") || lower.includes("远端") || lower.includes("远程") || lower.includes("digest") || lower.includes("提交") || lower.includes("分支")) return standardCriterionDefaults[2];
+  if (lower.includes("health") || lower.includes("build") || lower.includes("version") || lower.includes("构建") || lower.includes("版本") || lower.includes("接口")) return standardCriterionDefaults[0];
+  return standardCriterionDefaults[index] ?? { ...standardCriterionDefaults[0], criterionId: `criterion-${index + 1}` };
+}
+
+function workSpecFromContract(prompt: string, contract: AgentEvent, scm: NewTaskScmDraft): WorkSpecDraftInput {
+  const contractData = contract.kind === "contract" ? contract : undefined;
+  const scopeText = contractData?.scope ?? [];
+  const scopeItems = scopeText?.map((item) => item.trim()).filter(Boolean) ?? [];
+  const pathItems = scopeItems.filter((item) => /[/*\\]/.test(item));
+  const included = Array.from(new Set([...(pathItems.length ? pathItems : []), "src/**", "test/**", "docs/**"]));
+  const criteria = (contractData?.doneCriteria ?? []).map((text, index) => {
+    const preset = criterionDefaultFor(text, index);
+    return {
+      criterionId: preset.criterionId,
+      required: true,
+      description: text.trim(),
+      verifierId: preset.verifierId,
+      verifierVersion: preset.verifierVersion,
+      expected: preset.expected,
+      evidencePolicy: { evidenceTypes: [...preset.evidenceTypes], minCount: 1, retention: "task-lifetime" },
+    };
+  });
+  const uniqueCriteria = criteria.map((criterion, index, all) => {
+    const duplicate = all.slice(0, index).some((item) => item.criterionId === criterion.criterionId);
+    return duplicate ? { ...criterion, required: false, criterionId: `criterion-optional-${index + 1}-${slug(criterion.description)}` } : criterion;
+  });
+  const materials = contractData?.materials ?? [];
+  const approvals = contractData?.approvals ?? [];
+  const tools = contractData?.tools ?? [];
+  const repository = {
+    provider: scm.provider ?? "github",
+    mcpServerRef: scm.mcpServerRef ?? "github-official",
+    repositoryRef: scm.repositoryRef,
+    baseBranch: scm.baseBranch,
+    targetBranch: scm.targetBranch,
+    credentialRef: scm.credentialRef ?? "GITHUB_AGENTFLOW_TOKEN",
+  } as const;
+  return {
+    schemaVersion: 1,
+    title: contractData?.title ?? (prompt.length > 28 ? `${prompt.slice(0, 28)}…` : prompt),
+    objective: prompt,
+    background: [
+      scopeItems.length ? `原始改动范围：${scopeItems.join("；")}` : "",
+      materials.length ? `输入资料：${materials.join("；")}` : "",
+      approvals.length ? `需人工放行：${approvals.join("；")}` : "",
+      tools.length ? `可用工具：${tools.join("；")}` : "",
+    ].filter(Boolean).join("\n"),
+    scope: { included, excluded: [".git/**"] },
+    inputs: materials.map((item) => ({ ref: `input-${slug(item)}`, description: item })),
+    doneCriteria: uniqueCriteria,
+    deliverables: (contractData?.deliverables?.length ? contractData.deliverables : ["源码、测试与审查交付物"]).map((item, index) => ({ deliverableId: `deliverable-${index + 1}-${slug(item)}`, kind: "artifact", description: item, criterionIds: uniqueCriteria.map((criterion) => criterion.criterionId) })),
+    repository,
+    constraints: {
+      allowedPaths: included,
+      forbiddenPaths: [".git/**"],
+      allowedCommands: [],
+      maxNodes: 9,
+      maxAttempts: 3,
+      maxWallTimeMs: 3_600_000,
+      workspaceWriteConcurrency: 1,
+      externalWrite: { requiresApproval: true, allowedBranches: [repository.targetBranch], forbiddenBranches: ["main", "master", "release/**"] },
+    },
+    policies: { policyVersion: "1.0.0", approval: "plan-plus-external-write", rework: "frozen-fail-target-only" },
+    templateRef: { templateId: "standard-code-change", templateVersion: "1.7" },
+  };
+}
+
 function apiFailure(error: unknown, fallbackMessage: string): Omit<Extract<ApiLoadState, { status: "error" }>, "status"> {
   if (error instanceof AfApiError) {
     return { code: error.code, message: error.message, retryable: error.retryable };
@@ -97,6 +197,7 @@ export default function App() {
   const [governanceLoad, setGovernanceLoad] = useState<GovernanceLoadState>({ status: "idle" });
   const [governance, setGovernance] = useState<GovernanceSnapshot>({ workSpec: null, proposal: null, compilationReport: null, plan: null, planDecision: null, runIntent: null, assessments: [], evidenceMatrix: null, approvals: null, trustedDelivery: null });
   const [workSpecDraft, setWorkSpecDraft] = useState<WorkSpecDraftInput | undefined>(undefined);
+  const [workSpecRevisionEditing, setWorkSpecRevisionEditing] = useState(false);
   const [startingTaskId, setStartingTaskId] = useState<string | null>(null);
   const [approvingNodeId, setApprovingNodeId] = useState<string | null>(null);
   const [planningOperation, setPlanningOperation] = useState(false);
@@ -565,9 +666,17 @@ export default function App() {
         preferredActiveRef.current = createdTask.taskId;
         setActiveId(createdTask.taskId);
         setMode("session");
-        push({ tone: "info", title: "任务已创建", body: `任务 ${createdTask.taskId} 已进入控制面，请先填写并冻结 WorkSpec。` });
+        const workSpecPayload = workSpecFromContract(prompt, contract, scm);
+        setWorkSpecDraft(workSpecPayload);
+        setWorkSpecRevisionEditing(false);
+        try {
+          await afApi.saveWorkSpec(createdTask.taskId, workSpecPayload);
+          push({ tone: "ok", title: "任务已创建，WorkSpec 已自动冻结", body: `任务 ${createdTask.taskId} 已保存契约并生成 revision。现在可以请求 Proposal。` });
+        } catch (error: unknown) {
+          const failure = apiFailure(error, "无法保存新任务 WorkSpec");
+          push({ tone: "warn", title: "任务已创建，但 WorkSpec 冻结失败", body: `${failure.code} · ${failure.message}。可在治理面板修正后重试。` });
+        }
         loadBootstrap();
-        // 1.7 主路径先冻结 WorkSpec、生成 Proposal 和 PlanDecision；不在任务壳创建后隐式启动。
         await fetchTaskRuntime(createdTask.taskId);
         await fetchGovernance(createdTask.taskId);
         return;
@@ -784,6 +893,8 @@ export default function App() {
     stepTimers.current.forEach(clearTimeout);
     stepTimers.current = [];
     setActiveId(s.id);
+    setWorkSpecDraft(undefined);
+    setWorkSpecRevisionEditing(false);
     setMode("session");
     setExtra([]);
     setVisible(conversationOf(s.workflow).length);
@@ -976,32 +1087,45 @@ export default function App() {
       targetBranch: taskRuntime?.targetBranch ?? active.branch,
       credentialRef: provider?.credentialRef ?? "GITHUB_AGENTFLOW_TOKEN",
     };
-    const criteria = (draft.doneCriteria ?? []).map((criterion, index) => ({
-      criterionId: criterion.criterionId || `criterion-${index + 1}`,
-      required: criterion.required !== false,
-      description: criterion.description.trim(),
-      verifierId: criterion.verifierId || "human-review",
-      verifierVersion: criterion.verifierVersion || "1.0.0",
-      expected: criterion.expected?.trim() || "由服务端确定性验证器确认",
-      evidencePolicy: { evidenceTypes: criterion.evidencePolicy?.evidenceTypes?.length ? criterion.evidencePolicy.evidenceTypes : ["task-event"], minCount: criterion.evidencePolicy?.minCount ?? 1, retention: criterion.evidencePolicy?.retention || "task" },
-    }));
+    const criteria = (draft.doneCriteria ?? []).map((criterion, index) => {
+      const preset = criterionDefaultFor(criterion.description ?? "", index);
+      const canonicalId = standardCriterionDefaults.some((item) => item.criterionId === criterion.criterionId)
+        ? criterion.criterionId
+        : preset.criterionId;
+      return {
+        criterionId: canonicalId,
+        required: criterion.required !== false,
+        description: criterion.description.trim(),
+        verifierId: criterion.verifierId && criterion.verifierId !== "human-review" ? criterion.verifierId : preset.verifierId,
+        verifierVersion: criterion.verifierVersion || preset.verifierVersion,
+        expected: criterion.expected?.trim() || preset.expected,
+        evidencePolicy: { evidenceTypes: criterion.evidencePolicy?.evidenceTypes?.length ? criterion.evidencePolicy.evidenceTypes : [...preset.evidenceTypes], minCount: criterion.evidencePolicy?.minCount ?? 1, retention: criterion.evidencePolicy?.retention || "task-lifetime" },
+      };
+    });
+    const uniqueCriteria = criteria.map((criterion, index, all) => all.slice(0, index).some((item) => item.criterionId === criterion.criterionId)
+      ? { ...criterion, required: false, criterionId: `criterion-optional-${index + 1}-${slug(criterion.description)}` }
+      : criterion);
+    const allowedPaths = Array.from(new Set([...(draft.constraints?.allowedPaths ?? []), "src/**", "test/**", "docs/**"]));
+    const includedPaths = Array.from(new Set([...(draft.scope?.included ?? []), "src/**", "test/**", "docs/**"]));
     const payload: WorkSpecDraftInput = {
       schemaVersion: 1,
       title: draft.title?.trim() || active.title,
       objective: draft.objective?.trim() || active.title,
       background: draft.background ?? "",
-      scope: draft.scope ?? { included: ["src/**", "test/**"], excluded: [".git/**"] },
+      scope: { included: includedPaths, excluded: draft.scope?.excluded ?? [".git/**"] },
       inputs: draft.inputs ?? [],
-      doneCriteria: criteria,
-      deliverables: draft.deliverables?.length ? draft.deliverables : [{ deliverableId: "source-change", kind: "change-set", description: "受限源码变更", criterionIds: criteria.map((criterion) => criterion.criterionId) }],
+      doneCriteria: uniqueCriteria,
+      deliverables: draft.deliverables?.length ? draft.deliverables.map((item) => ({ ...item, criterionIds: item.criterionIds?.map((id) => uniqueCriteria.some((criterion) => criterion.criterionId === id) ? id : undefined).filter((id): id is string => Boolean(id)).length ? item.criterionIds?.map((id) => uniqueCriteria.some((criterion) => criterion.criterionId === id) ? id : undefined).filter((id): id is string => Boolean(id)) : uniqueCriteria.map((criterion) => criterion.criterionId) })) : [{ deliverableId: "source-change", kind: "change-set", description: "受限源码变更", criterionIds: uniqueCriteria.map((criterion) => criterion.criterionId) }],
       repository,
-      constraints: draft.constraints ?? { allowedPaths: ["src/**", "test/**"], forbiddenPaths: [".git/**"], allowedCommands: [], maxNodes: 9, maxAttempts: 3, maxWallTimeMs: 3_600_000, workspaceWriteConcurrency: 1, externalWrite: { requiresApproval: true, allowedBranches: [repository.targetBranch] } },
+      constraints: { ...(draft.constraints ?? { forbiddenPaths: [".git/**"], allowedCommands: [], maxNodes: 9, maxAttempts: 3, maxWallTimeMs: 3_600_000, workspaceWriteConcurrency: 1, externalWrite: { requiresApproval: true, allowedBranches: [repository.targetBranch] } }), allowedPaths, forbiddenPaths: draft.constraints?.forbiddenPaths ?? [".git/**"] },
       policies: draft.policies ?? { policyVersion: taskRuntime?.workflow.policyVersion ?? "1.0.0", approval: "human", rework: "fail-target" },
       templateRef: draft.templateRef ?? { templateId: "standard-code-change", templateVersion: "1.7" },
     };
     try {
       setGovernanceLoad({ status: "loading" });
       await afApi.saveWorkSpec(activeId, payload);
+      setWorkSpecDraft(payload);
+      setWorkSpecRevisionEditing(false);
       await Promise.all([fetchGovernance(activeId), fetchTaskRuntime(activeId)]);
       push({ tone: "ok", title: "WorkSpec 已冻结", body: "服务端已生成不可变 revision 与 digest，后续规划将引用该事实。" });
     } catch (error: unknown) {
@@ -1010,6 +1134,25 @@ export default function App() {
       push({ tone: "warn", title: "WorkSpec 冻结失败", body: `${failure.code} · ${failure.message}` });
     }
   }, [active, activeId, fetchGovernance, fetchTaskRuntime, push, scmProviders, taskRuntime]);
+
+  const createWorkSpecRevision = useCallback(() => {
+    if (!governance.workSpec) return;
+    setWorkSpecDraft({
+      title: governance.workSpec.title,
+      objective: governance.workSpec.objective,
+      background: governance.workSpec.background ?? "",
+      scope: governance.workSpec.scope,
+      inputs: governance.workSpec.inputs ?? [],
+      doneCriteria: governance.workSpec.doneCriteria ?? [],
+      deliverables: governance.workSpec.deliverables ?? [],
+      repository: governance.workSpec.repository,
+      constraints: governance.workSpec.constraints,
+      policies: governance.workSpec.policies,
+      templateRef: governance.workSpec.templateRef,
+    });
+    setWorkSpecRevisionEditing(true);
+    push({ tone: "info", title: "已打开 WorkSpec 新 revision", body: "这是当前冻结事实的可编辑副本；保存后服务端会生成下一 revision，并使旧 Proposal/Plan 失效。" });
+  }, [governance.workSpec, push]);
 
   const requestProposal = useCallback(async () => {
     if (!activeId || !governance.workSpec) return;
@@ -1146,10 +1289,11 @@ export default function App() {
                 trustedDelivery={governance.trustedDelivery}
                 runMode={taskRuntime?.runMode ?? governance.runMode}
                 apiMode={afApi.mode}
-                workSpecEditable={!governance.workSpec}
+                workSpecEditable={!governance.workSpec || workSpecRevisionEditing}
                 workSpecDraft={workSpecDraft}
                 onWorkSpecDraftChange={setWorkSpecDraft}
                 onFreezeWorkSpec={(draft) => void freezeWorkSpec(draft)}
+                onCreateWorkSpecRevision={createWorkSpecRevision}
                 onRequestProposal={() => void requestProposal()}
                 onCompile={() => void compilePlan()}
                 onPlanDecision={(decision) => void decidePlan(decision)}
