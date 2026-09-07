@@ -635,6 +635,7 @@ export interface TrajectoryEventDto {
 }
 
 export interface ApproveResultDto { taskId: string; nodeId: string; state: TaskSummaryDto["state"]; revision: number; }
+export interface EvidenceMaterializationDto { evidenceMatrix: EvidenceMatrixDto; trustedDelivery: TrustedDeliveryDto; }
 
 export interface AfApiClient {
   readonly mode: "http" | "fixture";
@@ -670,6 +671,7 @@ export interface AfApiClient {
   saveCriterionAssessment(taskId: string, input: CriterionAssessmentInput, signal?: AbortSignal): Promise<CriterionAssessmentDto>;
   getEvidenceMatrix(taskId: string, signal?: AbortSignal): Promise<EvidenceMatrixDto>;
   getTrustedDelivery(taskId: string, signal?: AbortSignal): Promise<TrustedDeliveryDto>;
+  materializeEvidence(taskId: string, signal?: AbortSignal): Promise<EvidenceMaterializationDto>;
   getApprovals(taskId: string, signal?: AbortSignal): Promise<ApprovalQueryDto>;
   createPushOperation(taskId: string, input: PushOperationInput, signal?: AbortSignal): Promise<GitOperationDto>;
   confirmPushOperation(operationId: string, signal?: AbortSignal): Promise<GitOperationDto>;

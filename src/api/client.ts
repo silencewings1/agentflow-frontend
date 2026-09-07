@@ -15,6 +15,7 @@ import type {
   CriterionAssessmentDto,
   CriterionAssessmentInput,
   EvidenceMatrixDto,
+  EvidenceMaterializationDto,
   CreateTaskInput,
   GitOperationDto,
   PlanDecisionDto,
@@ -446,6 +447,10 @@ function fixtureClient(): AfApiClient {
     async continueTask(taskId) {
       return this.startTask(taskId);
     },
+    async materializeEvidence(taskId) {
+      taskOrThrow(taskId);
+      return { evidenceMatrix: await this.getEvidenceMatrix(taskId), trustedDelivery: fixtureTrustedDelivery(await this.getTask(taskId)) };
+    },
     async approveTaskNode(taskId, nodeId) {
       const task = tasks.find((item) => item.taskId === taskId);
       if (!task) throw new AfApiError({ code: "AF_TASK_NOT_FOUND", message: "fixture 任务不存在", retryable: false });
@@ -621,6 +626,7 @@ class HttpAfApiClient implements AfApiClient {
   saveCriterionAssessment(taskId: string, input: CriterionAssessmentInput, signal?: AbortSignal) { return this.request<CriterionAssessmentDto>(`/tasks/${encodeURIComponent(taskId)}/criterion-assessments`, { method: "POST", body: JSON.stringify(input) }, signal); }
   getEvidenceMatrix(taskId: string, signal?: AbortSignal) { return this.request<EvidenceMatrixDto>(`/tasks/${encodeURIComponent(taskId)}/evidence-matrix`, undefined, signal); }
   getTrustedDelivery(taskId: string, signal?: AbortSignal) { return this.request<TrustedDeliveryDto>(`/tasks/${encodeURIComponent(taskId)}/trusted-delivery`, undefined, signal); }
+  materializeEvidence(taskId: string, signal?: AbortSignal) { return this.request<EvidenceMaterializationDto>(`/tasks/${encodeURIComponent(taskId)}/evidence/materialize`, { method: "POST", body: "{}" }, signal); }
   getApprovals(taskId: string, signal?: AbortSignal) { return this.request<ApprovalQueryDto>(`/tasks/${encodeURIComponent(taskId)}/approvals`, undefined, signal); }
   createPushOperation(taskId: string, input: PushOperationInput, signal?: AbortSignal) { return this.request<GitOperationDto>(`/tasks/${encodeURIComponent(taskId)}/git-operations`, { method: "POST", body: JSON.stringify(input) }, signal); }
   confirmPushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}/confirm`, { method: "POST", body: JSON.stringify({ idempotencyKey: requestKey("git-confirm", operationId) }) }, signal); }

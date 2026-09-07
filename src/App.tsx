@@ -181,6 +181,10 @@ export default function App() {
       setTaskRuntime(detail);
       setTrajectory(events);
       if (detail.executorMode) setExecutorMode(detail.executorMode);
+      // 完成态首次出现时请求服务端物化不可变证据；重复轮询由后端幂等收敛。
+      if (afApi.mode === "http" && detail.status === "completed") {
+        try { await afApi.materializeEvidence(taskId, signal); } catch { /* 事实未齐时由治理面板如实显示受阻 */ }
+      }
       setRuntimeLoad({ status: "ready" });
       setSessionList((items) => items.map((item) => item.id === taskId ? {
         ...item,
