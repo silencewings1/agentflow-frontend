@@ -2,8 +2,9 @@ import { Icon } from "./Icons";
 import type { Theme } from "../data/mock";
 import type { SettingsPane } from "./Settings";
 
-const NAV: { id: SettingsPane; label: string; glyph: "Layers" | "Agent" | "Bolt" | "Cpu" | "Plug" | "Cloud" }[] = [
+const NAV: { id: SettingsPane; label: string; glyph: "Layers" | "Key" | "Agent" | "Bolt" | "Cpu" | "Plug" | "Cloud" }[] = [
   { id: "arch", label: "总体架构", glyph: "Layers" },
+  { id: "members", label: "成员与权限", glyph: "Key" },
   { id: "agents", label: "智能体", glyph: "Agent" },
   { id: "skills", label: "技能配置", glyph: "Bolt" },
   { id: "models", label: "模型配置", glyph: "Cpu" },

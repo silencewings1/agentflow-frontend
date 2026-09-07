@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Icon, type IconName } from "./Icons";
+import { MembersPane } from "./MembersPane";
 import {
   agentToolCatalog,
   archLayers,
@@ -40,7 +41,14 @@ import {
   type SkillSource,
 } from "../data/settings";
 
-export type SettingsPane = "arch" | "agents" | "skills" | "models" | "connect" | "env";
+export type SettingsPane =
+  | "arch"
+  | "members"
+  | "agents"
+  | "skills"
+  | "models"
+  | "connect"
+  | "env";
 
 /* 架构层的跳转落点：点击直达承载该层证据的界面，而不是让用户自己去找 */
 export type ArchJump = "workflow" | "agents" | "replay" | "evidence" | "checkpoint";
@@ -62,6 +70,12 @@ const PANES: { id: SettingsPane; label: string; glyph: IconName; desc: string }[
     label: "总体架构",
     glyph: "Layers",
     desc: "五层协同架构：每一层职责单一、边界清晰，并显示当前会话在该层的实时状态。",
+  },
+  {
+    id: "members",
+    label: "成员与权限",
+    glyph: "Key",
+    desc: "账户目录与节点授权矩阵。权限不是围栏，是责任分配：每个节点必须有明确操作者，门禁裁决权不可由智能体代持。",
   },
   {
     id: "agents",
@@ -168,6 +182,7 @@ export function SettingsOverlay({
             {pane === "arch" && (
               <ArchPane onToast={onToast} runtime={runtime} onJump={onJump} />
             )}
+            {pane === "members" && <MembersPane onToast={onToast} />}
             {pane === "agents" && <AgentsPane onToast={onToast} />}
             {pane === "skills" && <SkillsPane onToast={onToast} />}
             {pane === "models" && <ModelsPane onToast={onToast} />}

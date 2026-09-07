@@ -50,7 +50,13 @@ export default function App() {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("files");
   const [activeFile, setActiveFile] = useState<string>("src/main/java/com/demo/auth/AuthService.java");
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [settingsPane, setSettingsPane] = useState<SettingsPane | null>(null);
+  /* ?pane=members 这类查询参数直达对应设置面板：深链/自动化验证共用同一入口 */
+  const [settingsPane, setSettingsPane] = useState<SettingsPane | null>(() => {
+    const q = new URLSearchParams(window.location.search).get("pane");
+    return q && ["arch", "members", "agents", "skills", "models", "connect", "env"].includes(q)
+      ? (q as SettingsPane)
+      : null;
+  });
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   /* 初始编排取首条会话自己的编排，而不是写死第一套模板 */
   const [workflow, setWorkflow] = useState<Workflow>(() => wfOf(sessions[0]?.workflow));
