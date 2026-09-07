@@ -325,12 +325,17 @@ export default function App() {
         optional(() => afApi.getTrustedDelivery(taskId, signal), null),
       ]);
       const latest = <T,>(items: T[]): T | null => items.length ? items[items.length - 1]! : null;
+      const currentWorkSpec = latest(workSpecs);
+      const currentProposal = latest(proposals.filter((item) => !currentWorkSpec || (item.workSpecRevision === currentWorkSpec.workSpecRevision && item.workSpecDigest === currentWorkSpec.workSpecDigest)));
+      const currentReport = latest(reports.filter((item) => (!currentWorkSpec || item.workSpecDigest === currentWorkSpec.workSpecDigest) && (!currentProposal || item.proposalDigest === currentProposal.proposalDigest)));
+      const currentPlan = latest(plans.filter((item) => (!currentWorkSpec || (item.workSpecRevision === currentWorkSpec.workSpecRevision && item.workSpecDigest === currentWorkSpec.workSpecDigest)) && (!currentProposal || item.proposalDigest === currentProposal.proposalDigest)));
+      const currentDecision = latest(decisions.filter((item) => (!currentWorkSpec || item.workSpecDigest === currentWorkSpec.workSpecDigest) && (!currentProposal || item.proposalDigest === currentProposal.proposalDigest)));
       setGovernance({
-        workSpec: latest(workSpecs),
-        proposal: latest(proposals),
-        compilationReport: latest(reports),
-        plan: latest(plans),
-        planDecision: latest(decisions),
+        workSpec: currentWorkSpec,
+        proposal: currentProposal,
+        compilationReport: currentReport,
+        plan: currentPlan,
+        planDecision: currentDecision,
         runIntent: latest(runs),
         assessments,
         evidenceMatrix,
