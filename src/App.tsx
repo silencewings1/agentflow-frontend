@@ -80,6 +80,10 @@ function slug(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "item";
 }
 
+function isPathPattern(value: string): boolean {
+  return /[/*\\]/.test(value.trim());
+}
+
 function criterionDefaultFor(text: string, index: number) {
   if (index < standardCriterionDefaults.length) return standardCriterionDefaults[index]!;
   const lower = text.toLowerCase();
@@ -93,7 +97,7 @@ function workSpecFromContract(prompt: string, contract: AgentEvent, scm: NewTask
   const contractData = contract.kind === "contract" ? contract : undefined;
   const scopeText = contractData?.scope ?? [];
   const scopeItems = scopeText?.map((item) => item.trim()).filter(Boolean) ?? [];
-  const pathItems = scopeItems.filter((item) => /[/*\\]/.test(item));
+  const pathItems = scopeItems.filter(isPathPattern);
   const included = Array.from(new Set([...(pathItems.length ? pathItems : []), "src/**", "test/**", "docs/**"]));
   const criteria = (contractData?.doneCriteria ?? []).map((text, index) => {
     const preset = criterionDefaultFor(text, index);
@@ -1110,19 +1114,20 @@ export default function App() {
     const uniqueCriteria = criteria.map((criterion, index, all) => all.slice(0, index).some((item) => item.criterionId === criterion.criterionId)
       ? { ...criterion, required: false, criterionId: `criterion-optional-${index + 1}-${slug(criterion.description)}` }
       : criterion);
-    const allowedPaths = Array.from(new Set([...(draft.constraints?.allowedPaths ?? []), "src/**", "test/**", "docs/**"]));
-    const includedPaths = Array.from(new Set([...(draft.scope?.included ?? []), "src/**", "test/**", "docs/**"]));
+    const excludedPaths = draft.scope?.excluded ?? [".git/**"];
+    const allowedPaths = Array.from(new Set([...(draft.constraints?.allowedPaths ?? []).filter(isPathPattern), "src/**", "test/**", "docs/**"]));
+    const includedPaths = Array.from(new Set([...(draft.scope?.included ?? []).filter(isPathPattern), "src/**", "test/**", "docs/**"]));
     const payload: WorkSpecDraftInput = {
       schemaVersion: 1,
       title: draft.title?.trim() || active.title,
       objective: draft.objective?.trim() || active.title,
       background: draft.background ?? "",
-      scope: { included: includedPaths, excluded: draft.scope?.excluded ?? [".git/**"] },
+      scope: { included: includedPaths.filter((path) => !excludedPaths.includes(path)), excluded: excludedPaths },
       inputs: draft.inputs ?? [],
       doneCriteria: uniqueCriteria,
       deliverables: draft.deliverables?.length ? draft.deliverables.map((item) => ({ ...item, criterionIds: item.criterionIds?.map((id) => uniqueCriteria.some((criterion) => criterion.criterionId === id) ? id : undefined).filter((id): id is string => Boolean(id)).length ? item.criterionIds?.map((id) => uniqueCriteria.some((criterion) => criterion.criterionId === id) ? id : undefined).filter((id): id is string => Boolean(id)) : uniqueCriteria.map((criterion) => criterion.criterionId) })) : [{ deliverableId: "source-change", kind: "change-set", description: "受限源码变更", criterionIds: uniqueCriteria.map((criterion) => criterion.criterionId) }],
       repository,
-      constraints: { ...(draft.constraints ?? { forbiddenPaths: [".git/**"], allowedCommands: [], maxNodes: 9, maxAttempts: 3, maxWallTimeMs: 3_600_000, workspaceWriteConcurrency: 1, externalWrite: { requiresApproval: true, allowedBranches: [repository.targetBranch] } }), allowedPaths, forbiddenPaths: draft.constraints?.forbiddenPaths ?? [".git/**"] },
+      constraints: { ...(draft.constraints ?? { forbiddenPaths: [".git/**"], allowedCommands: [], maxNodes: 9, maxAttempts: 3, maxWallTimeMs: 3_600_000, workspaceWriteConcurrency: 1, externalWrite: { requiresApproval: true, allowedBranches: [repository.targetBranch] } }), allowedPaths: allowedPaths.filter((path) => !((draft.constraints?.forbiddenPaths ?? [".git/**"]).includes(path))), forbiddenPaths: draft.constraints?.forbiddenPaths ?? [".git/**"] },
       policies: draft.policies ?? { policyVersion: taskRuntime?.workflow.policyVersion ?? "1.0.0", approval: "human", rework: "fail-target" },
       templateRef: draft.templateRef ?? { templateId: "standard-code-change", templateVersion: "1.7" },
     };
