@@ -100,8 +100,6 @@ export function NewTaskDialog({
   );
   const ready =
     prompt.trim().length > 0 &&
-    lists.scope.length > 0 &&
-    lists.doneCriteria.length > 0 &&
     (scmProviders.length === 0 || provider?.available === true) &&
     repositoryRef.trim().length > 0 &&
     baseBranch.trim().length > 0 &&
@@ -123,14 +121,6 @@ export function NewTaskDialog({
     if (!text) {
       setStep("intent");
       return onToast({ tone: "warn", title: "请先填写任务目标", body: "任务契约需要明确要解决的问题。" });
-    }
-    if (!lists.scope.length || !lists.doneCriteria.length) {
-      setStep("contract");
-      return onToast({
-        tone: "warn",
-        title: "契约不完整",
-        body: "改动范围与完成判定不可为空，否则门禁无法核验。",
-      });
     }
     if (scmProviders.length && !provider?.available) {
       setStep("intent");
@@ -286,8 +276,7 @@ export function NewTaskDialog({
             <div className="stack">
               <p className="ctrNote">
                 <Icon.Nodes size={13} />
-                任务契约是本次任务的<strong>唯一入口</strong>：它同时充当执行边界与验收依据。
-                下游每个节点只按契约判定通过与否，人工也只在契约声明的放行点介入。
+                这里展示的是 AI 根据任务目标整理出的<strong>契约草稿</strong>。范围、验收项可以留空，系统会在冻结前自动补齐安全路径和标准验收项；只有真正无法安全推断的内容才需要你确认。
               </p>
 
               <div className="ctrEdit">

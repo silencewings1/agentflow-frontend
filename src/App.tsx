@@ -99,7 +99,14 @@ function workSpecFromContract(prompt: string, contract: AgentEvent, scm: NewTask
   const scopeItems = scopeText?.map((item) => item.trim()).filter(Boolean) ?? [];
   const pathItems = scopeItems.filter(isPathPattern);
   const included = Array.from(new Set([...(pathItems.length ? pathItems : []), "src/**", "test/**", "docs/**"]));
-  const criteria = (contractData?.doneCriteria ?? []).map((text, index) => {
+  const criterionText = contractData?.doneCriteria?.length
+    ? contractData.doneCriteria
+    : [
+      "任务目标与实现范围可由审查证据复核",
+      "单元测试与集成测试均通过",
+      "变更已在目标功能分支完成远端对账",
+    ];
+  const criteria = criterionText.map((text, index) => {
     const preset = criterionDefaultFor(text, index);
     return {
       criterionId: preset.criterionId,
