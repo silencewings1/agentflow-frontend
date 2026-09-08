@@ -10,9 +10,9 @@ export default defineConfig({
     port: 5176,
     strictPort: true,
     host: true,
-    // 开发时把 AF API 请求转发给后端（dsh web 5090），避免浏览器 CORS
+    // 开发时把 AF API 请求转发给正式 W9 后端（dsh web 3080），避免浏览器 CORS。
     proxy: {
-      '/api/af': 'http://127.0.0.1:5090',
+      '/api/af': 'http://127.0.0.1:3080',
     },
   },
   preview: {
