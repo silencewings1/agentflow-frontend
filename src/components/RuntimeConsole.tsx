@@ -23,6 +23,7 @@ export function RuntimeConsole({
   profiles,
   apiMode,
   starting,
+  runActive = false,
   onStart,
   approvingNodeId,
   onApproveNode,
@@ -38,6 +39,7 @@ export function RuntimeConsole({
   profiles: AgentProfileSummaryDto[];
   apiMode: "http" | "fixture";
   starting: boolean;
+  runActive?: boolean;
   onStart: () => void;
   approvingNodeId: string | null;
   onApproveNode: (nodeId: string) => void;
@@ -77,9 +79,9 @@ export function RuntimeConsole({
         </div>
         <div className="runtime__badges">
           {apiMode === "http" && detail.status === "created" && (
-            <button className="btn btn--accent btn--sm" disabled={starting} onClick={onStart}>
+            <button className="btn btn--accent btn--sm" disabled={starting || runActive} onClick={onStart}>
               <Icon.Sparkle size={12} />
-              {starting ? "启动中…" : "启动任务"}
+              {starting ? "正在提交运行请求…" : runActive ? "后台执行中…" : "开始执行任务"}
             </button>
           )}
           <span className="tag tag--xs mono">{detail.executorMode}</span>

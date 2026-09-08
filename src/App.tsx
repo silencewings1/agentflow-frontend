@@ -1307,6 +1307,7 @@ export default function App() {
               profiles={agentProfiles}
               apiMode={afApi.mode}
               starting={startingTaskId === activeId}
+              runActive={["queued", "claimed", "running", "yielded"].includes(String(governance.runIntent?.status))}
               onStart={() => void startLiveTask()}
               approvingNodeId={approvingNodeId}
               onApproveNode={(nodeId) => void approveAndContinueTask(nodeId)}
