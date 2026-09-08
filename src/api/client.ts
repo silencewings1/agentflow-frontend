@@ -336,7 +336,7 @@ function fixtureWorkSpec(task: TaskSummaryDto): WorkSpecDto {
     repository: { provider: task.provider, mcpServerRef: task.mcpServerRef, repositoryRef: task.repositoryRef, baseBranch: task.baseBranch, targetBranch: task.targetBranch, credentialRef: "fixture-credential" },
     constraints: { allowedPaths: ["src/**", "test/**"], forbiddenPaths: [".git/**"], allowedCommands: ["npm test"], maxNodes: 10, maxAttempts: 3, maxWallTimeMs: 60_000, workspaceWriteConcurrency: 1, externalWrite: { requiresApproval: true, allowedBranches: [task.targetBranch] } },
     policies: { policyVersion: "fixture-1.0.0" },
-    templateRef: { templateId: "standard-code-change", templateVersion: "1.7" },
+    templateRef: { templateId: "standard-code-change", templateVersion: "2.0" },
     createdAt: FIXTURE_TIME,
     createdBy: "fixture-user",
   };

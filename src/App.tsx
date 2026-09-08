@@ -161,7 +161,7 @@ function workSpecFromContract(prompt: string, contract: AgentEvent, scm: NewTask
       externalWrite: { requiresApproval: true, allowedBranches: [repository.targetBranch], forbiddenBranches: ["main", "master", "release/**"] },
     },
     policies: { policyVersion: "1.0.0", approval: "plan-plus-external-write", rework: "frozen-fail-target-only" },
-    templateRef: { templateId: "standard-code-change", templateVersion: "1.7" },
+    templateRef: { templateId: "standard-code-change", templateVersion: "2.0" },
   };
 }
 
@@ -1329,7 +1329,7 @@ export default function App() {
       repository,
       constraints: { ...(draft.constraints ?? { forbiddenPaths: [".git/**"], allowedCommands: [], maxNodes: 9, maxAttempts: 3, maxWallTimeMs: 3_600_000, workspaceWriteConcurrency: 1, externalWrite: { requiresApproval: true, allowedBranches: [repository.targetBranch] } }), allowedPaths: allowedPaths.filter((path) => !((draft.constraints?.forbiddenPaths ?? [".git/**"]).includes(path))), forbiddenPaths: draft.constraints?.forbiddenPaths ?? [".git/**"] },
       policies: draft.policies ?? { policyVersion: taskRuntime?.workflow.policyVersion ?? "1.0.0", approval: "human", rework: "fail-target" },
-      templateRef: draft.templateRef ?? { templateId: "standard-code-change", templateVersion: "1.7" },
+      templateRef: draft.templateRef ?? { templateId: "standard-code-change", templateVersion: "2.0" },
     };
     try {
       setGovernanceLoad({ status: "loading" });
