@@ -21,6 +21,7 @@ import { SettingsOverlay, type ArchJump, type SettingsPane } from "./components/
 import { NewTaskDialog } from "./components/NewTask";
 import { WorkflowStrip, NodeConversation } from "./components/Workflow";
 import { defaultModel, modelOptions } from "./data/settings";
+import { accounts, initialGrants, accountById, type NodeGrant } from "./data/accounts";
 import {
   buildOrchestratorPlan,
   runOf,
@@ -65,6 +66,8 @@ export default function App() {
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>("ask");
   const [model, setModel] = useState(defaultModel);
   const [mode, setMode] = useState<"session" | "welcome">("session");
+  const [currentAccountId, setCurrentAccountId] = useState<string>("ac-yz");
+  const [grants, _setGrants] = useState<NodeGrant[]>(initialGrants);
 
   /* --- streamed event window --------------------------------------------- */
   const [visible, setVisible] = useState(() => conversationOf(sessions[0]?.workflow).length);
@@ -178,6 +181,20 @@ export default function App() {
   const toggleTheme = useCallback(() => {
     setTheme((t) => (t === "lumen" ? "ink" : "lumen"));
   }, []);
+
+  const switchAccount = useCallback(
+    (id: string) => {
+      const acc = accountById(id, accounts);
+      if (!acc) return;
+      setCurrentAccountId(id);
+      push({
+        tone: "info",
+        title: `已切换为 ${acc.name}`,
+        body: `${acc.kind === "human" ? "人工" : acc.kind === "ai" ? "智能体" : "程序"}账户 · ${acc.layer}`,
+      });
+    },
+    [push],
+  );
 
   /* --- keyboard ----------------------------------------------------------- */
   useEffect(() => {
@@ -626,6 +643,9 @@ export default function App() {
         onNew={() => setNewTaskOpen(true)}
         pane={settingsPane}
         onPane={(p) => setSettingsPane((cur) => (cur === p ? null : p))}
+        accounts={accounts}
+        currentAccountId={currentAccountId}
+        onSwitchAccount={switchAccount}
       />
       <Sidebar
         sessions={sessionList}
@@ -661,6 +681,8 @@ export default function App() {
               runStates={runStates}
               focusNode={focusNode}
               onNodeSelect={setFocusNode}
+              grants={grants}
+              currentAccountId={currentAccountId}
             />
             {/* 点开 DAG 节点后，会话区整体切换为该节点视图；否则为正常事件流 */}
             {focusNode ? (

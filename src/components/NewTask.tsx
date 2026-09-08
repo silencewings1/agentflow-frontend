@@ -78,11 +78,16 @@ export function NewTaskDialog({
     () => fieldMeta.reduce((n, f) => n + lists[f.key].length, 0),
     [lists],
   );
+  const unassignedNodes = useMemo(
+    () => wf.nodes.filter((n) => !n.assignee),
+    [wf],
+  );
   const ready =
     prompt.trim().length > 0 &&
     lists.scope.length > 0 &&
     lists.doneCriteria.length > 0 &&
-    picked.length > 0;
+    picked.length > 0 &&
+    unassignedNodes.length === 0;
 
   const toggleRepo = (name: string) =>
     setPicked((p) =>
@@ -110,6 +115,14 @@ export function NewTaskDialog({
         tone: "warn",
         title: "契约不完整",
         body: "改动范围与完成判定不可为空，否则门禁无法核验。",
+      });
+    }
+    if (unassignedNodes.length > 0) {
+      setStep("workflow");
+      return onToast({
+        tone: "warn",
+        title: "存在未指派执行者的节点",
+        body: `${unassignedNodes.length} 个节点尚未指定执行者，请在工作流编排中为每个节点指派负责人。`,
       });
     }
     const contract: AgentEvent = {
@@ -305,6 +318,11 @@ export function NewTaskDialog({
             <strong>{wf.name}</strong> 编排 · {wf.nodes.length} 个节点 ·{" "}
             {wf.nodes.filter((n) => n.gate).length} 道门禁 ·{" "}
             {wf.nodes.filter((n) => n.approval).length} 个人工检查点
+            {step === "workflow" && unassignedNodes.length > 0 && (
+              <>
+                {" "}· <span data-blocking="true">{unassignedNodes.length} 个节点未指派执行者</span>
+              </>
+            )}
           </span>
           {step === "intent" && (
             <button className="btn btn--accent btn--sm" onClick={() => setStep("contract")}>

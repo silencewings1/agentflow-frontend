@@ -12,6 +12,7 @@
 
 import type { IconName } from "../components/Icons";
 import { workflowTemplates, type WfNode } from "./workflows";
+import type { AgentRole } from "./settings";
 
 /* ---------------- 账户 ---------------- */
 
@@ -41,6 +42,57 @@ export const accountLayerLabel: Record<AccountLayer, string> = {
   L4: "质量验证层",
   L5: "人工检查层",
 };
+
+/** 智能体角色到五层架构的映射：决定哪些账户可被指派为该节点的执行者 */
+export const roleLayerMap: Record<AgentRole, AccountLayer> = {
+  orchestrator: "L2",
+  requirement: "L1",
+  architecture: "L1",
+  development: "L2",
+  testing: "L2",
+  review: "L4",
+  delivery: "L1",
+  ops: "L1",
+};
+
+/** 按角色返回可承担该节点的账户列表（层匹配 + 在职状态） */
+export function accountsForRole(role: AgentRole, list: Account[] = accounts): Account[] {
+  const layer = roleLayerMap[role];
+  return list.filter((a) => a.layer === layer && a.state === "active");
+}
+
+/** 按 id 查找账户 */
+export function accountById(id: string, list: Account[] = accounts): Account | undefined {
+  return list.find((a) => a.id === id);
+}
+
+/** 取某账户在某节点的最高权限 */
+export function highestPerm(
+  grants: NodeGrant[],
+  accountId: string,
+  workflowId: string,
+  nodeId: string,
+): NodePerm | null {
+  const rows = grants.filter(
+    (g) => g.accountId === accountId && g.workflowId === workflowId && g.nodeId === nodeId,
+  );
+  if (!rows.length) return null;
+  return rows.reduce(
+    (best, g) => (nodePermRank[g.perm] > nodePermRank[best] ? g.perm : best),
+    rows[0].perm,
+  );
+}
+
+/** 当前账户在节点上是否有 run 及以上权限 */
+export function canRun(
+  grants: NodeGrant[],
+  accountId: string,
+  workflowId: string,
+  nodeId: string,
+): boolean {
+  const p = highestPerm(grants, accountId, workflowId, nodeId);
+  return p !== null && nodePermRank[p] >= nodePermRank.run;
+}
 
 /** 账户：界面上一行身份 = 类型 × 五层落位 × 状态 */
 export interface Account {

@@ -22,6 +22,14 @@ import {
   type Workflow,
 } from "../data/workflows";
 import { roleLabel, skills, skillSourceLabel, type AgentRole, type Skill, type SkillSource } from "../data/settings";
+import {
+  accounts,
+  accountById,
+  accountsForRole,
+  canRun,
+  type Account,
+  type NodeGrant,
+} from "../data/accounts";
 
 /* ============================ DAG 画布 ================================= */
 
@@ -31,6 +39,9 @@ export function DagCanvas({
   onSelect,
   compact,
   runStates,
+  grants,
+  currentAccountId,
+  accountList = accounts,
 }: {
   wf: Workflow;
   selected?: string | null;
@@ -38,6 +49,12 @@ export function DagCanvas({
   compact?: boolean;
   /** 运行态：传入后节点显示状态环，仅已完成/进行中可点开查看消息 */
   runStates?: WfRunStates;
+  /** 节点授权：传入后显示权限阻断态 */
+  grants?: NodeGrant[];
+  /** 当前账户 id，用于判断权限 */
+  currentAccountId?: string;
+  /** 账户列表，用于查找执行者信息 */
+  accountList?: Account[];
 }) {
   const size = dagSize(wf.nodes);
   const flows = wf.edges.filter((e) => e.kind === "flow");
@@ -103,6 +120,11 @@ export function DagCanvas({
           const p = nodePos(n);
           const G = Icon[roleGlyph[n.role]];
           const run = runStates?.[n.id];
+          const assignee = n.assignee ? accountById(n.assignee, accountList) : null;
+          const blocked =
+            grants && currentAccountId && runStates
+              ? !canRun(grants, currentAccountId, wf.id, n.id)
+              : false;
           /* 只有跑过或正在跑的节点才有消息可看，未开始的不给点击预期。
              被阻断的节点必须可点 —— 流程停在哪、为什么停，都在它的消息里 */
           const inspectable = !runStates || (!!run && run !== "todo");
@@ -114,6 +136,7 @@ export function DagCanvas({
               data-tint={roleTint[n.role]}
               data-run={run}
               data-mute={inspectable ? undefined : "true"}
+              data-blocked={blocked ? "permission" : undefined}
               style={{ ["--i" as string]: i }}
               transform={`translate(${p.x} ${p.y})`}
               onClick={() => inspectable && onSelect?.(n.id)}
@@ -144,6 +167,22 @@ export function DagCanvas({
                   </text>
                 </g>
               )}
+              {assignee && (
+                <g transform={`translate(12 ${NODE_H - 18})`} className="dagNode__assignee">
+                  <circle r="8" cx="8" cy="8" data-tint={assignee.tint} />
+                  <text x="8" y="11" textAnchor="middle">
+                    {assignee.name.charAt(0)}
+                  </text>
+                  <title>{`执行者：${assignee.name} · ${assignee.layer}`}</title>
+                </g>
+              )}
+              {!assignee && (
+                <g transform={`translate(12 ${NODE_H - 18})`} className="dagNode__assignee dagNode__assignee--empty">
+                  <circle r="8" cx="8" cy="8" />
+                  <text x="8" y="11" textAnchor="middle">?</text>
+                  <title>未指派执行者</title>
+                </g>
+              )}
             </g>
           );
         })}
@@ -161,6 +200,8 @@ export function WorkflowStrip({
   runStates,
   focusNode,
   onNodeSelect,
+  grants,
+  currentAccountId,
 }: {
   wf: Workflow;
   activeIndex: number;
@@ -169,6 +210,8 @@ export function WorkflowStrip({
   /** 当前被点开的节点，由 App 持有 —— 会话区要据此切换视图 */
   focusNode?: string | null;
   onNodeSelect?: (id: string | null) => void;
+  grants?: NodeGrant[];
+  currentAccountId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const G = Icon[wf.glyph];
@@ -246,6 +289,8 @@ export function WorkflowStrip({
             }
             runStates={runStates}
             compact
+            grants={grants}
+            currentAccountId={currentAccountId}
           />
           {live && (
             <p className="wfStrip__tip">
@@ -476,6 +521,7 @@ export function WorkflowPicker({
   const [newRole, setNewRole] = useState<AgentRole>("testing");
   const [newName, setNewName] = useState("");
   const [skillOpen, setSkillOpen] = useState(false);
+  const [assigneeOpen, setAssigneeOpen] = useState(false);
 
   const node = value.nodes.find((n) => n.id === sel) ?? null;
   const contract = node ? value.orchestrator.contracts[node.id] : null;
@@ -486,6 +532,8 @@ export function WorkflowPicker({
   const skillGroups = (Object.keys(skillSourceLabel) as SkillSource[]).filter(
     (src) => src !== "builtin" && selectableSkills.some((s) => s.source === src),
   );
+
+  const assignableAccounts = node ? accountsForRole(node.role, accounts) : [];
 
   const pick = (id: string) => {
     const tpl = workflowTemplates.find((w) => w.id === id);
@@ -661,6 +709,70 @@ export function WorkflowPicker({
                       {roleLabel[r]}
                     </button>
                   ))}
+                </div>
+              </div>
+
+              <div className="wfEdit__row">
+                <label>主要执行者</label>
+                <div className="assigneeDrop" data-open={assigneeOpen ? "true" : undefined}>
+                  <button
+                    type="button"
+                    className="assigneeDrop__trigger"
+                    onClick={() => setAssigneeOpen((v) => !v)}
+                  >
+                    <span className="assigneeDrop__summary">
+                      {node.assignee
+                        ? accountById(node.assignee, accounts)?.name ?? "未指派"
+                        : "选择执行者"}
+                    </span>
+                    <Icon.Chevron size={12} className={assigneeOpen ? "rotUp" : undefined} />
+                  </button>
+                  {assigneeOpen && (
+                    <>
+                      <div className="assigneeDrop__scrim" onClick={() => setAssigneeOpen(false)} />
+                      <div className="assigneeDrop__panel">
+                        {assignableAccounts.length === 0 ? (
+                          <div className="assigneeDrop__empty">
+                            <p>该角色暂无匹配账户</p>
+                            <em>请到「成员与权限」中添加对应层级的账户。</em>
+                          </div>
+                        ) : (
+                          assignableAccounts.map((a) => {
+                            const on = node.assignee === a.id;
+                            return (
+                              <button
+                                key={a.id}
+                                type="button"
+                                className="assigneeDrop__item"
+                                data-on={on}
+                                title={a.duty}
+                                onClick={() => {
+                                  onChange(
+                                    patchNode(value, node.id, {
+                                      assignee: on ? undefined : a.id,
+                                    }),
+                                  );
+                                  setAssigneeOpen(false);
+                                }}
+                              >
+                                <span className="assigneeDrop__glyph" data-tint={a.tint}>
+                                  {(() => {
+                                    const G = Icon[a.glyph];
+                                    return <G size={12} />;
+                                  })()}
+                                </span>
+                                <span className="assigneeDrop__text">
+                                  <b>{a.name}</b>
+                                  <i className="mono">{a.handle}</i>
+                                </span>
+                                {on && <Icon.Check size={11} />}
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 

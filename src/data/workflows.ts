@@ -77,6 +77,8 @@ export interface WfNode {
   approval?: boolean;
   /** 该节点可调用的技能，存 skill id 列表 */
   skills?: string[];
+  /** 主要执行者账户 id，责任分配的锚点 */
+  assignee?: string;
 }
 
 export interface WfEdge {
@@ -254,6 +256,7 @@ const wfFeature: WfTemplate = {
       desc: "拆解需求语义与验收条件，标注事实、推断与待确认项。",
       gate: "需求可测试性",
       approval: true,
+      assignee: "ac-lw",
     },
     {
       id: "n2",
@@ -264,6 +267,7 @@ const wfFeature: WfTemplate = {
       desc: "在隔离分支实现需求，同步补齐单元测试。",
       gate: "编译与单元测试",
       skills: ["sk-codegen", "sk-unit-test"],
+      assignee: "ac-dev",
     },
     {
       id: "n3",
@@ -274,6 +278,7 @@ const wfFeature: WfTemplate = {
       desc: "独立核对实现与需求，检查安全、异常处理与影响范围。",
       gate: "无阻断与严重问题",
       skills: ["sk-code-review", "sk-static-analysis"],
+      assignee: "ac-gate",
     },
     {
       id: "n4",
@@ -285,6 +290,7 @@ const wfFeature: WfTemplate = {
       gate: "证据链完整",
       approval: true,
       skills: ["sk-doc-gen", "sk-coverage"],
+      assignee: "ac-yz",
     },
   ],
   edges: [

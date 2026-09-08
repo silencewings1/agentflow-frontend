@@ -190,11 +190,179 @@
   border: 1px solid var(--line-strong);
   background: var(--surface-2);
   transition: border-color 0.24s, color 0.24s;
+  cursor: pointer;
 }
+
+.rail__avatar[data-tint] {
+  color: var(--layer, var(--accent));
+  border-color: color-mix(in oklab, var(--layer, var(--accent)) 35%, var(--line));
+  background: color-mix(in oklab, var(--layer, var(--accent)) 10%, transparent);
+}
+
+.rail__avatar[data-tint="accent"] { --layer: var(--accent); }
+.rail__avatar[data-tint="cyan"] { --layer: var(--cyan); }
+.rail__avatar[data-tint="sage"] { --layer: var(--sage); }
+.rail__avatar[data-tint="gold"] { --layer: var(--gold); }
+.rail__avatar[data-tint="plum"] { --layer: var(--plum); }
+.rail__avatar[data-tint="azure"] { --layer: var(--azure); }
 
 .rail__avatar:hover {
   border-color: var(--accent-line);
   color: var(--text);
+}
+
+.rail__avatarWrap {
+  position: relative;
+}
+
+.rail__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+}
+
+.accountSwitcher {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 220px;
+  padding: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  box-shadow: var(--shadow-pop);
+  z-index: 11;
+  animation: sheetIn 0.2s var(--ease-out) both;
+}
+
+.accountSwitcher__head {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.accountSwitcher__head b {
+  font-size: var(--step-0);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.accountSwitcher__head i {
+  font-size: var(--step--2);
+  color: var(--text-3);
+  font-style: normal;
+}
+
+.accountSwitcher__group {
+  display: grid;
+  gap: 1px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.accountSwitcher__group:last-of-type {
+  border-bottom: none;
+}
+
+.accountSwitcher__label {
+  font-size: 9.5px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--text-4);
+  padding: 2px 8px;
+}
+
+.accountSwitcher__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 6px;
+  border: none;
+  border-radius: var(--r-xs);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.accountSwitcher__item:hover {
+  background: var(--surface-2);
+}
+
+.accountSwitcher__item[data-active="true"] {
+  background: var(--accent-soft);
+}
+
+.accountSwitcher__glyph {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--layer, var(--accent));
+  background: color-mix(in oklab, var(--layer, var(--accent)) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--layer, var(--accent)) 30%, var(--line));
+  flex-shrink: 0;
+}
+
+.accountSwitcher__glyph[data-tint="accent"] { --layer: var(--accent); }
+.accountSwitcher__glyph[data-tint="cyan"] { --layer: var(--cyan); }
+.accountSwitcher__glyph[data-tint="sage"] { --layer: var(--sage); }
+.accountSwitcher__glyph[data-tint="gold"] { --layer: var(--gold); }
+.accountSwitcher__glyph[data-tint="plum"] { --layer: var(--plum); }
+.accountSwitcher__glyph[data-tint="azure"] { --layer: var(--azure); }
+
+.accountSwitcher__text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.accountSwitcher__text b {
+  font-size: var(--step--1);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.accountSwitcher__text i {
+  font-size: 9.5px;
+  color: var(--text-3);
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountSwitcher__layer {
+  font-size: 9.5px;
+  color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.accountSwitcher__foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  font-size: var(--step--1);
+  color: var(--text-3);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  margin-top: 2px;
+  padding-top: 8px;
+}
+
+.accountSwitcher__foot:hover {
+  color: var(--accent-text);
 }
 
 /* ============================= SIDEBAR ================================= */
@@ -812,4 +980,10 @@
     grid-template-columns: var(--rail) var(--sidebar) minmax(0, 1fr) 0px;
   }
   .inspector { opacity: 0; pointer-events: none; }
+}
+
+/* 通用阻断提示：data-blocking="true" 以金色表示待人工介入 */
+[data-blocking="true"] {
+  color: var(--gold);
+  font-weight: 500;
 }

@@ -514,6 +514,47 @@
   text-anchor: middle;
 }
 
+.dagNode__assignee circle {
+  stroke-width: 1;
+  fill: color-mix(in oklab, var(--layer, var(--accent)) 18%, var(--bg));
+  stroke: color-mix(in oklab, var(--layer, var(--accent)) 40%, var(--line));
+}
+
+.dagNode__assignee circle[data-tint="accent"] { --layer: var(--accent); }
+.dagNode__assignee circle[data-tint="cyan"] { --layer: var(--cyan); }
+.dagNode__assignee circle[data-tint="sage"] { --layer: var(--sage); }
+.dagNode__assignee circle[data-tint="gold"] { --layer: var(--gold); }
+.dagNode__assignee circle[data-tint="plum"] { --layer: var(--plum); }
+.dagNode__assignee circle[data-tint="azure"] { --layer: var(--azure); }
+
+.dagNode__assignee text {
+  fill: var(--text);
+  font-family: var(--font-ui);
+  font-size: 8px;
+  font-weight: 500;
+}
+
+.dagNode__assignee--empty circle {
+  fill: transparent;
+  stroke: var(--line-2);
+  stroke-dasharray: 2 2;
+}
+
+.dagNode__assignee--empty text {
+  fill: var(--text-4);
+  font-weight: 400;
+}
+
+.dagNode[data-blocked="permission"] .dagNode__box {
+  opacity: 0.55;
+  filter: saturate(0.5);
+}
+
+.dagNode[data-blocked="permission"] .dagNode__name,
+.dagNode[data-blocked="permission"] .dagNode__role {
+  opacity: 0.6;
+}
+
 /* ------------------------------ 节点编辑 ------------------------------- */
 
 .wfEdit {
@@ -735,6 +776,151 @@
   border: solid var(--bg);
   border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
+}
+
+/* --------------------------- 执行者下拉 -------------------------------- */
+
+.assigneeDrop {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.assigneeDrop__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  font-size: var(--step--1);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.assigneeDrop__trigger:hover {
+  border-color: var(--line-strong);
+}
+
+.assigneeDrop[data-open="true"] .assigneeDrop__trigger {
+  border-color: var(--accent-line);
+}
+
+.assigneeDrop__summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.assigneeDrop__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+}
+
+.assigneeDrop__panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 11;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  box-shadow: var(--shadow-pop);
+  animation: fadeUp 0.2s var(--ease-out) both;
+}
+
+.assigneeDrop__empty {
+  display: grid;
+  gap: 4px;
+  padding: 8px 6px;
+  text-align: center;
+}
+
+.assigneeDrop__empty p {
+  font-size: var(--step--1);
+  color: var(--text-2);
+}
+
+.assigneeDrop__empty em {
+  font-size: var(--step--2);
+  color: var(--text-4);
+  font-style: normal;
+}
+
+.assigneeDrop__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 6px;
+  border: none;
+  border-radius: var(--r-xs);
+  background: transparent;
+  font-size: var(--step--1);
+  color: var(--text-2);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.assigneeDrop__item:hover {
+  background: var(--surface-2);
+}
+
+.assigneeDrop__item[data-on="true"] {
+  color: var(--accent-text);
+}
+
+.assigneeDrop__glyph {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: var(--layer, var(--accent));
+  background: color-mix(in oklab, var(--layer, var(--accent)) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--layer, var(--accent)) 30%, var(--line));
+}
+
+.assigneeDrop__glyph[data-tint="accent"] { --layer: var(--accent); }
+.assigneeDrop__glyph[data-tint="cyan"] { --layer: var(--cyan); }
+.assigneeDrop__glyph[data-tint="sage"] { --layer: var(--sage); }
+.assigneeDrop__glyph[data-tint="gold"] { --layer: var(--gold); }
+.assigneeDrop__glyph[data-tint="plum"] { --layer: var(--plum); }
+.assigneeDrop__glyph[data-tint="azure"] { --layer: var(--azure); }
+
+.assigneeDrop__text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.assigneeDrop__text b {
+  font-size: var(--step--1);
+  font-weight: 500;
+}
+
+.assigneeDrop__text i {
+  font-size: 9.5px;
+  color: var(--text-4);
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .wfEdit__none {
