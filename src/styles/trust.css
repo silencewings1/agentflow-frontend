@@ -750,24 +750,27 @@
 
 .nsum__peerBody b { color: var(--text-1); font-weight: 600; }
 
-/* 任务项清单：发丝分隔网格，完成度用形态区分（对色觉障碍友好） */
-.nsum__tasks {
-  list-style: none;
-  margin: 11px 0 0;
-  padding: 0;
+/* 任务项 DAG 链：上游 → 任务节点 → 下游，节点间用流向箭头连接。
+   状态语义与 DAG 节点一致：done=sage / active=accent / todo=弱化；
+   箭头颜色取自上游节点状态，让「已完成 → 进行中 → 待处理」可读。 */
+.nsum__dag {
   display: grid;
-  gap: 1px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  overflow: hidden;
-  background: var(--line);
+  margin-top: 11px;
 }
 
-.nsum__tasks li {
+/* 上游/下游信息条并入 DAG 链后，节点间距由链统一控制 */
+.nsum__dag .nsum__peer {
+  margin-top: 0;
+}
+
+.nsum__dagNode {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 11px;
+  gap: 9px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: var(--r-md);
   background: var(--bg);
   font-size: 12px;
   line-height: 1.5;
@@ -775,6 +778,48 @@
   animation: fadeUp 0.3s var(--ease-out) both;
   animation-delay: calc(var(--i) * 40ms);
 }
+
+.nsum__dagIdx {
+  width: 20px;
+  flex: none;
+  font-size: 10px;
+  color: var(--text-4);
+}
+
+/* 状态着色：与 DAG 节点、交接卡的用色保持一致 */
+.nsum__dagNode[data-status="done"] { border-left-color: var(--sage); }
+.nsum__dagNode[data-status="done"] .nsum__mark { color: var(--sage); background: color-mix(in oklab, var(--sage) 14%, transparent); }
+.nsum__dagNode[data-status="active"] { border-left-color: var(--accent); background: var(--accent-soft); color: var(--text-1); font-weight: 500; }
+.nsum__dagNode[data-status="active"] .nsum__mark { color: var(--accent); }
+.nsum__dagNode[data-status="todo"] { opacity: 0.72; color: var(--text-4); }
+.nsum__dagNode[data-status="todo"] .nsum__mark { color: var(--text-4); }
+
+/* 流向箭头：沿序号列竖直向下，颜色取自上游节点状态 */
+.nsum__dagEdge {
+  position: relative;
+  width: 2px;
+  height: 15px;
+  margin-left: 21px;
+  background: var(--line-strong);
+}
+
+.nsum__dagEdge::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--line-strong);
+}
+
+.nsum__dagEdge[data-from="peer"] { background: color-mix(in oklab, var(--azure) 50%, var(--line-strong)); }
+.nsum__dagEdge[data-from="peer"]::after { border-top-color: color-mix(in oklab, var(--azure) 70%, var(--line-strong)); }
+.nsum__dagEdge[data-from="done"] { background: color-mix(in oklab, var(--sage) 45%, var(--line-strong)); }
+.nsum__dagEdge[data-from="done"]::after { border-top-color: color-mix(in oklab, var(--sage) 65%, var(--line-strong)); }
+.nsum__dagEdge[data-from="active"] { background: var(--accent); }
+.nsum__dagEdge[data-from="active"]::after { border-top-color: var(--accent); }
 
 .nsum__mark {
   display: grid;
@@ -784,17 +829,6 @@
   flex: none;
   border-radius: 999px;
 }
-
-.nsum__tasks li[data-status="done"] .nsum__mark {
-  color: var(--sage);
-  background: color-mix(in oklab, var(--sage) 14%, transparent);
-}
-
-.nsum__tasks li[data-status="active"] { color: var(--text-1); font-weight: 500; }
-.nsum__tasks li[data-status="active"] .nsum__mark { color: var(--accent); }
-
-.nsum__tasks li[data-status="todo"] { color: var(--text-4); }
-.nsum__tasks li[data-status="todo"] .nsum__mark { color: var(--text-4); }
 
 .nsum__text { min-width: 0; }
 
