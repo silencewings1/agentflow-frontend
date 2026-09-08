@@ -27,12 +27,11 @@ export function Stream({
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    /* 滚动目标是整列的最底部（含输入区）。事件流末尾哨兵只对齐到
-       事件流底边，会把输入区顶到视口下方看不见 —— 那会让底部看起来
-       像是一截悬空的空白 */
-    const main = document.querySelector<HTMLElement>(".main");
-    if (main) {
-      main.scrollTo({ top: main.scrollHeight, behavior: "smooth" });
+    /* 滚动目标为事件流容器自身的最底部：编排条与输入区固定，
+       事件流独立滚动，最后一张卡片应正好停在输入区上方，不留悬空间隙 */
+    const scroller = endRef.current?.closest(".stream") as HTMLElement | null;
+    if (scroller) {
+      scroller.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" });
     } else {
       endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }
