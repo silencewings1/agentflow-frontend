@@ -81,6 +81,30 @@ export interface ScmProviderDto {
   errorMessage?: string;
 }
 
+/* ---------------------------------------------------------------------------
+ * 模型供应商目录（GET /model-providers）
+ *
+ * 只读事实：模型路由由服务端按任务与节点画像决定（af-api 用构造期注入的
+ * modelRoute 创建 agent），前端没有逐任务模型覆盖的写入口。因此这里只读取
+ * 「服务端配了哪些供应商、默认模型是谁」，用于诚实地展示，不承载任何切换。
+ * ------------------------------------------------------------------------- */
+export interface ModelInfoDto { id: string; name: string; description?: string; }
+export interface ModelProviderInfoDto {
+  id: string;
+  name: string;
+  models: ModelInfoDto[];
+  /** 以下字段来自服务端 settings，用于回显；缺失即不渲染。 */
+  baseURL?: string;
+  api?: string;
+  apiKeyEnv?: string;
+}
+export interface DefaultModelRefDto { provider: string; model: string; }
+export interface ModelProvidersDto {
+  providers: ModelProviderInfoDto[];
+  /** 服务端未配置默认模型时为 null —— 界面必须呈现「未配置」，不得编造。 */
+  defaultModel: DefaultModelRefDto | null;
+}
+
 export interface WorkflowNodeDto {
   nodeId: string;
   kind: "ai" | "skill" | "gate" | "git" | "approval";
@@ -638,6 +662,22 @@ export interface WorkflowValidation {
   };
 }
 export interface WorkflowVersion { workflowId: string; workflowVersion: number; nodeSpecDigest: string; frozen: boolean; frozenAt?: string; }
+
+/** 服务端登记的模型供应商与默认路由（只读）。模型路由由服务端按任务决定，
+    前端不得据此改写执行模型，只用于如实展示当前生效的默认模型。 */
+export interface ModelInfoDto { id: string; name: string; description?: string; }
+export interface ModelProviderInfoDto {
+  id: string;
+  name: string;
+  models: ModelInfoDto[];
+  baseURL?: string;
+  api?: string;
+  apiKeyEnv?: string;
+}
+export interface ModelProvidersDto {
+  providers: ModelProviderInfoDto[];
+  defaultModel: { provider: string; model: string } | null;
+}
 export interface ApproveTaskNodeResult { taskId: string; nodeId: string; state: TaskState; revision: number; }
 export interface PushOperationInput {
   idempotencyKey: string;
@@ -1035,6 +1075,8 @@ export interface EvidenceMaterializationDto { evidenceMatrix: EvidenceMatrixDto;
 export interface AfApiClient {
   readonly mode: "http" | "fixture";
   bootstrap(signal?: AbortSignal): Promise<AfBootstrapDto>;
+  /** 只读模型供应商目录：模型路由由服务端决定，前端不提供逐任务覆盖。 */
+  listModelProviders(signal?: AbortSignal): Promise<ModelProvidersDto>;
   listTasks(signal?: AbortSignal): Promise<TaskSummaryDto[]>;
   getTask(taskId: string, signal?: AbortSignal): Promise<TaskDetailDto>;
   validateWorkflow(workflow: WorkflowDefinitionDto, signal?: AbortSignal): Promise<WorkflowValidation>;
@@ -1076,6 +1118,8 @@ export interface AfApiClient {
   getTrustedDelivery(taskId: string, signal?: AbortSignal): Promise<TrustedDeliveryDto>;
   materializeEvidence(taskId: string, signal?: AbortSignal): Promise<EvidenceMaterializationDto>;
   getApprovals(taskId: string, signal?: AbortSignal): Promise<ApprovalQueryDto>;
+  /** 读取服务端登记的模型供应商与默认模型（只读；模型路由由服务端决定）。 */
+  listModelProviders(signal?: AbortSignal): Promise<ModelProvidersDto>;
   createPushOperation(taskId: string, input: PushOperationInput, signal?: AbortSignal): Promise<GitOperationDto>;
   confirmPushOperation(operationId: string, signal?: AbortSignal): Promise<GitOperationDto>;
   getPushOperation(operationId: string, signal?: AbortSignal): Promise<GitOperationDto>;

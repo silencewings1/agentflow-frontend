@@ -1,4 +1,5 @@
 import { sessions } from "../data/mock";
+import { defaultModel as fixtureDefaultModel, modelProviders as fixtureModelProviders } from "../data/settings";
 import { workflowTemplates } from "../data/workflows";
 import { toTaskDetail, toTrajectory, toWorkflowDto } from "./mappers";
 import type {
@@ -20,6 +21,8 @@ import type {
   EvidenceMaterializationDto,
   CreateTaskInput,
   GitOperationDto,
+  ModelProvidersDto,
+  ModelProviderInfoDto,
   PlanDecisionDto,
   PlanDecisionInput,
   PlanDto,
@@ -269,8 +272,7 @@ function fixtureDetail(task: TaskSummaryDto, bootstrap: AfBootstrapDto): TaskDet
   };
 }
 
-function fixtureTrajectory(detail: TaskDetailDto): TrajectoryEventDto[] {
-  return detail.nodes.filter((node) => node.status !== "pending").map((node, index) => ({
+function fixtureTrajectory(detail: TaskDetailDto): TrajectoryEventDto[] {  return detail.nodes.filter((node) => node.status !== "pending").map((node, index) => ({
     eventId: `${detail.taskId}.event.${index + 1}`,
     seq: index + 1,
     eventType: `node.${node.status}`,
@@ -556,6 +558,19 @@ function fixtureClient(): AfApiClient {
     },
     async getTrustedDelivery(taskId) { return fixtureTrustedDelivery(await this.getTask(taskId)); },
     async getApprovals(taskId) { taskOrThrow(taskId); return { taskId, nodeApprovals: [], gitOperationConfirmations: [] }; },
+    /* fixture 没有真实供应商注册表：返回与演示配置一致的只读投影，
+       默认模型取演示选型，避免演示态下凭空显示一个真实模型。 */
+    async listModelProviders() {
+      const providers: ModelProviderInfoDto[] = fixtureModelProviders.map((provider) => ({
+        id: provider.id,
+        name: provider.name,
+        models: provider.models.map((model) => ({ id: model.id, name: model.id })),
+        ...(provider.baseUrl ? { baseURL: provider.baseUrl } : {}),
+        ...(provider.format ? { api: provider.format } : {}),
+      }));
+      const first = providers[0];
+      return { providers, defaultModel: first ? { provider: first.id, model: first.models[0]?.id ?? fixtureDefaultModel } : null };
+    },
     async createPushOperation(taskId, input) {
       const task = tasks.find((item) => item.taskId === taskId);
       if (!task) throw new AfApiError({ code: "AF_TASK_NOT_FOUND", message: "fixture 任务不存在", retryable: false });
@@ -674,6 +689,7 @@ class HttpAfApiClient implements AfApiClient {
   getTrustedDelivery(taskId: string, signal?: AbortSignal) { return this.request<TrustedDeliveryDto>(`/tasks/${encodeURIComponent(taskId)}/trusted-delivery`, undefined, signal); }
   materializeEvidence(taskId: string, signal?: AbortSignal) { return this.request<EvidenceMaterializationDto>(`/tasks/${encodeURIComponent(taskId)}/evidence/materialize`, { method: "POST", body: "{}" }, signal); }
   getApprovals(taskId: string, signal?: AbortSignal) { return this.request<ApprovalQueryDto>(`/tasks/${encodeURIComponent(taskId)}/approvals`, undefined, signal); }
+  listModelProviders(signal?: AbortSignal) { return this.request<ModelProvidersDto>("/model-providers", undefined, signal); }
   createPushOperation(taskId: string, input: PushOperationInput, signal?: AbortSignal) { return this.request<GitOperationDto>(`/tasks/${encodeURIComponent(taskId)}/git-operations`, { method: "POST", body: JSON.stringify(input) }, signal); }
   confirmPushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}/confirm`, { method: "POST", body: JSON.stringify({ idempotencyKey: requestKey("git-confirm", operationId) }) }, signal); }
   getPushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}`, undefined, signal); }

@@ -8,7 +8,7 @@ import {
 import { afApi, AfApiError, structuredToEvents, toUiBootstrap, toWorkflowDto } from "./api";
 import { realInspectorBundle } from "./api/inspectorMapper";
 import { buildStageCards } from "./api/stageMapper";
-import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
+import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, ModelProvidersDto, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
 import type { StageTraceView } from "./components/StageCard";
 import { conversationOf } from "./data/streams";
 import { inspectorOf } from "./data/inspector";
@@ -27,7 +27,6 @@ import { WorkflowStrip } from "./components/Workflow";
 import { RuntimeConsole, type RuntimeLoadState } from "./components/RuntimeConsole";
 import { GovernanceView } from "./components/GovernanceView";
 import { Waterfall } from "./components/Waterfall";
-import { defaultModel, modelOptions } from "./data/settings";
 import {
   buildOrchestratorPlan,
   runOf,
@@ -37,7 +36,6 @@ import {
   type Workflow,
 } from "./data/workflows";
 
-export type ApprovalMode = "auto" | "ask" | "readonly";
 type ApiLoadState = { status: "loading" } | { status: "ready" } | { status: "error"; code: string; message: string; retryable: boolean };
 type GovernanceLoadState = { status: "idle" | "loading" | "ready" } | { status: "error"; code: string; message: string; retryable: boolean };
 type GovernanceSnapshot = {
@@ -295,8 +293,9 @@ export default function App() {
   const [confirmingOperationId, setConfirmingOperationId] = useState<string | null>(null);
   const [wfStep, setWfStep] = useState(1);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [approvalMode, setApprovalMode] = useState<ApprovalMode>("ask");
-  const [model, setModel] = useState(defaultModel);
+  /* 模型路由由服务端按任务决定；前端只读取并展示默认路由，不提供改写入口。
+     读取失败时保持 null，由 Composer 显示「模型路由未登记」。 */
+  const [modelProviders, setModelProviders] = useState<ModelProvidersDto | null>(null);
   const [mode, setMode] = useState<"session" | "welcome">("welcome");
 
   /* --- streamed event window --------------------------------------------- */
@@ -357,6 +356,8 @@ export default function App() {
       setAgentProfiles(ui.agentProfiles);
       setSkillCatalog(ui.skills);
       setScmProviders(ui.scmProviders);
+      /* 模型路由是只读展示项，失败不影响首屏：保持 null 由 Composer 如实降级。 */
+      void afApi.listModelProviders().then(setModelProviders).catch(() => setModelProviders(null));
       setApiLoad({ status: "ready" });
       const requestedId = preferredActiveRef.current ?? currentActiveRef.current;
       const first = ui.tasks.find((task) => task.id === requestedId) ?? ui.tasks[0];
@@ -1262,21 +1263,6 @@ export default function App() {
         return;
       }
       if (label.includes("检查面板")) return setInspectorOpen((v) => !v);
-      /* 这两项不再弹提示：输入框底部的下拉框已经常驻显示当前选中值，
-         再弹 toast 属于重复告知 */
-      if (label.includes("审批模式")) {
-        const next: ApprovalMode =
-          approvalMode === "ask" ? "auto" : approvalMode === "auto" ? "readonly" : "ask";
-        setApprovalMode(next);
-        return;
-      }
-      if (label.includes("模型")) {
-        /* 按目录顺序轮换，而不是在两个写死的名字之间跳 */
-        const ids = modelOptions.map((m) => m.id);
-        const i = ids.indexOf(model);
-        setModel(ids[(i + 1) % ids.length]);
-        return;
-      }
       if (label.includes("终端") || label.includes("重跑")) {
         setInspectorTab("terminal");
         setInspectorOpen(true);
@@ -1284,7 +1270,7 @@ export default function App() {
       }
       push({ tone: "ok", title: label, body: "演示动作已触发。" });
     },
-    [approvalMode, model, push, toggleTheme],
+    [push, toggleTheme],
   );
 
   const validateWorkflow = useCallback(async (candidate: Workflow): Promise<WorkflowValidation> => {
@@ -1788,16 +1774,11 @@ export default function App() {
 
         <Composer
           streaming={streaming}
-          model={model}
-          approvalMode={approvalMode}
+          modelProviders={modelProviders}
           planPending={planPending}
           onSend={runTurn}
           onStop={stop}
           onPalette={() => setPaletteOpen(true)}
-          /* 选模型与审批模式不再弹提示：下拉框自己就显示了当前选中值，
-             再弹一条 toast 是重复告知，还会盖住右下角内容 */
-          onPickModel={setModel}
-          onPickApproval={setApprovalMode}
         />
       </main>
 
