@@ -270,44 +270,11 @@
   animation: fadeUp 0.3s var(--ease-out) both;
 }
 
-.gate__dims {
-  list-style: none;
+/* 门禁检查项原为带内边距的列表，DAG 化后由卡片内边距承载 */
+.card--gate[data-open="true"] .gate__body > .dagChain {
   margin: 0;
-  padding: 8px 14px;
-  display: grid;
-  gap: 1px;
+  padding: 11px 14px 4px;
 }
-
-.gate__dims li {
-  display: grid;
-  grid-template-columns: 12px 92px minmax(0, 1fr);
-  align-items: baseline;
-  gap: 8px;
-  padding: 5px 0;
-  font-size: 12px;
-  animation: fadeUp 0.32s var(--ease-out) both;
-  animation-delay: calc(var(--i) * 45ms);
-}
-
-.gate__dims li + li { border-top: 1px solid color-mix(in oklab, var(--line) 60%, transparent); }
-
-.gate__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--sage);
-  transform: translateY(-1px);
-}
-
-.gate__dims li[data-state="warn"] .gate__dot { background: var(--gold); }
-.gate__dims li[data-state="fail"] .gate__dot {
-  background: var(--rose, #d9556b);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--rose, #d9556b) 18%, transparent);
-}
-
-.gate__dim { font-weight: 550; color: var(--text-1); }
-.gate__note { color: var(--text-3); line-height: 1.5; }
-.gate__dims li[data-state="fail"] .gate__note { color: var(--text-2); }
 
 .gate__foot {
   display: flex;
@@ -499,55 +466,9 @@
   animation: fadeUp 0.3s var(--ease-out) both;
 }
 
-.ctrl__steps {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  counter-reset: none;
-}
-
-.ctrl__steps li {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 9px 3px 5px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  font-size: 11px;
-  color: var(--text-2);
-  background: var(--surface-2);
-  animation: fadeUp 0.3s var(--ease-out) both;
-  animation-delay: calc(var(--i) * 55ms);
-}
-
-.ctrl__steps li b {
-  display: grid;
-  place-items: center;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  font-size: 9.5px;
-  font-weight: 600;
-  color: var(--sage);
-  background: color-mix(in oklab, var(--sage) 15%, transparent);
-}
-
-.ctrl__steps li[data-state="wait"] {
-  border-style: dashed;
-  color: var(--text-3);
-}
-
-.ctrl__steps li[data-state="wait"] b {
-  color: var(--gold);
-  background: color-mix(in oklab, var(--gold) 15%, transparent);
-}
-
-.ctrl__steps li[data-state="deny"] b {
-  color: var(--rose, #d9556b);
-  background: color-mix(in oklab, var(--rose, #d9556b) 15%, transparent);
+/* 受控链路 DAG 化后由 body 内边距承载间距，抵消 dagChain 默认顶部 margin */
+.card--ctrl[data-open="true"] .ctrl__body > .dagChain {
+  margin-top: 0;
 }
 
 .ctrl__foot {
@@ -750,20 +671,21 @@
 
 .nsum__peerBody b { color: var(--text-1); font-weight: 600; }
 
-/* 任务项 DAG 链：上游 → 任务节点 → 下游，节点间用流向箭头连接。
-   状态语义与 DAG 节点一致：done=sage / active=accent / todo=弱化；
+/* 任务 DAG 链（通用）：上游 → 任务节点 → 下游，节点间用流向箭头连接。
+   节点总结的任务项与执行计划的步骤共用同一套节点形态；
+   状态语义与 DAG 节点一致：done=sage / active=accent / todo=弱化，
    箭头颜色取自上游节点状态，让「已完成 → 进行中 → 待处理」可读。 */
-.nsum__dag {
+.dagChain {
   display: grid;
   margin-top: 11px;
 }
 
 /* 上游/下游信息条并入 DAG 链后，节点间距由链统一控制 */
-.nsum__dag .nsum__peer {
+.dagChain .nsum__peer {
   margin-top: 0;
 }
 
-.nsum__dagNode {
+.dagChain__node {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -779,7 +701,7 @@
   animation-delay: calc(var(--i) * 40ms);
 }
 
-.nsum__dagIdx {
+.dagChain__idx {
   width: 20px;
   flex: none;
   font-size: 10px;
@@ -787,15 +709,20 @@
 }
 
 /* 状态着色：与 DAG 节点、交接卡的用色保持一致 */
-.nsum__dagNode[data-status="done"] { border-left-color: var(--sage); }
-.nsum__dagNode[data-status="done"] .nsum__mark { color: var(--sage); background: color-mix(in oklab, var(--sage) 14%, transparent); }
-.nsum__dagNode[data-status="active"] { border-left-color: var(--accent); background: var(--accent-soft); color: var(--text-1); font-weight: 500; }
-.nsum__dagNode[data-status="active"] .nsum__mark { color: var(--accent); }
-.nsum__dagNode[data-status="todo"] { opacity: 0.72; color: var(--text-4); }
-.nsum__dagNode[data-status="todo"] .nsum__mark { color: var(--text-4); }
+.dagChain__node[data-status="done"] { border-left-color: var(--sage); }
+.dagChain__node[data-status="done"] .dagChain__mark { color: var(--sage); background: color-mix(in oklab, var(--sage) 14%, transparent); }
+.dagChain__node[data-status="active"] { border-left-color: var(--accent); background: var(--accent-soft); color: var(--text-1); font-weight: 500; }
+.dagChain__node[data-status="active"] .dagChain__mark { color: var(--accent); }
+.dagChain__node[data-status="todo"] { opacity: 0.72; color: var(--text-4); }
+.dagChain__node[data-status="todo"] .dagChain__mark { color: var(--text-4); }
+/* 警示与失败：门禁 warn / 受控链路 deny 都落在 rose 上，与门禁裁决用色一致 */
+.dagChain__node[data-status="warn"] { border-left-color: var(--gold); }
+.dagChain__node[data-status="warn"] .dagChain__mark { color: var(--gold); background: color-mix(in oklab, var(--gold) 14%, transparent); }
+.dagChain__node[data-status="fail"] { border-left-color: var(--rose); color: var(--text-1); }
+.dagChain__node[data-status="fail"] .dagChain__mark { color: var(--rose); background: color-mix(in oklab, var(--rose) 14%, transparent); }
 
 /* 流向箭头：沿序号列竖直向下，颜色取自上游节点状态 */
-.nsum__dagEdge {
+.dagChain__edge {
   position: relative;
   width: 2px;
   height: 15px;
@@ -803,7 +730,7 @@
   background: var(--line-strong);
 }
 
-.nsum__dagEdge::after {
+.dagChain__edge::after {
   content: "";
   position: absolute;
   bottom: -1px;
@@ -814,14 +741,18 @@
   border-top: 5px solid var(--line-strong);
 }
 
-.nsum__dagEdge[data-from="peer"] { background: color-mix(in oklab, var(--azure) 50%, var(--line-strong)); }
-.nsum__dagEdge[data-from="peer"]::after { border-top-color: color-mix(in oklab, var(--azure) 70%, var(--line-strong)); }
-.nsum__dagEdge[data-from="done"] { background: color-mix(in oklab, var(--sage) 45%, var(--line-strong)); }
-.nsum__dagEdge[data-from="done"]::after { border-top-color: color-mix(in oklab, var(--sage) 65%, var(--line-strong)); }
-.nsum__dagEdge[data-from="active"] { background: var(--accent); }
-.nsum__dagEdge[data-from="active"]::after { border-top-color: var(--accent); }
+.dagChain__edge[data-from="peer"] { background: color-mix(in oklab, var(--azure) 50%, var(--line-strong)); }
+.dagChain__edge[data-from="peer"]::after { border-top-color: color-mix(in oklab, var(--azure) 70%, var(--line-strong)); }
+.dagChain__edge[data-from="done"] { background: color-mix(in oklab, var(--sage) 45%, var(--line-strong)); }
+.dagChain__edge[data-from="done"]::after { border-top-color: color-mix(in oklab, var(--sage) 65%, var(--line-strong)); }
+.dagChain__edge[data-from="active"] { background: var(--accent); }
+.dagChain__edge[data-from="active"]::after { border-top-color: var(--accent); }
+.dagChain__edge[data-from="warn"] { background: color-mix(in oklab, var(--gold) 50%, var(--line-strong)); }
+.dagChain__edge[data-from="warn"]::after { border-top-color: color-mix(in oklab, var(--gold) 70%, var(--line-strong)); }
+.dagChain__edge[data-from="fail"] { background: var(--rose); }
+.dagChain__edge[data-from="fail"]::after { border-top-color: var(--rose); }
 
-.nsum__mark {
+.dagChain__mark {
   display: grid;
   place-items: center;
   width: 16px;
@@ -830,9 +761,9 @@
   border-radius: 999px;
 }
 
-.nsum__text { min-width: 0; }
+.dagChain__text { min-width: 0; }
 
-.nsum__note {
+.dagChain__note {
   margin-left: auto;
   flex: none;
   font-size: 10.5px;
@@ -2212,6 +2143,11 @@
 .card--plan[data-state="confirmed"] {
   border-left-color: color-mix(in oklab, var(--sage) 70%, var(--line));
   background: var(--surface-1);
+}
+
+/* 执行计划卡片（无 data-state，区别于主控规划方案）保留标准卡片内边距 */
+.card--plan:not([data-state]) {
+  padding: 13px 15px 14px;
 }
 
 /* 已被取代：整体压低，留痕但不争夺注意力 */

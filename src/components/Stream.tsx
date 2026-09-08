@@ -133,22 +133,10 @@ function Event({
                 {e.steps.filter((s) => s.status === "done").length}/{e.steps.length}
               </span>
             </header>
-            <ol className="plan">
-              {e.steps.map((s, si) => (
-                <li key={s.label} className="plan__item" data-status={s.status} style={{ ["--si" as string]: si }}>
-                  <span className="plan__mark">
-                    {s.status === "done" ? (
-                      <Icon.Check size={11} />
-                    ) : s.status === "active" ? (
-                      <i className="plan__spin" />
-                    ) : (
-                      <i className="plan__idle" />
-                    )}
-                  </span>
-                  <span className="plan__label">{s.label}</span>
-                </li>
-              ))}
-            </ol>
+            {/* 计划步骤同样以 DAG 链呈现，与节点总结的任务项共用节点形态 */}
+            <div className="dagChain">
+              <DagChain items={e.steps.map((s) => ({ text: s.label, status: s.status }))} />
+            </div>
           </div>
         </article>
       );
@@ -618,15 +606,17 @@ function Gate({ e, style }: { e: Extract<AgentEvent, { kind: "gate" }>; style: o
           <Icon.Chevron size={12} className="gate__chev" />
         </button>
         <div className="gate__body">
-          <ul className="gate__dims">
-            {e.checks.map((c, i) => (
-              <li key={c.dim} data-state={c.state} style={{ ["--i" as string]: i }}>
-                <span className="gate__dot" />
-                <span className="gate__dim">{c.dim}</span>
-                <span className="gate__note">{c.note}</span>
-              </li>
-            ))}
-          </ul>
+          {/* 门禁检查项以 DAG 链呈现：逐项核验推进，pass=sage / warn=gold / fail=rose，
+              与执行计划、节点总结共用节点形态，检查结果随箭头一眼可读 */}
+          <div className="dagChain">
+            <DagChain
+              items={e.checks.map((c) => ({
+                text: c.dim,
+                note: c.note,
+                status: c.state === "pass" ? "done" : c.state === "fail" ? "fail" : "warn",
+              }))}
+            />
+          </div>
           <div className="gate__foot mono">
             <span>{e.reviewer}</span>
             <span className="gate__evs">
@@ -707,14 +697,16 @@ function Controlled({ e, style }: { e: Extract<AgentEvent, { kind: "controlled" 
           <Icon.Chevron size={12} className="ctrl__chev" />
         </button>
         <div className="ctrl__body">
-          <ol className="ctrl__steps">
-            {e.steps.map((s, i) => (
-              <li key={s.label} data-state={s.state} style={{ ["--i" as string]: i }}>
-                <b className="mono">{i + 1}</b>
-                {s.label}
-              </li>
-            ))}
-          </ol>
+          {/* 七步受控链路以 DAG 链呈现：状态语义 ok=sage / wait=弱化 / deny=rose，
+              与执行计划、节点总结共用节点形态，链路一次走完的推进感更直观 */}
+          <div className="dagChain">
+            <DagChain
+              items={e.steps.map((s) => ({
+                text: s.label,
+                status: s.state === "ok" ? "done" : s.state === "deny" ? "fail" : "todo",
+              }))}
+            />
+          </div>
           {e.approver && (
             <p className="ctrl__foot mono">
               <Icon.Shield size={11} />
@@ -775,6 +767,43 @@ function Checkpoint({ e, style }: { e: Extract<AgentEvent, { kind: "checkpoint" 
   );
 }
 
+/* 任务 DAG 链通用渲染：把一串带状态的任务/步骤渲染成节点 + 流向箭头。
+   节点总结的任务项、执行计划的步骤、受控链路的步骤与门禁检查项共用；
+   data-status 决定节点着色，箭头颜色取自上游节点状态。
+   状态语义与领域模型一致：done/ok=sage、active=accent、warn=gold、fail/deny=rose。 */
+type DagStatus = "done" | "active" | "todo" | "warn" | "fail";
+function DagChain({
+  items,
+}: {
+  items: { status: DagStatus; text: string; note?: string }[];
+}) {
+  return (
+    <>
+      {items.map((t, i) => (
+        <Fragment key={t.text + i}>
+          {i > 0 && <div className="dagChain__edge" data-from={items[i - 1].status} />}
+          <div className="dagChain__node" data-status={t.status} style={{ ["--i" as string]: i }}>
+            <span className="dagChain__idx mono">{String(i + 1).padStart(2, "0")}</span>
+            <span className="dagChain__mark">
+              {t.status === "done" ? (
+                <Icon.Check size={10} />
+              ) : t.status === "active" ? (
+                <i className="plan__spin" />
+              ) : t.status === "fail" ? (
+                <Icon.X size={9} />
+              ) : (
+                <Icon.Dot size={9} />
+              )}
+            </span>
+            <span className="dagChain__text">{t.text}</span>
+            {t.note && <span className="dagChain__note mono">{t.note}</span>}
+          </div>
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
 /* ================= 节点总结（上游 + 任务项明细 + 下游） ==================
    一张卡片回答三件事：从哪来（上游交付了什么）、干了什么（任务项逐条）、
    到哪去（下游需要什么）。审批人就着这张卡片做节点判定；
@@ -802,7 +831,7 @@ function NodeSummary({ e, style }: { e: Extract<AgentEvent, { kind: "node-summar
           </span>
         </header>
 
-        <div className="nsum__dag">
+        <div className="dagChain">
           {/* 上一个节点：首个节点为起点，输入是任务契约 */}
           {e.prev ? (
             <div className="nsum__peer nsum__peer--prev">
@@ -824,31 +853,13 @@ function NodeSummary({ e, style }: { e: Extract<AgentEvent, { kind: "node-summar
               </div>
             </div>
           )}
-          <div className="nsum__dagEdge" data-from="peer" />
+          <div className="dagChain__edge" data-from="peer" />
 
           {/* 本节点任务项：DAG 链节点，逐条列出并按状态着色 */}
-          {e.tasks.map((t, i) => (
-            <Fragment key={t.text}>
-              <div className="nsum__dagNode" data-status={t.status} style={{ ["--i" as string]: i }}>
-                <span className="nsum__dagIdx mono">{String(i + 1).padStart(2, "0")}</span>
-                <span className="nsum__mark">
-                  {t.status === "done" ? (
-                    <Icon.Check size={10} />
-                  ) : t.status === "active" ? (
-                    <i className="plan__spin" />
-                  ) : (
-                    <i className="plan__idle" />
-                  )}
-                </span>
-                <span className="nsum__text">{t.text}</span>
-                {t.note && <span className="nsum__note mono">{t.note}</span>}
-              </div>
-              {i < e.tasks.length - 1 && <div className="nsum__dagEdge" data-from={t.status} />}
-            </Fragment>
-          ))}
+          <DagChain items={e.tasks} />
 
           {/* 下一个节点：末节点为终点，验收后流水线收尾 */}
-          <div className="nsum__dagEdge" data-from={lastTaskStatus} />
+          <div className="dagChain__edge" data-from={lastTaskStatus} />
           {e.next ? (
             <div className="nsum__peer nsum__peer--next">
               <span className="nsum__peerIcon" data-role={e.next.role}>

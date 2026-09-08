@@ -329,44 +329,7 @@ code.inline {
   background: linear-gradient(180deg, var(--cyan), var(--accent) 40%, transparent);
 }
 
-.plan {
-  display: grid;
-  gap: 2px;
-}
-
-.plan__item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 5px 2px;
-  animation: fadeUp 0.44s var(--ease-out) both;
-  animation-delay: calc(var(--si) * 70ms + 100ms);
-}
-
-.plan__mark {
-  width: 15px;
-  height: 15px;
-  margin-top: 2px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  border: 1px solid var(--line-strong);
-  color: transparent;
-  transition: all 0.3s var(--ease-out);
-}
-
-.plan__item[data-status="done"] .plan__mark {
-  background: color-mix(in oklab, var(--sage) 22%, transparent);
-  border-color: color-mix(in oklab, var(--sage) 56%, transparent);
-  color: var(--sage);
-}
-
-.plan__item[data-status="active"] .plan__mark {
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
-}
-
+/* 执行计划步骤已 DAG 链化（见 trust.css 的 dagChain），此处仅保留节点内旋转指示器 */
 .plan__spin {
   width: 6px;
   height: 6px;
@@ -374,13 +337,6 @@ code.inline {
   border: 1.5px solid var(--accent);
   border-right-color: transparent;
   animation: spin 0.8s linear infinite;
-}
-
-.plan__idle {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--text-4);
 }
 
 @keyframes spin {
