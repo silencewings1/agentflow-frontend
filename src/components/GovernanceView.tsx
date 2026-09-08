@@ -304,6 +304,11 @@ export function GovernanceView({
 }: GovernanceViewProps) {
   const effectiveRunMode = runMode ?? runIntent?.runMode;
   const currentStatus = runIntent?.status ?? taskStatus;
+  // The durable RunIntent may remain `yielded` after the task aggregate has
+  // entered `awaiting_human`. For control actions, the task aggregate is the
+  // authority: never expose a new RunIntent while a gate/reconcile block is
+  // active, even if the old intent is merely yielded.
+  const controlBlocked = ["awaiting_human", "blocked_unavailable", "needs_reconcile"].includes(String(taskStatus));
   const currentEvidence = useMemo(() => evidenceMatrix?.rows ?? [], [evidenceMatrix]);
   const acceptedAttempts = attempts.filter((attempt) => attempt.status === "accepted");
   const pendingApprovals = (approvals?.nodeApprovals ?? []).filter((approval) => approval.decision !== "approved").length;
@@ -327,10 +332,11 @@ export function GovernanceView({
         {proposal && !compilationReport && onCompile && <button className="btn btn--accent btn--sm" disabled={busyAction !== null} onClick={onCompile}>{busyAction === "compile" ? "编译中…" : "运行 Plan Compiler"}</button>}
         {compilationReport?.outcome === "rejected" && <span className="govHint govHint--warn">Compiler 已拒绝当前 revision；先创建新 revision 修正 WorkSpec，再重新请求 Proposal。</span>}
         {plan && !planDecision && onPlanDecision && <button className="btn btn--accent btn--sm" disabled={busyAction !== null} onClick={() => onPlanDecision("approved")}>{busyAction === "decision" ? "提交中…" : "批准 Execution Plan"}</button>}
-        {planDecision?.decision === "approved" && onRun && <button className="btn btn--accent btn--sm" disabled={busyAction !== null || ["completed", "cancelled"].includes(String(taskStatus))} onClick={onRun}>{busyAction === "run" ? "排队中…" : "创建 RunIntent"}</button>}
+        {controlBlocked && <span className="govHint govHint--warn">当前任务处于 {statusLabel(String(taskStatus))}，请先完成澄清、能力恢复或对账，暂不能创建 RunIntent。</span>}
+        {planDecision?.decision === "approved" && onRun && <button className="btn btn--accent btn--sm" disabled={busyAction !== null || controlBlocked || ["completed", "cancelled"].includes(String(taskStatus))} onClick={onRun}>{busyAction === "run" ? "排队中…" : "创建 RunIntent"}</button>}
       </div>
 
-      <RequirementsGateHint gates={gates} taskStatus={currentStatus} />
+      <RequirementsGateHint gates={gates} taskStatus={taskStatus ?? currentStatus} />
       <RequirementsQuestionCard attempts={attempts} onAnswer={onAnswerRequirements} busy={busyAction === "clarification"} apiMode={apiMode} />
 
       <div className="govGrid">
