@@ -1,15 +1,22 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { normalizePlanPayload, normalizeProposalPayload } from "../api/types";
 import type {
   AfGateDetailDto,
   ApprovalQueryDto,
   AttemptDetailDto,
+  CriterionBinding,
   ClarificationAnswerDto,
   CompilationReportDto,
   EvidenceMatrixDto,
+  GateRef,
   GitOperationDto,
   PlanDecisionDto,
   PlanDto,
+  PlanPayload,
+  PlanSlotBinding,
   ProposalDto,
+  ProposalPayload,
+  ProposalSlotBinding,
   RunIntentDto,
   RunMode,
   TaskState,
@@ -206,6 +213,130 @@ function List({ items }: { items?: string[] }) {
   return <ul className="govList">{items.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul>;
 }
 
+/* 执行者来自 profileRef（智能体）或 skillRef（技能）。两者都缺失时诚实说「未声明」，
+   不用相邻字段猜测——审批人必须知道这个槽位到底由谁执行。 */
+function executorLabel(profileRef?: { profileId?: string; profileVersion?: string }, skillRef?: { skillId?: string; skillVersion?: string }): string {
+  if (profileRef?.profileId) return profileRef.profileVersion ? `${profileRef.profileId}@${profileRef.profileVersion}` : profileRef.profileId;
+  if (skillRef?.skillId) return skillRef.skillVersion ? `${skillRef.skillId}@${skillRef.skillVersion}` : skillRef.skillId;
+  return "未声明";
+}
+function executorKind(profileRef?: { profileId?: string }, skillRef?: { skillId?: string }): "profile" | "skill" | "none" {
+  if (profileRef?.profileId) return "profile";
+  if (skillRef?.skillId) return "skill";
+  return "none";
+}
+function gateLabel(gateRef?: GateRef): string {
+  if (!gateRef?.gateId) return "";
+  return gateRef.evaluatorVersion ? `${gateRef.gateId}@${gateRef.evaluatorVersion}` : gateRef.gateId;
+}
+
+/** payload 缺失或不可解析时的诚实降级态：说明「为什么看不到」与「因此不能批准」。 */
+function PayloadUnavailable({ kind }: { kind: "proposal" | "plan" }) {
+  const label = kind === "proposal" ? "方案正文" : "计划正文";
+  return (
+    <div className="govPayloadEmpty" data-kind={kind}>
+      <strong>{label}不可用</strong>
+      <span>服务端未返回可解析的 {kind === "proposal" ? "Proposal" : "Plan"}.payload，只有摘要可核验。</span>
+      <span>没有正文时无法确认执行者、声明路径与门禁绑定，不应批准该{kind === "proposal" ? "方案" : "计划"}。</span>
+    </div>
+  );
+}
+
+function ProposalSlotCard({ slot, index }: { slot: ProposalSlotBinding; index: number }) {
+  const kind = executorKind(slot.profileRef, slot.skillRef);
+  return (
+    <article className="govSlot" data-executor={kind} style={{ "--i": index } as CSSProperties}>
+      <header className="govSlot__head">
+        <span className="mono">{slot.slotId ?? "未命名槽位"}</span>
+        <span className="govSlot__exec" data-executor={kind}>
+          <span className="kicker">{kind === "profile" ? "智能体" : kind === "skill" ? "技能" : "执行者"}</span>
+          {executorLabel(slot.profileRef, slot.skillRef)}
+        </span>
+      </header>
+      <div className="govSlot__body">
+        <div className="govSlot__field"><span>工作项</span><List items={slot.workItems} /></div>
+        <div className="govSlot__field"><span>依赖输入</span><List items={slot.inputRefs} /></div>
+        <div className="govSlot__field"><span>交付物预期</span><strong className="mono">{slot.deliverableExpectation ?? "—"}</strong></div>
+        <div className="govSlot__field"><span>可并行节点</span><List items={slot.parallelHint} /></div>
+        {slot.gateRef?.gateId && <div className="govSlot__field"><span>质量门禁</span><strong className="mono">{gateLabel(slot.gateRef)}</strong></div>}
+      </div>
+    </article>
+  );
+}
+
+function ProposalPayloadView({ payload }: { payload: ProposalPayload }) {
+  const slots = payload.slotBindings ?? [];
+  return (
+    <div className="govPayload">
+      <div className="govPayload__head">
+        <span className="kicker">方案正文</span>
+        <span>以下内容来自 Proposal.payload；批准前请逐条核对执行者、依赖与交付物预期。</span>
+      </div>
+      {slots.length ? <div className="govSlots">{slots.map((slot, index) => <ProposalSlotCard key={`${slot.slotId ?? "slot"}-${index}`} slot={slot} index={index} />)}</div> : <p className="govMuted">方案未声明槽位绑定。</p>}
+      {payload.risks?.length ? <div className="govRisk"><span className="kicker">已声明风险</span><ul className="govList">{payload.risks.map((risk, index) => <li key={`${risk}-${index}`}>{risk}</li>)}</ul></div> : null}
+      {payload.budget ? <div className="govBudget"><span className="kicker">预算上限</span><div className="govFacts"><Fact label="最大节点" value={payload.budget.maxNodes ?? "—"} mono /><Fact label="最大尝试" value={payload.budget.maxAttempts ?? "—"} mono /><Fact label="最长时长" value={payload.budget.maxWallTimeMs === undefined ? "—" : `${Math.round(payload.budget.maxWallTimeMs / 60000)} 分钟`} mono /></div></div> : null}
+    </div>
+  );
+}
+
+function PlanSlotCard({ slot, index }: { slot: PlanSlotBinding; index: number }) {
+  const kind = executorKind(slot.profileRef, slot.skillRef);
+  return (
+    <article className="govSlot" data-executor={kind} style={{ "--i": index } as CSSProperties}>
+      <header className="govSlot__head">
+        <span className="mono">{slot.nodeId ?? "未声明节点"}</span>
+        <span className="govSlot__exec" data-executor={kind}>
+          <span className="kicker">{kind === "profile" ? "智能体" : kind === "skill" ? "技能" : "执行者"}</span>
+          {executorLabel(slot.profileRef, slot.skillRef)}
+        </span>
+      </header>
+      <div className="govSlot__body">
+        <div className="govSlot__field"><span>槽位</span><strong className="mono">{slot.slotId ?? "—"}</strong></div>
+        <div className="govSlot__field"><span>声明路径</span>{slot.declaredPaths?.length ? <ul className="govList govList--mono">{slot.declaredPaths.map((path, pathIndex) => <li key={`${path}-${pathIndex}`} className="mono">{path}</li>)}</ul> : <span className="govMuted">未声明</span>}</div>
+        {slot.declaredCommands?.length ? <div className="govSlot__field"><span>声明命令</span><ul className="govList govList--mono">{slot.declaredCommands.map((command, commandIndex) => <li key={`${command}-${commandIndex}`} className="mono">{command}</li>)}</ul></div> : null}
+        {slot.gateRef?.gateId && <div className="govSlot__field"><span>质量门禁</span><strong className="mono">{gateLabel(slot.gateRef)}</strong></div>}
+      </div>
+      <footer className="govSlot__foot"><span>绑定摘要</span><code className="mono">{shortDigest(slot.bindingDigest)}</code></footer>
+    </article>
+  );
+}
+
+function CriterionBindings({ items }: { items: CriterionBinding[] }) {
+  return (
+    <div className="govCriteriaBind">
+      <span className="kicker">完成判定绑定</span>
+      <table className="govTable">
+        <thead><tr><th>判定</th><th>节点</th><th>核验者</th><th>必填</th></tr></thead>
+        <tbody>
+          {items.map((criterion, index) => (
+            <tr key={`${criterion.criterionId ?? "criterion"}-${index}`}>
+              <td className="mono">{criterion.criterionId ?? "—"}</td>
+              <td className="mono">{criterion.nodeId ?? "—"}</td>
+              <td className="mono">{criterion.verifierId ? `${criterion.verifierId}${criterion.verifierVersion ? `@${criterion.verifierVersion}` : ""}` : "—"}</td>
+              <td>{criterion.required === undefined ? "—" : criterion.required ? "必填" : "可选"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PlanPayloadView({ payload }: { payload: PlanPayload }) {
+  const slots = payload.slotBindings ?? [];
+  const criteria = payload.criterionBindings ?? [];
+  return (
+    <div className="govPayload">
+      <div className="govPayload__head">
+        <span className="kicker">计划正文</span>
+        <span>以下内容来自 Plan.payload；批准即以此冻结版本作为执行基线，请逐条核对节点、执行者与声明路径。</span>
+      </div>
+      {slots.length ? <div className="govSlots">{slots.map((slot, index) => <PlanSlotCard key={`${slot.nodeId ?? "node"}-${slot.slotId ?? index}-${index}`} slot={slot} index={index} />)}</div> : <p className="govMuted">计划未声明槽位绑定。</p>}
+      {criteria.length ? <CriterionBindings items={criteria} /> : <p className="govMuted">计划未声明完成判定绑定。</p>}
+    </div>
+  );
+}
+
 function initialDraft(workSpec?: WorkSpecDto | null, draft?: WorkSpecDraftInput): WorkSpecDraftInput {
   if (draft) return draft;
   return {
@@ -336,6 +467,10 @@ export function GovernanceView({
   const controlBlocked = ["awaiting_human", "blocked_unavailable", "needs_reconcile"].includes(String(taskStatus));
   const runActive = ["queued", "claimed", "running", "yielded"].includes(String(runIntent?.status));
   const currentEvidence = useMemo(() => evidenceMatrix?.rows ?? [], [evidenceMatrix]);
+  /* 正文解析只在 DTO 变化时执行一次；返回 null 即渲染降级态，
+     绝不用 digest 或相邻字段拼凑出看似完整的计划。 */
+  const proposalPayload = useMemo(() => normalizeProposalPayload(proposal?.payload), [proposal?.payload]);
+  const planPayload = useMemo(() => normalizePlanPayload(plan?.payload), [plan?.payload]);
   const acceptedAttempts = attempts.filter((attempt) => attempt.status === "accepted");
   const pendingApprovals = (approvals?.nodeApprovals ?? []).filter((approval) => approval.decision !== "approved").length;
   const unresolvedOperations = scmOperations.filter((operation) => operation.status === "unknown" || operation.status === "failed").length;
@@ -358,6 +493,7 @@ export function GovernanceView({
         {proposal && !compilationReport && onCompile && <button className="btn btn--accent btn--sm" disabled={busyAction !== null || runActive} onClick={onCompile}>{busyAction === "compile" ? "正在检查执行计划…" : "检查执行计划"}</button>}
         {compilationReport?.outcome === "rejected" && <span className="govHint govHint--warn">Compiler 已拒绝当前 revision；先创建新 revision 修正 WorkSpec，再重新请求 Proposal。</span>}
         {plan && !planDecision && onPlanDecision && <button className="btn btn--accent btn--sm" disabled={busyAction !== null || runActive} onClick={() => onPlanDecision("approved")}>{busyAction === "decision" ? "正在提交审批…" : "批准执行计划"}</button>}
+        {plan && !planDecision && <span className="govHint govHint--warn">批准前请先读完下方「Execution Plan 与 PlanDecision」中的计划正文。</span>}
         {controlBlocked && <span className="govHint govHint--warn">当前任务处于 {statusLabel(String(taskStatus))}，请先完成澄清、能力恢复或对账，暂不能开始执行。</span>}
         {runActive && !controlBlocked && <span className="govHint govHint--info">运行请求已提交，后台正在执行；请等待节点状态刷新后再操作。</span>}
         {planDecision?.decision === "approved" && onRun && <button className="btn btn--accent btn--sm" disabled={busyAction !== null || controlBlocked || runActive || ["completed", "cancelled"].includes(String(taskStatus))} onClick={onRun}>{busyAction === "run" ? "正在提交运行请求…" : "开始执行任务"}</button>}
@@ -372,7 +508,7 @@ export function GovernanceView({
         </Section>
 
         <Section title="Proposal" kicker="Supervisor">
-          {proposal ? <div className="govCard"><div className="govCard__title"><strong>{proposal.proposalId}</strong><StatusPill value={proposal.status} /></div><div className="govFacts"><Fact label="revision" value={proposal.workSpecRevision} mono /><Fact label="workSpec" value={shortDigest(proposal.workSpecDigest)} mono /><Fact label="proposal" value={shortDigest(proposal.proposalDigest)} mono /><Fact label="governance" value={shortDigest(proposal.governanceDigest)} mono /></div></div> : <p className="govEmpty">冻结 WorkSpec 后等待 Proposal。</p>}
+          {proposal ? <div className="govCard"><div className="govCard__title"><strong>{proposal.proposalId}</strong><StatusPill value={proposal.status} /></div><div className="govFacts"><Fact label="revision" value={proposal.workSpecRevision} mono /><Fact label="workSpec" value={shortDigest(proposal.workSpecDigest)} mono /><Fact label="proposal" value={shortDigest(proposal.proposalDigest)} mono /><Fact label="governance" value={shortDigest(proposal.governanceDigest)} mono /></div>{proposalPayload ? <ProposalPayloadView payload={proposalPayload} /> : <PayloadUnavailable kind="proposal" />}</div> : <p className="govEmpty">冻结 WorkSpec 后等待 Proposal。</p>}
         </Section>
 
         <Section title="CompilationReport" kicker="确定性 Compiler">
@@ -380,7 +516,7 @@ export function GovernanceView({
         </Section>
 
         <Section title="Execution Plan 与 PlanDecision" kicker="人工责任边界">
-          <div className="govCard"><div className="govFacts"><Fact label="plan" value={plan ? `${plan.planRevisionId} · ${plan.status ?? "—"}` : "—"} mono /><Fact label="plan digest" value={shortDigest(plan?.planDigest)} mono /><Fact label="decision" value={planDecision?.decision ?? "pending"} /><Fact label="actor" value={planDecision?.actor ?? "—"} /></div>{planDecision?.reason && <p className="govReason">{planDecision.reason}</p>}</div>
+          <div className="govCard"><div className="govFacts"><Fact label="plan" value={plan ? `${plan.planRevisionId} · ${plan.status ?? "—"}` : "—"} mono /><Fact label="plan digest" value={shortDigest(plan?.planDigest)} mono /><Fact label="decision" value={planDecision?.decision ?? "pending"} /><Fact label="actor" value={planDecision?.actor ?? "—"} /></div>{plan && !planDecision && <p className="govSignHint">批准前请先读完下方计划正文：节点、执行者、声明路径与完成判定绑定都以此冻结版本为准。</p>}{plan ? (planPayload ? <PlanPayloadView payload={planPayload} /> : <PayloadUnavailable kind="plan" />) : null}{planDecision?.reason && <p className="govReason">{planDecision.reason}</p>}</div>
         </Section>
 
         <Section title="RunIntent 与执行状态" kicker="程序驱动">

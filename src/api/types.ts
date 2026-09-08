@@ -335,6 +335,220 @@ export interface PlanDecisionDto {
   createdAt: string;
 }
 export type PlanDecisionInput = Pick<PlanDecisionDto, "schemaVersion" | "decisionId" | "governanceDigest" | "decision" | "reason"> & Partial<Pick<PlanDecisionDto, "factType" | "proposalDigest" | "workSpecDigest" | "taskId" | "actor" | "createdAt">>;
+
+/* ---------------------------------------------------------------------------
+ * Proposal / Plan payload 正文
+ *
+ * 审批计划只给 digest 等于盲签：治理事实能证明「这份计划没被改过」，但不能证明
+ * 「人看懂了要批准什么」。下面这些类型描述服务端 payload 里真正可核验的正文，
+ * 让 PlanDecision 从签名变成审阅。字段一律按 AF API 实际返回值建模，缺失即不渲染。
+ * ------------------------------------------------------------------------- */
+export interface ProfileRef {
+  profileId?: string;
+  profileVersion?: string;
+}
+export interface SkillRef {
+  skillId?: string;
+  skillVersion?: string;
+}
+export interface GateRef {
+  gateId?: string;
+  evaluatorVersion?: string;
+}
+export interface ProposalBudget {
+  maxNodes?: number;
+  maxAttempts?: number;
+  maxWallTimeMs?: number;
+}
+/** Proposal payload 的槽位绑定：一个槽位描述「谁在什么依赖下产出什么」。 */
+export interface ProposalSlotBinding {
+  slotId?: string;
+  workItems?: string[];
+  inputRefs?: string[];
+  deliverableExpectation?: string;
+  profileRef?: ProfileRef;
+  skillRef?: SkillRef;
+  gateRef?: GateRef;
+  parallelHint?: string[];
+}
+export interface ProposalPayload {
+  schemaVersion?: number;
+  proposalId?: string;
+  proposalDigest?: string;
+  status?: string;
+  workSpecRevision?: number;
+  workSpecDigest?: string;
+  governanceDigest?: string;
+  slotBindings?: ProposalSlotBinding[];
+  budget?: ProposalBudget;
+  risks?: string[];
+  evidenceRefs?: string[];
+}
+/** Plan payload 的槽位绑定：在 Proposal 的基础上把槽位落到具体节点与声明路径。 */
+export interface PlanSlotBinding {
+  slotId?: string;
+  nodeId?: string;
+  profileRef?: ProfileRef;
+  skillRef?: SkillRef;
+  gateRef?: GateRef;
+  declaredPaths?: string[];
+  declaredCommands?: string[];
+  bindingDigest?: string;
+}
+/** 完成判定到节点的绑定：判定由谁核验、是否必填。 */
+export interface CriterionBinding {
+  criterionId?: string;
+  nodeId?: string;
+  verifierId?: string;
+  verifierVersion?: string;
+  required?: boolean;
+}
+export interface PlanPayload {
+  schemaVersion?: number;
+  planRevisionId?: string;
+  planVersion?: number;
+  taskId?: string;
+  workSpecRevision?: number;
+  workSpecDigest?: string;
+  governanceWorkflowRef?: string;
+  governanceDigest?: string;
+  proposalRef?: string;
+  proposalDigest?: string;
+  frozenWorkflowRef?: string;
+  readonlyPlanRef?: string;
+  slotBindings?: PlanSlotBinding[];
+  criterionBindings?: CriterionBinding[];
+  catalogDigest?: string;
+  policyVersion?: string;
+  capabilitySnapshotDigest?: string;
+  compilationReportRef?: string;
+  createdAt?: string;
+  planDigest?: string;
+}
+
+/* 归一化只做两件事：确认容器是可解析的对象，丢弃无法核验的字段类型。
+   不做补全、不做推断——payload 缺失就返回 null，由调用方呈现诚实的降级态。 */
+function asPayloadRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+function asPayloadString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+function asPayloadNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+function asPayloadBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+function asPayloadStringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+function asPayloadRecords(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.map(asPayloadRecord).filter((item): item is Record<string, unknown> => item !== null) : [];
+}
+function asProfileRef(value: unknown): ProfileRef | undefined {
+  const record = asPayloadRecord(value);
+  if (!record) return undefined;
+  const profileId = asPayloadString(record.profileId);
+  const profileVersion = asPayloadString(record.profileVersion);
+  return profileId || profileVersion ? { profileId, profileVersion } : undefined;
+}
+function asSkillRef(value: unknown): SkillRef | undefined {
+  const record = asPayloadRecord(value);
+  if (!record) return undefined;
+  const skillId = asPayloadString(record.skillId);
+  const skillVersion = asPayloadString(record.skillVersion);
+  return skillId || skillVersion ? { skillId, skillVersion } : undefined;
+}
+function asGateRef(value: unknown): GateRef | undefined {
+  const record = asPayloadRecord(value);
+  if (!record) return undefined;
+  const gateId = asPayloadString(record.gateId);
+  const evaluatorVersion = asPayloadString(record.evaluatorVersion);
+  return gateId || evaluatorVersion ? { gateId, evaluatorVersion } : undefined;
+}
+function asBudget(value: unknown): ProposalBudget | undefined {
+  const record = asPayloadRecord(value);
+  if (!record) return undefined;
+  const budget: ProposalBudget = {
+    maxNodes: asPayloadNumber(record.maxNodes),
+    maxAttempts: asPayloadNumber(record.maxAttempts),
+    maxWallTimeMs: asPayloadNumber(record.maxWallTimeMs),
+  };
+  return budget.maxNodes !== undefined || budget.maxAttempts !== undefined || budget.maxWallTimeMs !== undefined ? budget : undefined;
+}
+
+/** 解析 Proposal.payload；非对象或缺失返回 null（调用方必须呈现降级态）。 */
+export function normalizeProposalPayload(payload: unknown): ProposalPayload | null {
+  const record = asPayloadRecord(payload);
+  if (!record) return null;
+  return {
+    schemaVersion: asPayloadNumber(record.schemaVersion),
+    proposalId: asPayloadString(record.proposalId),
+    proposalDigest: asPayloadString(record.proposalDigest),
+    status: asPayloadString(record.status),
+    workSpecRevision: asPayloadNumber(record.workSpecRevision),
+    workSpecDigest: asPayloadString(record.workSpecDigest),
+    governanceDigest: asPayloadString(record.governanceDigest),
+    slotBindings: asPayloadRecords(record.slotBindings).map((slot) => ({
+      slotId: asPayloadString(slot.slotId),
+      workItems: asPayloadStringList(slot.workItems),
+      inputRefs: asPayloadStringList(slot.inputRefs),
+      deliverableExpectation: asPayloadString(slot.deliverableExpectation),
+      profileRef: asProfileRef(slot.profileRef),
+      skillRef: asSkillRef(slot.skillRef),
+      gateRef: asGateRef(slot.gateRef),
+      parallelHint: asPayloadStringList(slot.parallelHint),
+    })),
+    budget: asBudget(record.budget),
+    risks: asPayloadStringList(record.risks),
+    evidenceRefs: asPayloadStringList(record.evidenceRefs),
+  };
+}
+
+/** 解析 Plan.payload；非对象或缺失返回 null（调用方必须呈现降级态）。 */
+export function normalizePlanPayload(payload: unknown): PlanPayload | null {
+  const record = asPayloadRecord(payload);
+  if (!record) return null;
+  return {
+    schemaVersion: asPayloadNumber(record.schemaVersion),
+    planRevisionId: asPayloadString(record.planRevisionId),
+    planVersion: asPayloadNumber(record.planVersion),
+    taskId: asPayloadString(record.taskId),
+    workSpecRevision: asPayloadNumber(record.workSpecRevision),
+    workSpecDigest: asPayloadString(record.workSpecDigest),
+    governanceWorkflowRef: asPayloadString(record.governanceWorkflowRef),
+    governanceDigest: asPayloadString(record.governanceDigest),
+    proposalRef: asPayloadString(record.proposalRef),
+    proposalDigest: asPayloadString(record.proposalDigest),
+    frozenWorkflowRef: asPayloadString(record.frozenWorkflowRef),
+    readonlyPlanRef: asPayloadString(record.readonlyPlanRef),
+    slotBindings: asPayloadRecords(record.slotBindings).map((slot) => ({
+      slotId: asPayloadString(slot.slotId),
+      nodeId: asPayloadString(slot.nodeId),
+      profileRef: asProfileRef(slot.profileRef),
+      skillRef: asSkillRef(slot.skillRef),
+      gateRef: asGateRef(slot.gateRef),
+      declaredPaths: asPayloadStringList(slot.declaredPaths),
+      declaredCommands: asPayloadStringList(slot.declaredCommands),
+      bindingDigest: asPayloadString(slot.bindingDigest),
+    })),
+    criterionBindings: asPayloadRecords(record.criterionBindings).map((criterion) => ({
+      criterionId: asPayloadString(criterion.criterionId),
+      nodeId: asPayloadString(criterion.nodeId),
+      verifierId: asPayloadString(criterion.verifierId),
+      verifierVersion: asPayloadString(criterion.verifierVersion),
+      required: asPayloadBoolean(criterion.required),
+    })),
+    catalogDigest: asPayloadString(record.catalogDigest),
+    policyVersion: asPayloadString(record.policyVersion),
+    capabilitySnapshotDigest: asPayloadString(record.capabilitySnapshotDigest),
+    compilationReportRef: asPayloadString(record.compilationReportRef),
+    createdAt: asPayloadString(record.createdAt),
+    planDigest: asPayloadString(record.planDigest),
+  };
+}
+
 export interface RunIntentDto {
   schemaVersion: 1;
   runId: string;
