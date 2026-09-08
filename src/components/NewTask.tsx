@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Icon } from "./Icons";
 import { WorkflowPicker } from "./Workflow";
 import { validateWorkflowGraph, workflowTemplates, type Workflow } from "../data/workflows";
-import { taskContract } from "../data/settings";
 import type { AgentEvent } from "../data/mock";
 import type { AgentProfileSummaryDto, ScmProviderDto, SkillSummaryDto, WorkflowValidation } from "../api";
 
@@ -40,6 +39,13 @@ const fieldMeta: {
   { key: "deliverables", label: "交付物", hint: "结构化材料而非零散回答", glyph: "Cube" },
 ];
 
+/* 仓库默认值取服务端登记的第一个允许 namespace 原文 —— 它已经是 owner/repo，
+   再拼 "/repository" 会得到无效地址；列表为空时只给占位提示，不猜仓库名。 */
+function repositoryDefaultFor(provider: ScmProviderDto | undefined): string {
+  const namespace = provider?.allowedRepositoryNamespaces[0]?.trim();
+  return namespace || "namespace/repository";
+}
+
 export function NewTaskDialog({
   onClose,
   onStart,
@@ -60,26 +66,26 @@ export function NewTaskDialog({
   onValidateWorkflow: (workflow: Workflow) => Promise<WorkflowValidation>;
 }) {
   const [step, setStep] = useState<Step>("intent");
-  /* 预填本次任务目标：重构落在 vote_org_qfii，需求来自 sseinternetvote */
-  const [prompt, setPrompt] = useState(taskContract.problem);
+  /* 任务目标留空由用户填写：预填演示任务会让无关条目混进冻结后的 WorkSpec */
+  const [prompt, setPrompt] = useState("");
   const initialProvider = scmProviders.find((provider) => provider.available) ?? scmProviders[0];
   const [serverRef, setServerRef] = useState(initialProvider?.mcpServerRef ?? "");
   const provider = scmProviders.find((item) => item.mcpServerRef === serverRef);
-  const [repositoryRef, setRepositoryRef] = useState(initialProvider ? `${initialProvider.allowedRepositoryNamespaces[0] ?? "namespace"}/repository` : "");
+  const [repositoryRef, setRepositoryRef] = useState(repositoryDefaultFor(initialProvider));
   const [baseBranch, setBaseBranch] = useState("main");
   const [targetBranch, setTargetBranch] = useState("feat/agentflow-task");
   const [wf, setWf] = useState<Workflow>(workflows[0] ?? workflowTemplates[0]!);
   const [serverValidation, setServerValidation] = useState<WorkflowValidation | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  /* 契约清单：默认取自体系内置模板，允许逐条裁剪 */
+  /* 契约清单留空：由用户按本次任务填写，范围/验收项留空时由 WorkSpec 冻结前补齐 */
   const [lists, setLists] = useState<Record<ListField, string[]>>({
-    scope: taskContract.scope,
-    doneCriteria: taskContract.doneCriteria,
-    approvals: taskContract.approvals,
-    materials: taskContract.materials,
-    tools: taskContract.tools,
-    deliverables: taskContract.deliverables,
+    scope: [],
+    doneCriteria: [],
+    approvals: [],
+    materials: [],
+    tools: [],
+    deliverables: [],
   });
   const [draft, setDraft] = useState<Record<string, string>>({});
 
@@ -222,7 +228,7 @@ export function NewTaskDialog({
                     <select value={serverRef} onChange={(event) => {
                       const next = scmProviders.find((item) => item.mcpServerRef === event.target.value);
                       setServerRef(event.target.value);
-                      if (next) setRepositoryRef(`${next.allowedRepositoryNamespaces[0] ?? "namespace"}/repository`);
+                      setRepositoryRef(repositoryDefaultFor(next));
                     }}>
                       {scmProviders.map((item) => (
                         <option key={item.mcpServerRef} value={item.mcpServerRef} disabled={!item.available}>
@@ -259,9 +265,9 @@ export function NewTaskDialog({
                 <span className="kicker">从模板起草</span>
                 <div className="seedRow">
                   {[
-                    "提取 QFII 投票征集的业务规则，标注事实、推断与待确认项",
-                    "核对 vote_org_qfii 与上证信息投票平台的接口契约是否保持不变",
-                    "为名册与征集结果的文件上传补齐边界用例，覆盖格式与时点校验",
+                    "为 createTodoList 增加 update(id, patch) 方法，保持现有调用方行为不变",
+                    "为 createTodoList 补齐单元测试，覆盖新增、更新与删除路径",
+                    "调整 createTodoList 的语义：按 id 去重后再写入，返回最终条目",
                   ].map((s) => (
                     <button key={s} className="seedChip" onClick={() => setPrompt(s)}>
                       {s}
