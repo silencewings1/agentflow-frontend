@@ -4,7 +4,7 @@
    不同账户登录后看到自己在该流程中的节点 —— 审批通过后推进到下一节点。
    ================================================================ */
 
-import type { AgentEvent } from "./mock";
+import type { AgentEvent, Session, SessionState } from "./mock";
 import type { Workflow, WfNode } from "./workflows";
 import { workflowTemplates } from "./workflows";
 import { accountById, accountRoleLabel } from "./accounts";
@@ -451,4 +451,67 @@ export function postApprovalEvents(
       body: `已通过审批。「${nextNode.name}」已交付给 ${nextAssignee?.name ?? "下一执行者"}${nextAssignee ? `（${accountRoleLabel[nextAssignee.role]}）` : ""}，等待其处理。`,
     },
   ];
+}
+
+/* ================================================================
+   每账户的任务列表 mock：除「当前进行中」的主任务外，再补几条
+   「已完成 / 待处理」的辅助任务 —— 让不同角色登录后看到的任务列表
+   覆盖 running / review / done / idle 多态，而不只是一条。
+   设计主张：所有任务都归属同一个「存量系统逆向重构」项目，
+   只是工作项不同、责任角色不同 —— 保持「所有用户参与一个项目」。
+   ================================================================ */
+
+/** 一条辅助任务（非当前进行中的主任务） */
+export interface ExtraTask {
+  title: string;
+  state: SessionState;
+  time: string;
+  bucket: Session["bucket"];
+  diff: { added: number; removed: number; files: number };
+  turns: number;
+}
+
+/** 按账户索引的辅助任务：每个账户 2 条已完成（昨天）+ 1 条待处理（更早） */
+const EXTRA_TASKS: Record<string, ExtraTask[]> = {
+  /* 杨知远 · 审查：负责需求逆向审批，历史做过架构评审与缺陷复核 */
+  "ac-yz": [
+    { title: "存量系统逆向重构 · 架构设计评审", state: "done", time: "昨天 09:42", bucket: "昨天", diff: { added: 6, removed: 0, files: 1 }, turns: 3 },
+    { title: "存量系统逆向重构 · 缺陷修复复核", state: "done", time: "昨天 16:20", bucket: "昨天", diff: { added: 12, removed: 4, files: 2 }, turns: 2 },
+    { title: "存量系统逆向重构 · 验收口径终审", state: "idle", time: "周一", bucket: "更早", diff: { added: 0, removed: 0, files: 0 }, turns: 0 },
+  ],
+  /* 李雯 · 需求：负责源码解析，历史做过需求确认与口径补录 */
+  "ac-lw": [
+    { title: "存量系统逆向重构 · 需求清单确认", state: "done", time: "昨天 10:15", bucket: "昨天", diff: { added: 8, removed: 2, files: 1 }, turns: 2 },
+    { title: "存量系统逆向重构 · 验收口径补录", state: "done", time: "昨天 14:05", bucket: "昨天", diff: { added: 5, removed: 0, files: 1 }, turns: 1 },
+    { title: "存量系统逆向重构 · 需求变更评估", state: "idle", time: "周三", bucket: "更早", diff: { added: 0, removed: 0, files: 0 }, turns: 0 },
+  ],
+  /* 周林 · 编排：负责架构设计，历史做过契约下发与调度复盘 */
+  "ac-orch": [
+    { title: "存量系统逆向重构 · 节点契约下发", state: "done", time: "昨天 09:10", bucket: "昨天", diff: { added: 24, removed: 3, files: 3 }, turns: 4 },
+    { title: "存量系统逆向重构 · 偏差调度复盘", state: "done", time: "昨天 17:45", bucket: "昨天", diff: { added: 3, removed: 1, files: 1 }, turns: 1 },
+    { title: "存量系统逆向重构 · 阶段二排期", state: "idle", time: "周四", bucket: "更早", diff: { added: 0, removed: 0, files: 0 }, turns: 0 },
+  ],
+  /* 陈硕 · 开发：负责测试驱动开发，历史做过订单/库存重写 */
+  "ac-dev": [
+    { title: "存量系统逆向重构 · 订单服务重写", state: "done", time: "昨天 11:30", bucket: "昨天", diff: { added: 186, removed: 42, files: 6 }, turns: 5 },
+    { title: "存量系统逆向重构 · 库存预占修复", state: "done", time: "昨天 15:50", bucket: "昨天", diff: { added: 34, removed: 9, files: 3 }, turns: 2 },
+    { title: "存量系统逆向重构 · 结算服务重写", state: "idle", time: "周二", bucket: "更早", diff: { added: 0, removed: 0, files: 0 }, turns: 0 },
+  ],
+  /* 林晓 · 测试：负责集成验证，历史做过集成基线与性能压测 */
+  "ac-gate": [
+    { title: "存量系统逆向重构 · 集成测试基线", state: "done", time: "昨天 10:40", bucket: "昨天", diff: { added: 52, removed: 6, files: 4 }, turns: 3 },
+    { title: "存量系统逆向重构 · 性能压测验收", state: "done", time: "昨天 16:05", bucket: "昨天", diff: { added: 4, removed: 0, files: 1 }, turns: 1 },
+    { title: "存量系统逆向重构 · 回归用例扩充", state: "idle", time: "周五", bucket: "更早", diff: { added: 0, removed: 0, files: 0 }, turns: 0 },
+  ],
+  /* 赵远 · 交付：负责交付验收，历史做过阶段归档与回滚演练 */
+  "ac-conn": [
+    { title: "存量系统逆向重构 · 阶段一交付归档", state: "done", time: "昨天 09:55", bucket: "昨天", diff: { added: 18, removed: 2, files: 2 }, turns: 3 },
+    { title: "存量系统逆向重构 · 回滚方案演练", state: "done", time: "昨天 15:10", bucket: "昨天", diff: { added: 7, removed: 0, files: 1 }, turns: 1 },
+    { title: "存量系统逆向重构 · 上线材料齐备性核查", state: "idle", time: "周三", bucket: "更早", diff: { added: 0, removed: 0, files: 0 }, turns: 0 },
+  ],
+};
+
+/** 取某账户的辅助任务列表；无记录时返回空数组 */
+export function loginExtraTasks(accountId: string): ExtraTask[] {
+  return EXTRA_TASKS[accountId] ?? [];
 }

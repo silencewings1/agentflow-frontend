@@ -23,7 +23,7 @@ import { Login } from "./components/Login";
 import { WorkflowStrip, NodeConversation } from "./components/Workflow";
 import { defaultModel, modelOptions } from "./data/settings";
 import { accounts, initialGrants, accountById, accountRoleLabel, type NodeGrant } from "./data/accounts";
-import { getLoginSetup, postApprovalEvents } from "./data/loginSetup";
+import { getLoginSetup, loginExtraTasks, postApprovalEvents } from "./data/loginSetup";
 import {
   buildOrchestratorPlan,
   runOf,
@@ -210,22 +210,34 @@ export default function App() {
       planPendingRef.current = false;
       setFocusNode(null);
 
-      /* 登录只保留该账户的任务会话，清除所有其他会话 */
+      /* 登录只保留该账户的任务会话：主任务（当前进行中/待审批）置顶，
+         再并入该账户的辅助任务（已完成 / 待处理），让任务列表覆盖多态 */
       const sid = `s-login-${id}`;
-      setSessionList([
-        {
-          id: sid,
-          title: setup.sessionTitle,
-          repo: "demo-app",
-          branch: `feat/${id}`,
-          state: setup.pendingApprovalId ? "review" : "running",
-          time: "刚刚",
-          bucket: "今天",
-          diff: { added: 0, removed: 0, files: 0 },
-          turns: 1,
-          workflow: setup.workflow.id,
-        },
-      ]);
+      const main: Session = {
+        id: sid,
+        title: setup.sessionTitle,
+        repo: "demo-app",
+        branch: `feat/${id}`,
+        state: setup.pendingApprovalId ? "review" : "running",
+        time: "刚刚",
+        bucket: "今天",
+        diff: { added: 0, removed: 0, files: 0 },
+        turns: 1,
+        workflow: setup.workflow.id,
+      };
+      const extras: Session[] = loginExtraTasks(id).map((t, i) => ({
+        id: `s-extra-${id}-${i}`,
+        title: t.title,
+        repo: "demo-app",
+        branch: `feat/${id}`,
+        state: t.state,
+        time: t.time,
+        bucket: t.bucket,
+        diff: t.diff,
+        turns: t.turns,
+        workflow: "wf-legacy",
+      }));
+      setSessionList([main, ...extras]);
       setActiveId(sid);
 
       push({
