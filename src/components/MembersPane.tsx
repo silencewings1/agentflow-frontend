@@ -26,6 +26,13 @@ const PERMS: NodePerm[] = ["view", "run", "approve", "manage"];
 
 const KIND_ORDER: AccountKind[] = ["human", "ai", "program"];
 
+/** 账户类型与架构层级的合法组合：人工可落在 L1/L4/L5，智能体只在 L2，程序在 L3/L4 */
+const KIND_LAYERS: Record<AccountKind, Account["layer"][]> = {
+  human: ["L1", "L4", "L5"],
+  ai: ["L2"],
+  program: ["L3", "L4"],
+};
+
 export function MembersPane({ onToast }: { onToast: Toast }) {
   const [accounts_, setAccounts] = useState<Account[]>(accounts);
   const [grants, setGrants] = useState<NodeGrant[]>(initialGrants);
@@ -211,7 +218,12 @@ export function MembersPane({ onToast }: { onToast: Toast }) {
                     key={k}
                     className="permKind"
                     data-on={draftKind === k ? "true" : undefined}
-                    onClick={() => setDraftKind(k)}
+                    onClick={() => {
+                      setDraftKind(k);
+                      if (!KIND_LAYERS[k].includes(draftLayer)) {
+                        setDraftLayer(KIND_LAYERS[k][0]);
+                      }
+                    }}
                   >
                     {accountKindLabel[k]}
                   </button>
@@ -221,13 +233,14 @@ export function MembersPane({ onToast }: { onToast: Toast }) {
             <div className="form__row">
               <label>架构落位</label>
               <div className="permKinds">
-                {(["L1", "L2", "L3", "L4", "L5"] as const).map((l) => (
+                {KIND_LAYERS[draftKind].map((l) => (
                   <button
                     type="button"
                     key={l}
                     className="permKind"
                     data-on={draftLayer === l ? "true" : undefined}
                     onClick={() => setDraftLayer(l)}
+                    title={accountLayerLabel[l]}
                   >
                     {l}
                   </button>

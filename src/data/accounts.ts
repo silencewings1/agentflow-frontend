@@ -61,6 +61,18 @@ export function accountsForRole(role: AgentRole, list: Account[] = accounts): Ac
   return list.filter((a) => a.layer === layer && a.state === "active");
 }
 
+/**
+ * 按节点返回可指派的账户列表。
+ * 人工检查节点（approval=true）由 L5 人工账户承担；
+ * 普通节点按角色 → 层映射筛选。
+ */
+export function assignableAccounts(node: Pick<WfNode, "role" | "approval">, list: Account[] = accounts): Account[] {
+  if (node.approval) {
+    return list.filter((a) => a.layer === "L5" && a.kind === "human" && a.state === "active");
+  }
+  return accountsForRole(node.role, list);
+}
+
 /** 按 id 查找账户 */
 export function accountById(id: string, list: Account[] = accounts): Account | undefined {
   return list.find((a) => a.id === id);
@@ -313,6 +325,7 @@ export const accounts: Account[] = [
  * source: "owner" = 手工授予（变更走 GrantAudit）
  */
 export const initialGrants: NodeGrant[] = [
+  // ---- 需求开发 (wf-feature) ----
   // 需求分析 n1：李雯可执行可裁决（需求评审人），杨知远可裁决
   { accountId: "ac-lw", workflowId: "wf-feature", nodeId: "n1", perm: "run", source: "role" },
   { accountId: "ac-lw", workflowId: "wf-feature", nodeId: "n1", perm: "approve", source: "role" },
@@ -324,6 +337,47 @@ export const initialGrants: NodeGrant[] = [
   { accountId: "ac-gate", workflowId: "wf-feature", nodeId: "n3", perm: "approve", source: "role" },
   // 交付 n4（含人工检查点）：杨知远裁决
   { accountId: "ac-yz", workflowId: "wf-feature", nodeId: "n4", perm: "approve", source: "role" },
+
+  // ---- 单元测试 (wf-unit) ----
+  { accountId: "ac-dev", workflowId: "wf-unit", nodeId: "n1", perm: "run", source: "role" },
+  { accountId: "ac-gate", workflowId: "wf-unit", nodeId: "n2", perm: "approve", source: "role" },
+  { accountId: "ac-yz", workflowId: "wf-unit", nodeId: "n3", perm: "approve", source: "role" },
+
+  // ---- 缺陷修复 (wf-bugfix) ----
+  { accountId: "ac-dev", workflowId: "wf-bugfix", nodeId: "n1", perm: "run", source: "role" },
+  { accountId: "ac-lw", workflowId: "wf-bugfix", nodeId: "n2", perm: "run", source: "role" },
+  { accountId: "ac-dev", workflowId: "wf-bugfix", nodeId: "n3", perm: "run", source: "role" },
+  { accountId: "ac-dev", workflowId: "wf-bugfix", nodeId: "n4", perm: "run", source: "role" },
+  { accountId: "ac-yz", workflowId: "wf-bugfix", nodeId: "n5", perm: "approve", source: "role" },
+
+  // ---- 存量系统逆向重构 (wf-legacy) ----
+  { accountId: "ac-lw", workflowId: "wf-legacy", nodeId: "n1", perm: "run", source: "role" },
+  { accountId: "ac-yz", workflowId: "wf-legacy", nodeId: "n2", perm: "approve", source: "role" },
+  { accountId: "ac-lw", workflowId: "wf-legacy", nodeId: "n3", perm: "run", source: "role" },
+  { accountId: "ac-dev", workflowId: "wf-legacy", nodeId: "n4", perm: "run", source: "role" },
+  { accountId: "ac-dev", workflowId: "wf-legacy", nodeId: "n5", perm: "run", source: "role" },
+  { accountId: "ac-yz", workflowId: "wf-legacy", nodeId: "n6", perm: "approve", source: "role" },
+
+  // ---- 开源漏洞整改 (wf-cve) ----
+  { accountId: "ac-orch", workflowId: "wf-cve", nodeId: "n1", perm: "run", source: "role" },
+  { accountId: "ac-lw", workflowId: "wf-cve", nodeId: "n2", perm: "run", source: "role" },
+  { accountId: "ac-dev", workflowId: "wf-cve", nodeId: "n3", perm: "run", source: "role" },
+  { accountId: "ac-dev", workflowId: "wf-cve", nodeId: "n4", perm: "run", source: "role" },
+  { accountId: "ac-dev", workflowId: "wf-cve", nodeId: "n5", perm: "run", source: "role" },
+  { accountId: "ac-gate", workflowId: "wf-cve", nodeId: "n6", perm: "approve", source: "role" },
+  { accountId: "ac-yz", workflowId: "wf-cve", nodeId: "n7", perm: "approve", source: "role" },
+
+  // ---- AI 代码审核 (wf-review) ----
+  { accountId: "ac-orch", workflowId: "wf-review", nodeId: "n1", perm: "run", source: "role" },
+  { accountId: "ac-gate", workflowId: "wf-review", nodeId: "n2", perm: "approve", source: "role" },
+  { accountId: "ac-gate", workflowId: "wf-review", nodeId: "n3", perm: "approve", source: "role" },
+  { accountId: "ac-orch", workflowId: "wf-review", nodeId: "n4", perm: "run", source: "role" },
+  { accountId: "ac-dev", workflowId: "wf-review", nodeId: "n5", perm: "run", source: "role" },
+  { accountId: "ac-yz", workflowId: "wf-review", nodeId: "n6", perm: "approve", source: "role" },
+
+  // ---- 自定义编排 (wf-custom) ----
+  { accountId: "ac-yz", workflowId: "wf-custom", nodeId: "cu1", perm: "approve", source: "role" },
+  { accountId: "ac-lw", workflowId: "wf-custom", nodeId: "cu2", perm: "run", source: "role" },
 ];
 
 /* ---------------- 授权变更记录（演示） ---------------- */

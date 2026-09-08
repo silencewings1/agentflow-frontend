@@ -25,7 +25,7 @@ import { roleLabel, skills, skillSourceLabel, type AgentRole, type Skill, type S
 import {
   accounts,
   accountById,
-  accountsForRole,
+  assignableAccounts,
   canRun,
   type Account,
   type NodeGrant,
@@ -533,7 +533,7 @@ export function WorkflowPicker({
     (src) => src !== "builtin" && selectableSkills.some((s) => s.source === src),
   );
 
-  const assignableAccounts = node ? accountsForRole(node.role, accounts) : [];
+  const assignableList = node ? assignableAccounts(node, accounts) : [];
 
   const pick = (id: string) => {
     const tpl = workflowTemplates.find((w) => w.id === id);
@@ -731,13 +731,13 @@ export function WorkflowPicker({
                     <>
                       <div className="assigneeDrop__scrim" onClick={() => setAssigneeOpen(false)} />
                       <div className="assigneeDrop__panel">
-                        {assignableAccounts.length === 0 ? (
+                        {assignableList.length === 0 ? (
                           <div className="assigneeDrop__empty">
                             <p>该角色暂无匹配账户</p>
                             <em>请到「成员与权限」中添加对应层级的账户。</em>
                           </div>
                         ) : (
-                          assignableAccounts.map((a) => {
+                          assignableList.map((a) => {
                             const on = node.assignee === a.id;
                             return (
                               <button

@@ -324,6 +324,7 @@ const wfUnit: WfTemplate = {
       lane: 0,
       desc: "按已确认需求编写用例，保留预期失败记录后再补实现。",
       gate: "覆盖率阈值",
+      assignee: "ac-dev",
     },
     {
       id: "n2",
@@ -333,6 +334,7 @@ const wfUnit: WfTemplate = {
       lane: 0,
       desc: "检查用例是否覆盖主要业务规则与边界，核查断言有效性。",
       gate: "断言有效性",
+      assignee: "ac-gate",
     },
     {
       id: "n3",
@@ -343,6 +345,7 @@ const wfUnit: WfTemplate = {
       desc: "提交测试资产与覆盖率报告，纳入回归基线。",
       gate: "证据链完整",
       approval: true,
+      assignee: "ac-yz",
     },
   ],
   edges: [
@@ -374,6 +377,7 @@ const wfBugfix: WfTemplate = {
       lane: 0,
       desc: "补一条能稳定复现问题的测试，作为修复的验证标准。",
       gate: "可复现用例",
+      assignee: "ac-dev",
     },
     {
       id: "n2",
@@ -382,6 +386,7 @@ const wfBugfix: WfTemplate = {
       col: 1,
       lane: 0,
       desc: "沿调用链定位根因，判断影响范围与兼容性风险。",
+      assignee: "ac-lw",
     },
     {
       id: "n3",
@@ -391,6 +396,7 @@ const wfBugfix: WfTemplate = {
       lane: 0,
       desc: "以最小改动修复，保持既有契约不变。",
       gate: "复现用例转通过",
+      assignee: "ac-dev",
     },
     {
       id: "n4",
@@ -400,6 +406,7 @@ const wfBugfix: WfTemplate = {
       lane: 0,
       desc: "运行受影响模块的回归测试与关键业务流程。",
       gate: "回归全绿",
+      assignee: "ac-dev",
     },
     {
       id: "n5",
@@ -410,6 +417,7 @@ const wfBugfix: WfTemplate = {
       desc: "审查修复方式与副作用，汇总证据链提交合并。",
       gate: "无阻断问题",
       approval: true,
+      assignee: "ac-yz",
     },
   ],
   edges: [
@@ -444,6 +452,7 @@ const wfLegacy: WfTemplate = {
       col: 0,
       lane: 0,
       desc: "按模块、调用关系与依赖整理源码，记录来源与版本。",
+      assignee: "ac-lw",
     },
     {
       id: "n2",
@@ -454,6 +463,7 @@ const wfLegacy: WfTemplate = {
       desc: "抽取业务规则与接口行为，区分代码事实、推断与待确认。",
       gate: "G1 需求与设计",
       approval: true,
+      assignee: "ac-yz",
     },
     {
       id: "n3",
@@ -463,6 +473,7 @@ const wfLegacy: WfTemplate = {
       lane: 0,
       desc: "确定新系统结构、模块职责、接口与关键设计决定。",
       gate: "G1 需求与设计",
+      assignee: "ac-lw",
     },
     {
       id: "n4",
@@ -472,6 +483,7 @@ const wfLegacy: WfTemplate = {
       lane: 0,
       desc: "先写用例并保留预期失败，再实现代码直至转为通过。",
       gate: "G2 测试驱动开发",
+      assignee: "ac-dev",
     },
     {
       id: "n5",
@@ -481,6 +493,7 @@ const wfLegacy: WfTemplate = {
       lane: 0,
       desc: "跨模块业务流程集成测试与浏览器冒烟测试。",
       gate: "G3 集成验证",
+      assignee: "ac-dev",
     },
     {
       id: "n6",
@@ -491,6 +504,7 @@ const wfLegacy: WfTemplate = {
       desc: "输出需求、设计、验证与运维四类材料，交付人工验收。",
       gate: "G4 交付提交",
       approval: true,
+      assignee: "ac-yz",
     },
   ],
   edges: [
@@ -527,6 +541,7 @@ const wfCve: WfTemplate = {
       col: 0,
       lane: 0,
       desc: "读取组件清单与依赖扫描结果，确定受影响项目范围。",
+      assignee: "ac-orch",
     },
     {
       id: "n2",
@@ -535,6 +550,7 @@ const wfCve: WfTemplate = {
       col: 1,
       lane: 0,
       desc: "区分直接依赖与间接依赖，确定可用修复版本。",
+      assignee: "ac-lw",
     },
     {
       id: "n3",
@@ -543,6 +559,7 @@ const wfCve: WfTemplate = {
       col: 1,
       lane: 1,
       desc: "核对接口变化、构建限制与可能影响的业务功能。",
+      assignee: "ac-dev",
     },
     {
       id: "n4",
@@ -552,6 +569,7 @@ const wfCve: WfTemplate = {
       lane: 0,
       desc: "在独立分支升级组件并调整代码、配置与构建文件。",
       gate: "构建与单元测试",
+      assignee: "ac-dev",
     },
     {
       id: "n5",
@@ -561,6 +579,7 @@ const wfCve: WfTemplate = {
       lane: 0,
       desc: "执行集成测试与关键业务回归测试。",
       gate: "关键业务回归",
+      assignee: "ac-dev",
     },
     {
       id: "n6",
@@ -570,6 +589,7 @@ const wfCve: WfTemplate = {
       lane: 0,
       desc: "确认漏洞已消除、依赖完整升级且未引入新问题。",
       gate: "漏洞已消除",
+      assignee: "ac-gate",
     },
     {
       id: "n7",
@@ -580,6 +600,7 @@ const wfCve: WfTemplate = {
       desc: "由项目负责人批准合并与发布，状态回写现有平台。",
       gate: "责任人审批",
       approval: true,
+      assignee: "ac-yz",
     },
   ],
   edges: [
@@ -617,6 +638,7 @@ const wfReview: WfTemplate = {
       col: 0,
       lane: 0,
       desc: "经受控连接层取得代码差异、相关文件、任务说明与项目规则。",
+      assignee: "ac-orch",
     },
     {
       id: "n2",
@@ -625,6 +647,7 @@ const wfReview: WfTemplate = {
       col: 1,
       lane: 0,
       desc: "检查功能正确性、异常处理、边界条件与并发资源使用。",
+      assignee: "ac-gate",
     },
     {
       id: "n3",
@@ -633,6 +656,7 @@ const wfReview: WfTemplate = {
       col: 1,
       lane: 1,
       desc: "检查安全问题、合规要求、测试充分性与修改影响范围。",
+      assignee: "ac-gate",
     },
     {
       id: "n4",
@@ -642,6 +666,7 @@ const wfReview: WfTemplate = {
       lane: 0,
       desc: "按问题位置与严重程度写回代码平台，区分阻断与一般问题。",
       gate: "严重问题必须整改",
+      assignee: "ac-orch",
     },
     {
       id: "n5",
@@ -650,6 +675,7 @@ const wfReview: WfTemplate = {
       col: 3,
       lane: 0,
       desc: "按问题清单修改，一般问题由人员决定是否处理。",
+      assignee: "ac-dev",
     },
     {
       id: "n6",
@@ -660,6 +686,7 @@ const wfReview: WfTemplate = {
       desc: "复核整改结果，通过后允许进入人工合并流程。",
       gate: "复核通过",
       approval: true,
+      assignee: "ac-yz",
     },
   ],
   edges: [
@@ -696,6 +723,7 @@ const wfCustom: WfTemplate = {
       desc: "拆解需求语义与验收条件，标注事实、推断与待确认项。",
       gate: "需求可测试性",
       approval: true,
+      assignee: "ac-yz",
     },
     {
       id: "cu2",
@@ -705,6 +733,7 @@ const wfCustom: WfTemplate = {
       lane: 0,
       desc: "汇总变更说明、测试报告与回滚方案，提交责任人验收。",
       gate: "证据链完整",
+      assignee: "ac-lw",
     },
   ],
   edges: [
