@@ -16,6 +16,7 @@ import type {
   WorkSpecDraftInput,
   WorkSpecDto,
 } from "../api/types";
+import { deriveWorkSpecPreflight, type WorkSpecPreflightItem, type WorkSpecPreflightTone } from "./workSpecPreflight";
 
 export interface GovernanceReworkItem {
   reworkId: string;
@@ -182,6 +183,19 @@ function initialDraft(workSpec?: WorkSpecDto | null, draft?: WorkSpecDraftInput)
   };
 }
 
+function WorkSpecPreflightCard({ draft }: { draft: WorkSpecDraftInput }) {
+  const preflight = deriveWorkSpecPreflight(draft);
+  const groups: Array<{ title: string; summary: string; items: WorkSpecPreflightItem[]; tone: WorkSpecPreflightTone }> = [
+    { title: "已自动推断的偏好", summary: "这些是实现选择，不会要求你为了通过门禁而预先填写内部规则。", items: preflight.inferred, tone: "info" },
+    { title: "冻结前需要确认的边界", summary: "只有会影响授权、外部写入或执行范围的事项才会阻塞后续运行。", items: preflight.boundaries, tone: "warn" },
+    { title: "冻结后会影响运行的内容", summary: "这不是不可修改；修改时会创建新的不可变 revision，历史记录继续保留。", items: preflight.frozenChanges, tone: "info" },
+  ];
+  return <aside className="govPreflight" aria-label="WorkSpec 冻结前预检">
+    <div className="govPreflight__head"><div><strong>冻结前预检</strong><span>先确认业务边界，平台再补齐可推断的执行细节。</span></div><em>本地预览</em></div>
+    <div className="govPreflight__groups">{groups.map((group) => <section key={group.title} data-tone={group.tone}><h4>{group.title}</h4><p>{group.summary}</p><ul>{group.items.map((item) => <li key={item.label} data-tone={item.tone}><strong>{item.label}</strong><span>{item.detail}</span></li>)}</ul></section>)}</div>
+  </aside>;
+}
+
 function WorkSpecEditor({
   workSpec,
   editable,
@@ -214,6 +228,7 @@ function WorkSpecEditor({
       </div>
       {editable ? (
         <div className="govForm">
+          <WorkSpecPreflightCard draft={draft} />
           <label><span>标题</span><input value={draft.title ?? ""} onChange={(event) => update({ title: event.target.value })} placeholder="这项任务要交付什么" /></label>
           <label><span>目标</span><textarea value={draft.objective ?? ""} onChange={(event) => update({ objective: event.target.value })} rows={3} placeholder="可验证的目标与边界" /></label>
           <label><span>背景（可选）</span><textarea value={draft.background ?? ""} onChange={(event) => update({ background: event.target.value })} rows={2} placeholder="为什么现在做" /></label>
