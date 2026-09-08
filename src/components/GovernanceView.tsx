@@ -3,6 +3,7 @@ import type {
   AfGateDetailDto,
   ApprovalQueryDto,
   AttemptDetailDto,
+  ClarificationAnswerDto,
   CompilationReportDto,
   EvidenceMatrixDto,
   GitOperationDto,
@@ -56,6 +57,7 @@ export interface GovernanceViewProps {
   onCompile?: () => void;
   onPlanDecision?: (decision: "approved" | "rejected") => void;
   onRun?: () => void;
+  onAnswerRequirements?: (input: { sourceAttemptId: string; answers: ClarificationAnswerDto[]; reason: string }) => void;
   busyAction?: string | null;
 }
 
@@ -130,17 +132,30 @@ function isLikelyInferableQuestion(question: string): boolean {
   return ["覆盖率", "coverage", "百分比", "threshold", "门槛", "测试工具", "第三方依赖", "devdepend", "依赖", "测试文件", "文件布局", "脚本", "实现细节", "命名"].some((token) => text.includes(token));
 }
 
-function RequirementsQuestionCard({ attempts }: { attempts: AttemptDetailDto[] }) {
+function isRequirementsQuestionBlocking(item: Record<string, unknown>): boolean {
+  const category = typeof item.category === "string" ? item.category.trim().toLowerCase() : "";
+  const resolution = typeof item.resolutionStatus === "string" ? item.resolutionStatus.trim().toLowerCase() : "";
+  if (["external-write", "authorization", "acceptance-conflict", "scope", "security"].includes(category)) {
+    return !["answered", "confirmed", "inferred"].includes(resolution);
+  }
+  if (["implementation-preference", "evidence-preference"].includes(category)) return false;
+  return item.blocking === true && !isLikelyInferableQuestion(String(item.question ?? ""));
+}
+
+function RequirementsQuestionCard({ attempts, onAnswer, busy, apiMode }: { attempts: AttemptDetailDto[]; onAnswer?: GovernanceViewProps["onAnswerRequirements"]; busy?: boolean; apiMode: "http" | "fixture" }) {
+  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [reason, setReason] = useState("");
   const attempt = [...attempts].reverse().find((item) => item.nodeId === "requirements" && item.structured && Array.isArray(item.structured.openQuestions));
   const questions = Array.isArray(attempt?.structured?.openQuestions) ? attempt.structured.openQuestions : [];
   if (!questions.length) return null;
+  const blockingQuestions = questions.map((raw, index) => ({ raw, index })).filter(({ raw }) => { const item = typeof raw === "object" && raw !== null ? raw as Record<string, unknown> : {}; return isRequirementsQuestionBlocking(item); });
   return <div className="govQuestions"><div className="govQuestions__head"><strong>需求澄清问题</strong><span>模型问题会先经过平台分类，只有真正影响授权或执行边界的问题才阻断。</span></div>{questions.map((raw, index) => {
     const item = typeof raw === "object" && raw !== null ? raw as Record<string, unknown> : {};
     const question = String(item.question ?? "");
-    const inferred = item.blocking === true && isLikelyInferableQuestion(question);
-    const blocking = item.blocking === true && !inferred;
-    return <article key={`${String(item.id ?? "question")}-${index}`} data-tone={blocking ? "warn" : "info"}><span className="govQuestions__badge">{blocking ? "需要确认" : inferred ? "可自动推断" : "说明"}</span><p>{question || "未提供问题文本"}</p><small>{blocking ? "请在冻结新 revision 前确认；确认后重试 requirements。" : "平台将按当前 WorkSpec 默认策略处理，不影响继续执行。"}</small></article>;
-  })}</div>;
+    const blocking = isRequirementsQuestionBlocking(item);
+    const inferred = !blocking && (item.blocking === true || item.resolutionStatus === "inferred" || item.resolutionStatus === "assumed");
+    return <article key={`${String(item.id ?? "question")}-${index}`} data-tone={blocking ? "warn" : "info"}><span className="govQuestions__badge">{blocking ? "需要确认" : inferred ? "可自动推断" : "说明"}</span><p>{question || "未提供问题文本"}</p>{blocking ? <textarea value={answers[index] ?? ""} onChange={(event) => setAnswers((current) => ({ ...current, [index]: event.target.value }))} placeholder="填写确认结果，例如：允许写入 feature/demo 分支" rows={2} /> : null}<small>{blocking ? "回答后会生成新的 WorkSpec revision；旧 attempt 保留为审计证据。" : "平台将按当前 WorkSpec 默认策略处理，不影响继续执行。"}</small></article>;
+  })}{blockingQuestions.length > 0 && <div className="govQuestions__actions">{apiMode === "fixture" ? <p className="govHint govHint--warn">当前是 FIXTURE · TEST DOUBLE；回答不会写入治理事实，请切换到 HTTP AF API 后提交。</p> : <><label><span>本次确认说明</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="说明你确认了哪些边界，以及为什么" rows={2} /></label><button className="btn btn--accent btn--sm" disabled={!onAnswer || busy || !reason.trim() || blockingQuestions.some(({ index }) => !(answers[index] ?? "").trim())} onClick={() => onAnswer?.({ sourceAttemptId: attempt!.attemptId, answers: blockingQuestions.map(({ raw, index }) => { const item = raw as Record<string, unknown>; return { ...(typeof item.id === "string" ? { questionId: item.id } : {}), question: String(item.question ?? ""), answer: (answers[index] ?? "").trim(), ...(typeof item.category === "string" && ["external-write", "authorization", "acceptance-conflict", "scope", "security"].includes(item.category) ? { category: item.category as ClarificationAnswerDto["category"] } : {}) }; }), reason: reason.trim() })}>{busy ? "提交并创建新 revision…" : "回答并重新规划"}</button></>}</div>}</div>;
 }
 
 function Section({ title, kicker, children, empty }: { title: string; kicker?: string; children: ReactNode; empty?: boolean }) {
@@ -284,6 +299,7 @@ export function GovernanceView({
   onCompile,
   onPlanDecision,
   onRun,
+  onAnswerRequirements,
   busyAction,
 }: GovernanceViewProps) {
   const effectiveRunMode = runMode ?? runIntent?.runMode;
@@ -315,7 +331,7 @@ export function GovernanceView({
       </div>
 
       <RequirementsGateHint gates={gates} taskStatus={currentStatus} />
-      <RequirementsQuestionCard attempts={attempts} />
+      <RequirementsQuestionCard attempts={attempts} onAnswer={onAnswerRequirements} busy={busyAction === "clarification"} apiMode={apiMode} />
 
       <div className="govGrid">
         <Section title="WorkSpec" kicker="唯一入口">

@@ -2441,6 +2441,12 @@
 .govQuestions article p, .govQuestions article small { grid-column: 2; margin: 0; }
 .govQuestions article p { color: var(--text-2); font-size: 12px; }
 .govQuestions article small { color: var(--text-3); font-size: 11px; }
+.govQuestions article textarea, .govQuestions__actions textarea { grid-column: 2; width: 100%; border: 1px solid var(--line); border-radius: var(--r-xs); padding: 6px 7px; color: var(--text); background: var(--bg); font-size: 11px; resize: vertical; }
+.govQuestions article textarea:focus, .govQuestions__actions textarea:focus { border-color: var(--accent-line); outline: 1px solid var(--accent-line); }
+.govQuestions__actions { display: grid; gap: 7px; margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--line); }
+.govQuestions__actions label { display: grid; gap: 4px; }
+.govQuestions__actions label span { color: var(--text-3); font-size: 10px; }
+.govQuestions__actions .btn { justify-self: start; }
 .govQuestions__badge { align-self: start; padding: 2px 5px; border-radius: 999px; color: var(--sage); background: color-mix(in oklab, var(--sage) 10%, transparent); white-space: nowrap; font-size: 10px; }
 .govQuestions article[data-tone="warn"] .govQuestions__badge { color: var(--gold); background: color-mix(in oklab, var(--gold) 10%, transparent); }
 .govReadOnly { display: grid; gap: 8px; }

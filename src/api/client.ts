@@ -9,6 +9,7 @@ import type {
   AfTaskDetailDto,
   AfTrajectoryDto,
   ApprovalQueryDto,
+  ClarificationDecisionDto,
   CompilePlanInput,
   CompilePlanResultDto,
   CompilationReportDto,
@@ -24,6 +25,7 @@ import type {
   ProposalDto,
   PushOperationInput,
   RunIntentDto,
+  RequirementsClarificationInput,
   StartResultDto,
   TaskDetailDto,
   TaskSummaryDto,
@@ -260,6 +262,7 @@ function fixtureDetail(task: TaskSummaryDto, bootstrap: AfBootstrapDto): TaskDet
     gitOperations,
     deliverables: nodes.filter((node) => node.status === "accepted").map((node, index) => ({ deliverableId: `${task.taskId}.${node.nodeId}.d1`, nodeId: node.nodeId, digest: FIXTURE_DIGEST, mediaType: "application/json", schemaVersion: "FixtureDeliverable@1", status: index === 0 && failed ? "superseded" as const : "current" as const })),
     updatedAt: task.updatedAt,
+    revision: task.revision,
   };
 }
 
@@ -466,6 +469,9 @@ function fixtureClient(): AfApiClient {
       workSpecs.set(taskId, value);
       return value;
     },
+    async applyRequirementsClarification() {
+      throw new AfApiError({ code: "AF_CLARIFICATION_UNSUPPORTED", message: "fixture/test-double 不支持持久化需求澄清；请切换到 HTTP AF API。", retryable: false });
+    },
     async requestSupervisor(taskId, kind, input) {
       taskOrThrow(taskId);
       if (kind === "initial-plan") ensureWorkSpec(taskId);
@@ -602,6 +608,7 @@ class HttpAfApiClient implements AfApiClient {
   listWorkSpecs(taskId: string, signal?: AbortSignal) { return this.request<WorkSpecDto[]>(`/tasks/${encodeURIComponent(taskId)}/work-specs`, undefined, signal); }
   getWorkSpec(taskId: string, revision?: number, signal?: AbortSignal) { return this.request<WorkSpecDto>(`/tasks/${encodeURIComponent(taskId)}/work-specs${revision === undefined ? "" : `/${revision}`}`, undefined, signal); }
   saveWorkSpec(taskId: string, input: WorkSpecDraftInput, signal?: AbortSignal) { return this.request<WorkSpecDto>(`/tasks/${encodeURIComponent(taskId)}/work-specs`, { method: "POST", body: JSON.stringify(input) }, signal); }
+  applyRequirementsClarification(taskId: string, input: RequirementsClarificationInput, signal?: AbortSignal) { return this.request<ClarificationDecisionDto>(`/tasks/${encodeURIComponent(taskId)}/clarifications`, { method: "POST", body: JSON.stringify(input) }, signal); }
   requestSupervisor(taskId: string, kind: "intake" | "initial-plan" | "context-brief" | "rework-advice" | "final-summary", input: Record<string, unknown>, signal?: AbortSignal) {
     // Initial-plan facts and digests are assembled by the AF API; never trust
     // browser-supplied inputSnapshot/catalog identities for this operation.

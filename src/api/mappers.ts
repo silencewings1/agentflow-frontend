@@ -169,6 +169,7 @@ export function toTaskDetail(dto: AfTaskDetailDto): TaskDetailDto {
     gitOperations: dto.gitOperations,
     deliverables: dto.deliverables.map((item) => ({ deliverableId: item.deliverableId, nodeId: item.nodeId, digest: item.digest, mediaType: item.mediaType, schemaVersion: item.schemaVersion, status: item.status })),
     updatedAt: dto.updatedAt,
+    revision: dto.revision,
   };
 }
 

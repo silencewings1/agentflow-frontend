@@ -228,6 +228,38 @@ export interface WorkSpecDto {
   policies?: WorkSpecPoliciesDto;
   templateRef?: WorkSpecTemplateRefDto;
 }
+
+export interface ClarificationAnswerDto {
+  questionId?: string;
+  question: string;
+  answer: string;
+  category?: "external-write" | "authorization" | "acceptance-conflict" | "scope" | "security";
+}
+
+export interface RequirementsClarificationInput {
+  schemaVersion: 1;
+  expectedRevision: number;
+  clarificationId: string;
+  sourceAttemptId: string;
+  answers: ClarificationAnswerDto[];
+  reason: string;
+  workSpecPatch?: Record<string, unknown>;
+}
+
+export interface ClarificationDecisionDto {
+  schemaVersion: 1;
+  clarificationId: string;
+  taskId: string;
+  sourceAttemptId: string;
+  sourceWorkSpecDigest: string;
+  resultingWorkSpecId: string;
+  resultingWorkSpecRevision: number;
+  resultingWorkSpecDigest: string;
+  answers: ClarificationAnswerDto[];
+  reason: string;
+  actor: string;
+  createdAt: string;
+}
 export type WorkSpecDraftInput = Omit<WorkSpecDto, "schemaVersion" | "workSpecId" | "workSpecRevision" | "taskId" | "workSpecDigest" | "createdAt" | "createdBy" | "payload" | "artifactRef"> & { schemaVersion?: 1; payload?: unknown; artifactRef?: WorkSpecArtifactRefDto | null; };
 
 /** Phase 1.7 Supervisor proposal and deterministic compilation facts. */
@@ -619,6 +651,7 @@ export interface TaskDetailDto {
   gitOperations: GitOperationDto[];
   deliverables: DeliverableDto[];
   updatedAt: string;
+  revision: number;
 }
 
 export interface AfTrajectoryEventDto { eventId: string; revision: number; eventType: string; actor: string; occurredAt: string; payload: unknown; }
@@ -653,6 +686,7 @@ export interface AfApiClient {
   listWorkSpecs(taskId: string, signal?: AbortSignal): Promise<WorkSpecDto[]>;
   getWorkSpec(taskId: string, revision?: number, signal?: AbortSignal): Promise<WorkSpecDto>;
   saveWorkSpec(taskId: string, input: WorkSpecDraftInput, signal?: AbortSignal): Promise<WorkSpecDto>;
+  applyRequirementsClarification(taskId: string, input: RequirementsClarificationInput, signal?: AbortSignal): Promise<ClarificationDecisionDto>;
   requestSupervisor(taskId: string, kind: "intake" | "initial-plan" | "context-brief" | "rework-advice" | "final-summary", input: Record<string, unknown>, signal?: AbortSignal): Promise<{ supervisor: unknown; proposal?: ProposalDto | null; persistenceError?: AfErrorPayload | null }>;
   listProposals(taskId: string, signal?: AbortSignal): Promise<ProposalDto[]>;
   getProposal(taskId: string, proposalId: string, signal?: AbortSignal): Promise<ProposalDto>;

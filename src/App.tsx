@@ -212,6 +212,7 @@ export default function App() {
   const [startingTaskId, setStartingTaskId] = useState<string | null>(null);
   const [approvingNodeId, setApprovingNodeId] = useState<string | null>(null);
   const [planningOperation, setPlanningOperation] = useState(false);
+  const [clarificationSubmitting, setClarificationSubmitting] = useState(false);
   const [confirmingOperationId, setConfirmingOperationId] = useState<string | null>(null);
   const [wfStep, setWfStep] = useState(1);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -1171,6 +1172,34 @@ export default function App() {
     push({ tone: "info", title: "已打开 WorkSpec 新 revision", body: "这是当前冻结事实的可编辑副本；保存后服务端会生成下一 revision，并使旧 Proposal/Plan 失效。" });
   }, [governance.workSpec, push]);
 
+  const answerRequirements = useCallback(async (input: { sourceAttemptId: string; answers: Array<{ questionId?: string; question: string; answer: string; category?: "external-write" | "authorization" | "acceptance-conflict" | "scope" | "security" }>; reason: string }) => {
+    if (!activeId || !governance.workSpec) return;
+    if (afApi.mode === "fixture") {
+      push({ tone: "warn", title: "Fixture 模式不支持澄清写入", body: "回答未写入治理事实；请切换到 HTTP AF API 后重试。" });
+      return;
+    }
+    const expectedRevision = taskRuntime?.revision;
+    if (expectedRevision === undefined) {
+      push({ tone: "warn", title: "无法提交 Requirements 澄清", body: "当前任务 revision 尚未加载完成，请刷新后重试。" });
+      return;
+    }
+    setClarificationSubmitting(true);
+    try {
+      setGovernanceLoad({ status: "loading" });
+      await afApi.applyRequirementsClarification(activeId, { schemaVersion: 1, expectedRevision, clarificationId: `${activeId}:clarification:${Date.now()}`, sourceAttemptId: input.sourceAttemptId, answers: input.answers, reason: input.reason, workSpecPatch: {} });
+      setWorkSpecDraft(undefined);
+      setWorkSpecRevisionEditing(false);
+      await Promise.all([fetchGovernance(activeId), fetchTaskRuntime(activeId)]);
+      push({ tone: "ok", title: "澄清已留痕并生成新 revision", body: "旧 attempt/gate 保留为证据。请重新生成 Proposal、运行 Compiler、审批 Plan 后再启动。" });
+    } catch (error: unknown) {
+      const failure = apiFailure(error, "无法提交 Requirements 澄清");
+      setGovernanceLoad({ status: "error", ...failure });
+      push({ tone: "warn", title: "澄清提交失败", body: `${failure.code} · ${failure.message}` });
+    } finally {
+      setClarificationSubmitting(false);
+    }
+  }, [activeId, fetchGovernance, fetchTaskRuntime, governance.workSpec, push, taskRuntime?.revision]);
+
   const requestProposal = useCallback(async () => {
     if (!activeId || !governance.workSpec) return;
     try {
@@ -1315,7 +1344,8 @@ export default function App() {
                 onCompile={() => void compilePlan()}
                 onPlanDecision={(decision) => void decidePlan(decision)}
                 onRun={() => void startLiveTask()}
-                busyAction={governanceLoad.status === "loading" ? "governance" : startingTaskId === activeId ? "run" : null}
+                onAnswerRequirements={(input) => void answerRequirements(input)}
+                busyAction={clarificationSubmitting ? "clarification" : governanceLoad.status === "loading" ? "governance" : startingTaskId === activeId ? "run" : null}
               />
             )}
             {/* 点开 DAG 节点后，会话区整体切换为该节点视图；否则为正常事件流 */}
