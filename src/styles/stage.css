@@ -1,0 +1,553 @@
+/* ============================================================================
+   阶段卡片（WP4）：单个工作流节点的真实结构化交付物。
+   设计主张：节点不是「跑过了」，而是「留下了可逐条核验的记录」——
+   摘要讲结论、事实给依据、清单列范围、发现项标阻塞、门禁与逐条验收给裁决。
+   令牌全部来自 src/index.css；不定义任何新令牌，不硬编码颜色。
+   ========================================================================== */
+
+/* .card 提供基础表面与圆角；这里把内边距归零，让头部能整行铺满并作为点击区 */
+.card.stage {
+  padding: 0;
+}
+
+/* ------------------------------ 运行中状态 -------------------------------- */
+/* 设计主张：「进行中」必须是可感知的活性，而不是又一个静态标签。
+   控制台的动效保持克制——一道左侧色条 + 状态徽标的呼吸点，让运行中的节点
+   在长瀑布里一眼可辨，又不与门禁/验收的静态结论争夺注意力。
+   只消费既有令牌，Lumen / Ink 两套配色通用。 */
+.stage[data-status="running"] {
+  border-color: color-mix(in oklab, var(--accent) 34%, var(--line));
+  background: color-mix(in oklab, var(--accent-soft) 70%, color-mix(in oklab, var(--bg-deep) 52%, transparent));
+}
+
+/* 左侧色条沿用 .card--plan 的语义边条语言，但用更慢的呼吸节奏表达「仍在推进」 */
+.stage[data-status="running"]::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: linear-gradient(180deg, var(--accent-line), var(--accent) 45%, var(--accent-line));
+  animation: stageBreath 2.4s var(--ease-in-out) infinite;
+}
+
+/* 只改透明度，不位移：节点卡在长列表里跳动会干扰阅读，呼吸感由明暗承担 */
+@keyframes stageBreath {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* 尊重系统的减弱动效偏好：运行态仍靠静态色条与徽标区分，信息不因禁用动画而丢失 */
+@media (prefers-reduced-motion: reduce) {
+  .stage[data-status="running"]::before,
+  .stage__status[data-tone="running"]::before {
+    animation: none;
+  }
+}
+
+.stage__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  width: 100%;
+  padding: 11px 14px;
+  border: 0;
+  border-radius: var(--r-lg);
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s var(--ease-out);
+}
+
+.stage__head:hover {
+  background: var(--surface-2);
+}
+
+.stage__head:focus-visible {
+  outline: 1px solid var(--accent-line);
+  outline-offset: -2px;
+}
+
+/* 序号是节点在流程里的位置，用等宽数字保证纵向可比 */
+.stage__seq {
+  flex: none;
+  min-width: 20px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+  background: var(--surface-2);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.stage__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.stage__role {
+  flex: none;
+  color: var(--azure);
+  border-color: color-mix(in oklab, var(--azure) 38%, var(--line));
+  background: color-mix(in oklab, var(--azure) 9%, transparent);
+}
+
+.stage__status {
+  flex: none;
+}
+
+/* 运行中的徽标取 --accent「当前进行中」的语义色：与 App.css 里
+   .govBar .govPill[data-tone="running"] 保持同一套配色，徽标与呼吸点同色。 */
+.stage__status[data-tone="running"] {
+  color: var(--accent-text);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+/* 状态徽标里的呼吸点：只有运行中的节点有，pending/accepted 保持静止。
+   形态差异（有/无脉冲点）先于颜色差异，色觉障碍下同样可辨。 */
+.stage__status[data-tone="running"]::before {
+  content: "";
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: stageBreath 1.6s var(--ease-in-out) infinite;
+}
+
+.stage__schema {
+  flex: none;
+  color: var(--text-4);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+}
+
+.stage__gateOutcome {
+  flex: none;
+}
+
+.stage__chev {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-4);
+  transition: transform 0.2s var(--ease-out);
+}
+
+.stage[data-open="true"] .stage__chev {
+  transform: rotate(180deg);
+}
+
+/* 折叠：用 display 切换，不用 <details>，保持受控组件的单一事实源 */
+.stage__body {
+  display: none;
+  padding: 2px 14px 14px;
+}
+
+.stage[data-open="false"] .stage__body {
+  display: none;
+}
+
+.stage[data-open="true"] .stage__body {
+  display: grid;
+  gap: 12px;
+  border-top: 1px dashed var(--line);
+  padding-top: 12px;
+  animation: fadeUp 0.28s var(--ease-out) both;
+}
+
+.stage__section {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.stage__label {
+  margin: 0;
+}
+
+/* 中文长文：保留换行、任意断行，绝不裁切 */
+.stage__summary {
+  margin: 0;
+  max-width: 74ch;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.68;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 事实：标签/值两列；值可换行，绝不用省略号盖掉内容 */
+.stage__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--line);
+  overflow: hidden;
+}
+
+.stage__fact {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 7px 9px;
+  background: var(--bg);
+}
+
+.stage__factLabel {
+  color: var(--text-4);
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.stage__factValue {
+  margin: 0;
+  min-width: 0;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+/* 清单项：长条目换行，不横向溢出 */
+.stage__listItems {
+  min-width: 0;
+}
+
+.stage__listItems li {
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------ 发现项 ---------------------------------- */
+
+.stage__findings {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stage__finding {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--line-strong);
+  border-radius: var(--r-xs);
+  background: var(--surface-1);
+}
+
+/* 阻塞项（blocker / critical / high） */
+.stage__finding[data-tone="blocking"] {
+  border-left-color: var(--rose);
+  background: color-mix(in oklab, var(--rose) 7%, var(--surface-1));
+}
+
+/* 警示项（medium / moderate） */
+.stage__finding[data-tone="warn"] {
+  border-left-color: var(--gold);
+  background: color-mix(in oklab, var(--gold) 7%, var(--surface-1));
+}
+
+.stage__findingHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.stage__findingId {
+  color: var(--text-3);
+  font-size: 9px;
+}
+
+.stage__findingSeverity {
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: var(--text-3);
+  background: var(--surface-3);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.stage__finding[data-tone="blocking"] .stage__findingSeverity {
+  color: var(--rose);
+  background: color-mix(in oklab, var(--rose) 12%, transparent);
+}
+
+.stage__finding[data-tone="warn"] .stage__findingSeverity {
+  color: var(--gold);
+  background: color-mix(in oklab, var(--gold) 12%, transparent);
+}
+
+.stage__findingPath {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-4);
+  font-size: 9px;
+}
+
+.stage__findingDesc {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.stage__findingAction {
+  margin: 0;
+  padding-left: 8px;
+  border-left: 2px solid color-mix(in oklab, var(--accent) 40%, var(--line));
+  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* -------------------------------- 门禁 ---------------------------------- */
+
+.stage__gateHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 门禁段自带一层底色：它是裁决，不是普通清单 */
+.stage__gate {
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--surface-1) 90%, transparent);
+}
+
+.stage__gateId {
+  color: var(--text-4);
+  font-size: 9px;
+}
+
+.stage__gateDims {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 复用 .govChecks li[data-outcome] 的视觉语言：左边框 + 圆点先于颜色区分 */
+.stage__gateDim {
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 5px 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  background: var(--surface-1);
+}
+
+.stage__gateDim[data-outcome="pass"] {
+  border-left: 2px solid var(--sage);
+}
+
+.stage__gateDim[data-outcome="fail"] {
+  border-left: 2px solid var(--rose);
+}
+
+.stage__dimDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-4);
+}
+
+.stage__gateDim[data-outcome="pass"] .stage__dimDot {
+  background: var(--sage);
+}
+
+.stage__gateDim[data-outcome="fail"] .stage__dimDot {
+  background: var(--rose);
+}
+
+.stage__dimName {
+  color: var(--text-2);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.stage__dimNote {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+/* ----------------------------- 变更文件 --------------------------------- */
+
+.stage__files {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stage__file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  background: var(--surface-1);
+}
+
+.stage__filePath {
+  min-width: 0;
+  flex: 1 1 160px;
+  overflow-wrap: anywhere;
+  color: var(--text-2);
+  font-size: 10px;
+}
+
+.stage__fileAction {
+  flex: none;
+}
+
+.stage__fileDigest {
+  flex: none;
+  color: var(--text-4);
+  font-size: 9px;
+}
+
+/* ----------------------------- 逐条验收 --------------------------------- */
+
+.stage__criteria {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stage__criterion {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--line-strong);
+  border-radius: var(--r-xs);
+  background: var(--surface-1);
+}
+
+.stage__criterion[data-outcome="pass"] {
+  border-left-color: var(--sage);
+}
+
+.stage__criterion[data-outcome="fail"] {
+  border-left-color: var(--rose);
+}
+
+.stage__criterion[data-outcome="pending"],
+.stage__criterion[data-outcome="pending-human"] {
+  border-left-color: var(--gold);
+}
+
+.stage__criterionHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.stage__criterionId {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+.stage__criterionField {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.stage__criterionField > span:first-child {
+  color: var(--text-4);
+  font-size: 9px;
+}
+
+.stage__criterionField > span:last-child {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ----------------------------- 证据引用 --------------------------------- */
+
+.stage__evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* ------------------------------ 空态 ------------------------------------ */
+
+.stage__empty {
+  margin: 0;
+  color: var(--text-4);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* ----------------------------- 响应式 ----------------------------------- */
+/* 1280px 视口下内容列最窄约 548px：头部允许折行，网格列降级，绝不横向滚动 */
+
+@media (max-width: 1180px) {
+  .stage__facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .stage__gateDim {
+    grid-template-columns: max-content minmax(0, 1fr);
+  }
+
+  .stage__dimNote {
+    grid-column: 1 / -1;
+  }
+}

@@ -59,13 +59,15 @@ npx tsc --noEmit -p tsconfig.app.json   # 只做类型检查，改动中最快�
 src/
 ├─ main.tsx                挂载入口，仅此一件事
 ├─ App.tsx                 唯一的状态中心：所有 useState 集中在此，向下传 props
-├─ App.css                 布局骨架 + 通用原子类；顶部 @import 五个分片样式
+├─ App.css                 布局骨架 + 通用原子类；顶部 @import 六个分片样式
 ├─ index.css               设计令牌 + reset + 排版基础（唯一的令牌来源）
 ├─ components/
 │  ├─ Rail.tsx             最左侧图标导航栏（60px）
 │  ├─ Sidebar.tsx          会话列表，按 今天 / 昨天 / 更早 分组
 │  ├─ TopBar.tsx           面包屑 + 门禁轨 + 命令面板 + 检查面板开关
 │  ├─ Stream.tsx           事件流渲染器：按 AgentEvent.kind 分派
+│  ├─ Waterfall.tsx        主区瀑布：阶段卡序列 + 底部折叠的治理/控制面事实
+│  ├─ StageCard.tsx        单个阶段的交付物卡片（按 StageCardModel 渲染真实结构化产出）
 │  ├─ Composer.tsx         输入区
 │  ├─ Inspector.tsx        右侧检查面板：文件/改动/证据链/回放/终端/沙箱
 │  ├─ Settings.tsx         设置覆盖层：总体架构/智能体/连接层/环境配置
@@ -75,6 +77,9 @@ src/
 │  ├─ Welcome.tsx          空态
 │  ├─ Toasts.tsx           轻提示
 │  └─ Icons.tsx            内联 SVG 图标集 + IconName 类型 + iconByKey 映射
+├─ api/
+│  ├─ stageModel.ts        阶段卡模型（StageCardModel 等冻结类型）
+│  └─ stageMapper.ts       把 attempts[].structured 按 outputSchemaVersion 映射为阶段卡
 ├─ data/
 │  ├─ mock.ts              会话列表 + AgentEvent 事件联合类型 + 演示对话
 │  ├─ settings.ts          第二章领域模型（五层架构/契约/智能体/连接/门禁/证据/回放/环境）
@@ -84,6 +89,7 @@ src/
    ├─ panels.css           检查面板、悬浮层
    ├─ settings.css         设置各面板
    ├─ workflow.css         DAG 与编排
+   ├─ stage.css            阶段卡样式（瀑布主体）
    └─ trust.css            可信协同专属样式（契约/门禁/证据链/回放/门禁轨/五层架构）
 ```
 
@@ -93,8 +99,28 @@ src/
 - **数据与视图分离**。领域 DTO、错误码和请求方法以 `src/api/` 为边界；`src/data/*.ts` 仅提供 fixture。组件只做渲染与派发，判断逻辑的输入必须来自 API DTO 或明确标记的 fixture DTO。
 - **真实状态不得由定时器推导**。`setTimeout` 只能用于演示流的视觉节奏，不能写入任务完成、门禁通过、交付物 accepted 或 Git push 成功。
 - **API 失败必须可见**。加载中、错误、不可用和 fixture 模式必须有明确页面状态，不能静默回退成看似真实的成功数据。
-- **样式按语义分片**。可信协同相关的一切新样式进 `trust.css`；不要往 `App.css` 堆业务样式，`App.css` 只放骨架与原子类。
+- **样式按语义分片**。可信协同相关的一切新样式进 `trust.css`；阶段卡进 `stage.css`；不要往 `App.css` 堆业务样式，`App.css` 只放骨架与原子类。
 - **令牌只在 `index.css` 定义**，其他文件只消费。
+
+### 3.1 主区布局契约：单滚动瀑布
+
+主区（`.main`）是**纵向 flex 列**，只允许一个滚动容器：
+
+| 区块 | 定位 | 说明 |
+| --- | --- | --- |
+| `.topbar` | `flex: 0 0 var(--topbar)` | 固定 |
+| `.wfStrip` | `flex: none` | 编排条固定；节点 pill 可点，滚动定位到对应阶段卡 |
+| `.govBar` | `flex: none` | 紧凑治理动作条：状态 + 主操作 + 提示 |
+| `.waterfall` | `flex: 1 1 0; overflow-y: auto` | **唯一滚动区**：阶段卡序列 + 底部折叠的治理/控制面事实 |
+| `.composerWrap` | `flex: none` | 固定 |
+
+约束：
+
+- **不得**再让多个中间面板各自 `flex: 1.x` 争抢高度并各自滚动 —— 这会造成内容被裁切、视觉上互相压盖（历史缺陷：`.runtime` 仅 33% 可见、`.govView` 仅 4.5% 可见）。
+- 放进 `.waterfall` 的面板必须**取消自身滚动**（`overflow: visible`），由瀑布统一承载。
+- 每个阶段一个 `StageCard`，按工作流节点顺序排列，默认展开，可逐卡折叠。
+- 阶段卡内容只能来自 `buildStageCards(taskRuntime, governance.assessments)`；字段名以 `src/api/stageMapper.ts` 映射的真实 `outputSchemaVersion` 为准，**不得**在组件内自行猜测字段。
+- 治理动作（生成方案 / 批准 / 开始执行 / 澄清）必须常驻 `.govBar` 可见，不能埋进折叠区。
 
 ---
 

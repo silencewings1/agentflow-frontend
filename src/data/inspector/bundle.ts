@@ -25,6 +25,8 @@ export interface InspectorBundle {
   evidence: EvidenceItem[];
   replay: ReplayStep[];
   terminal: string[];
+  /** 真实补丁可用性：不可用时 reason 说明原因（后端未重启 / 任务无交付），界面据此显式降级，绝不伪造。 */
+  patchStatus?: { available: boolean; reason: string | null };
 }
 
 /** 默认现场：需求开发（wf-feature），沿用既有演示数据 */

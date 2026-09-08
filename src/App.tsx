@@ -7,7 +7,8 @@ import {
 } from "./data/mock";
 import { afApi, AfApiError, structuredToEvents, toUiBootstrap, toWorkflowDto } from "./api";
 import { realInspectorBundle } from "./api/inspectorMapper";
-import type { AgentProfileSummaryDto, ApprovalQueryDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, SkillSummaryDto, TaskDetailDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
+import { buildStageCards } from "./api/stageMapper";
+import type { AgentProfileSummaryDto, ApprovalQueryDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
 import { conversationOf } from "./data/streams";
 import { inspectorOf } from "./data/inspector";
 import { Rail } from "./components/Rail";
@@ -21,9 +22,10 @@ import { Toasts, type Toast } from "./components/Toasts";
 import { Welcome } from "./components/Welcome";
 import { SettingsOverlay, type ArchJump, type SettingsPane } from "./components/Settings";
 import { NewTaskDialog, type NewTaskScmDraft } from "./components/NewTask";
-import { WorkflowStrip, NodeConversation } from "./components/Workflow";
+import { WorkflowStrip } from "./components/Workflow";
 import { RuntimeConsole, type RuntimeLoadState } from "./components/RuntimeConsole";
 import { GovernanceView } from "./components/GovernanceView";
+import { Waterfall } from "./components/Waterfall";
 import { defaultModel, modelOptions } from "./data/settings";
 import {
   buildOrchestratorPlan,
@@ -180,6 +182,65 @@ function wfOf(id: string | undefined, catalog: Workflow[] = workflowTemplates): 
   return catalog.find((w) => w.id === id) ?? catalog[0] ?? workflowTemplates[0]!;
 }
 
+/* 任务状态 → 中文标签与语气。只服务于常驻治理动作条这一处；
+   完整状态轨仍由 GovernanceView 的 .govStatusRail 呈现。 */
+const taskStatusLabels: Record<string, string> = {
+  created: "任务壳",
+  draft: "草稿",
+  planning: "规划中",
+  awaiting_plan_approval: "等待计划审批",
+  ready: "已就绪",
+  queued: "排队中",
+  running: "执行中",
+  yielded: "已让出",
+  blocked_unavailable: "能力不可用",
+  needs_reconcile: "等待对账",
+  compiler_rejected: "编译拒绝",
+  stale: "已过期",
+  awaiting_human: "等待人工",
+  completed: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
+};
+
+function taskStatusLabel(value: string | undefined): string {
+  return value ? (taskStatusLabels[value] ?? value) : "未声明";
+}
+
+/* 状态语气映射：通过=sage、失败/拒绝=rose、受阻/待人工=gold，其余中性 */
+function taskStatusTone(value: string | undefined): string {
+  if (!value) return "unknown";
+  if (value === "completed") return "completed";
+  if (value === "failed" || value === "compiler_rejected" || value === "cancelled") return "failed";
+  if (value === "awaiting_human" || value === "blocked_unavailable" || value === "needs_reconcile") return "warn";
+  if (value === "running" || value === "queued" || value === "planning") return "running";
+  return "draft";
+}
+
+/* 运行停滞阈值：90 秒。
+   依据是这条链路的观测节奏——前端每 2 秒轮询，单个节点内的模型调用通常
+   数十秒；连续 90 秒 lastAdvanceAt 不更新，意味着既没有节点推进也没有租约
+   续期，大概率在等待外部系统（模型 / SCM / CI）或已停滞。阈值取太小会把
+   正常的长节点误报成故障，取太大则失去「一眼看出卡住」的意义。 */
+const RUN_STALL_THRESHOLD_MS = 90_000;
+
+/* 运行活性：把 lastAdvanceAt 换算成中文相对时间。
+   页面每 2 秒轮询一次并重渲染，这个值随轮询自然刷新，不需要额外定时器；
+   缺失或不可解析时返回「未知」，绝不猜一个时间出来。 */
+function relativeTimeLabel(iso: string | undefined, nowMs: number): string {
+  if (!iso) return "未知";
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) return "未知";
+  const seconds = Math.max(0, Math.round((nowMs - at) / 1000));
+  if (seconds < 5) return "刚刚";
+  if (seconds < 60) return `${seconds} 秒前`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  return `${Math.floor(hours / 24)} 天前`;
+}
+
 let toastSeq = 0;
 
 export default function App() {
@@ -204,6 +265,9 @@ export default function App() {
   const [apiLoad, setApiLoad] = useState<ApiLoadState>({ status: "loading" });
   const [taskRuntime, setTaskRuntime] = useState<TaskDetailDto | null>(null);
   const [trajectory, setTrajectory] = useState<TrajectoryEventDto[]>([]);
+  /* 真实 unified diff：拿不到时保持 null，检查面板会显式声明补丁不可用，
+     不合成假 diff。取补丁失败不能拖垮整页，故单独容错。 */
+  const [patch, setPatch] = useState<TaskPatchDto | null>(null);
   const [runtimeLoad, setRuntimeLoad] = useState<RuntimeLoadState>({ status: "idle" });
   const [governanceLoad, setGovernanceLoad] = useState<GovernanceLoadState>({ status: "idle" });
   const [governance, setGovernance] = useState<GovernanceSnapshot>({ workSpec: null, proposal: null, compilationReport: null, plan: null, planDecision: null, runIntent: null, assessments: [], evidenceMatrix: null, approvals: null, trustedDelivery: null });
@@ -227,11 +291,17 @@ export default function App() {
   const [extra, setExtra] = useState<AgentEvent[]>([]);
 
   /* --- 两阶段流水线 --------------------------------------------------------
-     阶段一：主控出规划方案，planPending 期间流水线不动、输入框转为「提修改意见」
-     阶段二：focusNode 非空时，会话区整体切换为该节点的消息视图 */
+     阶段一：主控出规划方案，planPending 期间流水线不动、输入框转为「提修改意见」 */
   const [planEvent, setPlanEvent] = useState<OrchestratorPlanEvent | null>(null);
   const [planPending, setPlanPending] = useState(false);
-  const [focusNode, setFocusNode] = useState<string | null>(null);
+
+  /* --- 单列瀑布：阶段卡片展开态与两个折叠事实区 ---------------------------
+     展开态由 App 持有（子组件不持有跨组件状态）。卡片默认全开，让用户一进
+     任务就看到真实节点产出——这正是本次重构要解决的问题；首次加载后允许逐张
+     收起，切任务时按 taskId 重置。两个事实区默认折叠（动作留在 .govBar）。 */
+  const [openStages, setOpenStages] = useState<Set<string>>(new Set());
+  const [factsOpen, setFactsOpen] = useState(false);
+  const [controlsOpen, setControlsOpen] = useState(false);
   /* planPending 的同步镜像：acceptPlan 内紧接着要调 runTurn，
      而此时 setPlanPending(false) 尚未生效，闭包里读到的仍是旧值，
      会导致确认动作被误判为「又一轮修改意见」。用 ref 做同步判据。 */
@@ -293,6 +363,14 @@ export default function App() {
       ]);
       setTaskRuntime(detail);
       setTrajectory(events);
+      /* 补丁独立容错：失败只让 Inspector 显示「补丁不可用」，不影响任务事实。
+         available=false 时把 DTO 原样传下去，让面板如实说明原因而不是空白。 */
+      try {
+        setPatch(await afApi.getTaskPatch(taskId, signal));
+      } catch {
+        if (signal?.aborted) return;
+        setPatch(null);
+      }
       if (detail.executorMode) setExecutorMode(detail.executorMode);
       // 完成态首次出现时请求服务端物化不可变证据；重复轮询由后端幂等收敛。
       if (afApi.mode === "http" && detail.status === "completed") {
@@ -405,27 +483,66 @@ export default function App() {
     [active?.workflow],
   );
 
-  /* http 模式：检查面板用真实 detail/trajectory 归一化出的现场（文件树/diff/证据/回放）。 */
+  /* http 模式：检查面板用真实 detail/trajectory/patch 归一化出的现场
+     （文件树/diff/证据/回放）。补丁是 diff 的唯一来源，拿不到就显式不可用。 */
   const realBundle = useMemo(
-    () => realInspectorBundle(taskRuntime, trajectory),
-    [taskRuntime, trajectory],
+    () => realInspectorBundle(taskRuntime, trajectory, patch),
+    [taskRuntime, trajectory, patch],
   );
+
+  /* 阶段卡片：把各节点 attempts[].structured 的真实交付物归一化成统一卡片。
+     assessments 由 fetchGovernance 拉取，此前未被消费，这里首次用于逐条验收。 */
+  const stageCards = useMemo(
+    () => buildStageCards(taskRuntime, governance.assessments),
+    [taskRuntime, governance.assessments],
+  );
+
+  /* 默认全开：用户一进任务就应看到真实节点产出，而不是再点一遍。
+     只在 taskId 变化时重置，避免 2 秒轮询刷新 detail 时把用户的收起状态顶开；
+     也避免把上一条任务的展开态带到新任务上（nodeId 可能重名）。 */
+  const openStagesTaskRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (openStagesTaskRef.current === taskRuntime?.taskId) return;
+    openStagesTaskRef.current = taskRuntime?.taskId;
+    setOpenStages(new Set(stageCards.map((card) => card.nodeId)));
+  }, [taskRuntime?.taskId, stageCards]);
+
+  const toggleStage = useCallback((nodeId: string) => {
+    setOpenStages((prev) => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) next.delete(nodeId);
+      else next.add(nodeId);
+      return next;
+    });
+  }, []);
+
+  /* 编排条点击节点 → 展开该阶段卡片并滚动到它。跨面板跳转一次到位，
+     不让用户自己去找。 */
+  const selectNode = useCallback((id: string | null) => {
+    if (!id) return;
+    setOpenStages((prev) => new Set(prev).add(id));
+    window.requestAnimationFrame(() => {
+      document.getElementById(`stage-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, []);
+
+  /* 检查面板实际渲染的现场：http 模式是真实归一化结果，fixture 才是演示数据。
+     两者必须用同一份，否则文件树与 diff 会各说各话。 */
+  const inspectorBundleShown = afApi.mode === "http" ? realBundle : inspectorBundle;
 
   /* 当前查看的文件必须属于当前会话：切换会话后原路径往往不在新现场里，
      此时回落到该会话改动的第一个文件，而不是让「改动」页空白。 */
   const shownFile = useMemo(() => {
-    const paths = Object.keys(inspectorBundle.diffs);
+    const paths = Object.keys(inspectorBundleShown.diffs);
     return paths.includes(activeFile) ? activeFile : (paths[0] ?? activeFile);
-  }, [activeFile, inspectorBundle]);
+  }, [activeFile, inspectorBundleShown]);
 
   const events = useMemo(
     () => afApi.mode === "http"
-      ? (() => {
-          const rich = structuredToEvents(taskRuntime);
-          // task_events 是审计投影，不是面向人的会话消息。轨迹摘要由
-          // RuntimeConsole/Inspector 的回放视图承载；主区只展示结构化节点产出。
-          return rich;
-        })()
+      /* 真实模式下阶段卡已完整承载各节点产出；这里只保留需要人操作的检查点
+         （节点审批）。tests/gate 等只读卡片与阶段卡重复，且信息更少，
+         不再进入主区，避免同一事实在瀑布底部二次出现。 */
+      ? structuredToEvents(taskRuntime).filter((e) => e.kind === "checkpoint")
       : [...baseConversation.slice(0, visible), ...extra],
     [baseConversation, visible, extra, taskRuntime],
   );
@@ -676,7 +793,6 @@ export default function App() {
       setWfStep(-1);
       setVisible(0);
       setMode("session");
-      setFocusNode(null);
       setPendingApproval(null);
       setStreaming(false);
       setNewTaskOpen(false);
@@ -789,7 +905,6 @@ export default function App() {
         setPlanEvent(null);
         setPlanPending(false);
         planPendingRef.current = false;
-        setFocusNode(null);
         if (next.length) {
           const pick = next[0];
           setActiveId(pick.id);
@@ -918,11 +1033,10 @@ export default function App() {
     setVisible(conversationOf(s.workflow).length);
     setPendingApproval(null);
     setStreaming(s.state === "running");
-    /* 规划态与节点聚焦态属于单条会话，切换时必须清掉，否则会串台 */
+    /* 规划态属于单条会话，切换时必须清掉，否则会串台 */
     setPlanEvent(null);
     setPlanPending(false);
     planPendingRef.current = false;
-    setFocusNode(null);
     setWfStep(1);
     /* 编排随会话切换：这条任务是缺陷修复就该显示缺陷修复的流水线 */
     setWorkflow(wfOf(s.workflow, workflowCatalog));
@@ -1239,6 +1353,86 @@ export default function App() {
     }
   }, [activeId, fetchGovernance, governance.plan, governance.proposal, push, taskRuntime]);
 
+  /* --- 常驻治理动作条的派生值 --------------------------------------------
+     判据与 GovernanceView 逐条对齐：任务聚合是控制动作的权威，
+     RunIntent 只是运行请求的状态；受阻时绝不把不可逆动作显示成可点。 */
+  const govStatus = governance.runIntent?.status ?? taskRuntime?.status ?? active?.state;
+  const runActive = ["queued", "claimed", "running", "yielded"].includes(String(governance.runIntent?.status));
+  const controlBlocked = ["awaiting_human", "blocked_unavailable", "needs_reconcile"].includes(String(taskRuntime?.status));
+  /* busyAction 与 GovernanceView 的 prop 同型（string | null）：当前只会在
+     clarification / governance / run 三态之间取值，proposal/compile/decision
+     的按钮文案分支与 GovernanceView 保持一致，留作后续细分。 */
+  const govBusy: string | null = clarificationSubmitting
+    ? "clarification"
+    : governanceLoad.status === "loading"
+      ? "governance"
+      : startingTaskId === activeId
+        ? "run"
+        : null;
+
+  /* 下一步动作只出一个主按钮：顺序即治理链路 WorkSpec → Proposal → Compiler
+     → PlanDecision → RunIntent。没有可做的动作时返回 null，而不是给一个假按钮。 */
+  const primaryAction = useMemo((): { label: string; disabled: boolean; onClick: () => void } | null => {
+    const disabled = govBusy !== null || runActive;
+    if (!governance.workSpec) return null;
+    if (!governance.proposal) {
+      return { label: govBusy === "proposal" ? "正在生成方案…" : "生成执行方案", disabled, onClick: () => void requestProposal() };
+    }
+    if (!governance.compilationReport) {
+      return { label: govBusy === "compile" ? "正在检查执行计划…" : "检查执行计划", disabled, onClick: () => void compilePlan() };
+    }
+    if (governance.compilationReport.outcome === "rejected") return null;
+    if (governance.plan && !governance.planDecision) {
+      return { label: govBusy === "decision" ? "正在提交审批…" : "批准执行计划", disabled, onClick: () => void decidePlan("approved") };
+    }
+    if (governance.planDecision?.decision === "approved") {
+      return {
+        label: govBusy === "run" ? "正在提交运行请求…" : "开始执行任务",
+        disabled: govBusy !== null || controlBlocked || runActive || ["completed", "cancelled"].includes(String(taskRuntime?.status)),
+        onClick: () => void startLiveTask(),
+      };
+    }
+    return null;
+  }, [compilePlan, controlBlocked, decidePlan, govBusy, governance.compilationReport, governance.plan, governance.planDecision, governance.proposal, governance.workSpec, requestProposal, runActive, startLiveTask, taskRuntime?.status]);
+
+  /* 折叠事实被展开时，动作条的「治理事实」入口滚到它，一次点击到位 */
+  const openFacts = useCallback(() => {
+    setFactsOpen(true);
+    window.requestAnimationFrame(() => {
+      document.getElementById("waterfall-facts")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, []);
+
+  /* 运行活性：静态的「执行中」不足以让人判断是在推进还是卡住。
+     lastAdvanceAt 是控制面记录的最近一次节点推进时间，缺失时回落到 updatedAt；
+     页面每 2 秒轮询并重渲染，相对时间随之刷新，不需要额外的定时器。
+     等待人工/审批/对账是合法停等：此时不推进是设计使然，不能报成停滞。 */
+  const lastActivityAt = governance.runIntent?.lastAdvanceAt ?? governance.runIntent?.updatedAt;
+  const nowMs = Date.now();
+  const lastActivityMs = lastActivityAt ? Date.parse(lastActivityAt) : Number.NaN;
+  const lastActivityLabel = relativeTimeLabel(lastActivityAt, nowMs);
+  const awaitingHuman =
+    taskRuntime?.nodes.some((node) => node.status === "awaiting_approval") === true ||
+    String(governance.runIntent?.yieldedReason ?? "").startsWith("awaiting");
+  const runStalled =
+    runActive &&
+    !awaitingHuman &&
+    Number.isFinite(lastActivityMs) &&
+    nowMs - lastActivityMs > RUN_STALL_THRESHOLD_MS;
+
+  /* 动作条右侧的后果说明：说清「为什么现在不能点 / 该点哪个」 */
+  const govHint = (() => {
+    if (!governance.workSpec) return "先完成任务契约（WorkSpec）冻结，服务端才会生成规划事实。";
+    if (governance.compilationReport?.outcome === "rejected") return "Compiler 已拒绝当前 revision；请创建新 revision 修正 WorkSpec 后重新请求 Proposal。";
+    if (controlBlocked) return `当前任务处于${taskStatusLabel(taskRuntime?.status)}，请先完成澄清、能力恢复或对账，暂不能开始执行。`;
+    if (runStalled) return `超过 ${Math.round(RUN_STALL_THRESHOLD_MS / 1000)} 秒没有推进，可能在等待外部系统或已停滞。`;
+    if (awaitingHuman) return "已停在人工检查点，等待你确认后继续推进。";
+    if (runActive) return "运行请求已提交，后台正在执行；请等待节点状态刷新后再操作。";
+    if (governance.planDecision?.decision === "approved" && !primaryAction) return "计划已批准；任务可能已完成或已取消。";
+    return "";
+  })();
+  const govHintTone = controlBlocked || runStalled || governance.compilationReport?.outcome === "rejected" ? "warn" : "info";
+
   return (
     <div
       className="shell"
@@ -1297,87 +1491,120 @@ export default function App() {
               activeIndex={wfStep}
               onOpen={() => setNewTaskOpen(true)}
               runStates={runStates}
-              focusNode={focusNode}
-              onNodeSelect={afApi.mode === "fixture" ? setFocusNode : undefined}
+              onNodeSelect={selectNode}
             />
-            {/* AF 控制面事实面板：默认隐藏，主区聚焦事件流。需要时可取消注释。 */}
-            <RuntimeConsole
-              detail={taskRuntime}
-              trajectory={trajectory}
-              load={runtimeLoad}
-              profiles={agentProfiles}
-              apiMode={afApi.mode}
-              starting={startingTaskId === activeId}
-              runActive={["queued", "claimed", "running", "yielded"].includes(String(governance.runIntent?.status))}
-              onStart={() => void startLiveTask()}
-              approvingNodeId={approvingNodeId}
-              onApproveNode={(nodeId) => void approveAndContinueTask(nodeId)}
-              planningOperation={planningOperation}
-              onPlanOperation={() => void planGitOperation()}
-              confirmingOperationId={confirmingOperationId}
-              onConfirmOperation={(operationId) => void confirmGitOperation(operationId)}
-              onRefresh={() => { if (activeId) void fetchTaskRuntime(activeId); }}
-            />
-            {activeId && (
-              <GovernanceView
-                key={activeId}
-                taskId={activeId}
-                taskStatus={taskRuntime?.status ?? active?.state}
-                workSpec={governance.workSpec}
-                proposal={governance.proposal}
-                compilationReport={governance.compilationReport}
-                plan={governance.plan}
-                planDecision={governance.planDecision}
-                runIntent={governance.runIntent}
-                attempts={taskRuntime?.attempts ?? []}
-                gates={taskRuntime?.rawGates ?? []}
-                approvals={governance.approvals}
-                evidenceMatrix={governance.evidenceMatrix}
-                scmOperations={taskRuntime?.gitOperations ?? []}
-                trustedDelivery={governance.trustedDelivery}
-                runMode={taskRuntime?.runMode ?? governance.runMode}
-                apiMode={afApi.mode}
-                workSpecEditable={!governance.workSpec || workSpecRevisionEditing}
-                workSpecDraft={workSpecDraft}
-                onWorkSpecDraftChange={setWorkSpecDraft}
-                onFreezeWorkSpec={(draft) => void freezeWorkSpec(draft)}
-                onCreateWorkSpecRevision={createWorkSpecRevision}
-                onRequestProposal={() => void requestProposal()}
-                onCompile={() => void compilePlan()}
-                onPlanDecision={(decision) => void decidePlan(decision)}
-                onRun={() => void startLiveTask()}
-                onAnswerRequirements={(input) => void answerRequirements(input)}
-                busyAction={clarificationSubmitting ? "clarification" : governanceLoad.status === "loading" ? "governance" : startingTaskId === activeId ? "run" : null}
+
+            {/* 治理动作条：动作留主列常驻可见，完整治理事实折叠进瀑布底部。
+                判据与 GovernanceView 一致，避免同一动作在两处呈现不同的可点性。 */}
+            <div className="govBar">
+              <div className="govBar__status">
+                <span className="govPill" data-tone={taskStatusTone(govStatus)}>{taskStatusLabel(govStatus)}</span>
+                {governance.runIntent && (
+                  <span className="govPill" data-tone="mode">run · {governance.runIntent.status}</span>
+                )}
+                {runActive && (
+                  <span className="govBar__liveness" data-stalled={runStalled} data-waiting={awaitingHuman}>
+                    {awaitingHuman ? "等待人工确认 · " : ""}最后活动 {lastActivityLabel}
+                  </span>
+                )}
+              </div>
+              <div className="govBar__actions">
+                {primaryAction && (
+                  <button className="btn btn--accent btn--sm" disabled={primaryAction.disabled} onClick={primaryAction.onClick}>
+                    {primaryAction.label}
+                  </button>
+                )}
+                <button className="btn btn--ghost btn--sm" onClick={openFacts}>治理事实</button>
+              </div>
+              {govHint && (
+                <span className="govBar__hint" data-tone={govHintTone}>{govHint}</span>
+              )}
+            </div>
+
+            {/* 主列唯一滚动区：阶段卡片 + 事件流 + 折叠事实。 */}
+            <div className="waterfall">
+              <Waterfall
+                cards={stageCards}
+                openIds={openStages}
+                onToggle={toggleStage}
+                factsOpen={factsOpen}
+                onToggleFacts={() => setFactsOpen((v) => !v)}
+                controlsOpen={controlsOpen}
+                onToggleControls={() => setControlsOpen((v) => !v)}
+                facts={activeId ? (
+                  <GovernanceView
+                    key={activeId}
+                    taskId={activeId}
+                    taskStatus={taskRuntime?.status ?? active?.state}
+                    workSpec={governance.workSpec}
+                    proposal={governance.proposal}
+                    compilationReport={governance.compilationReport}
+                    plan={governance.plan}
+                    planDecision={governance.planDecision}
+                    runIntent={governance.runIntent}
+                    attempts={taskRuntime?.attempts ?? []}
+                    gates={taskRuntime?.rawGates ?? []}
+                    approvals={governance.approvals}
+                    evidenceMatrix={governance.evidenceMatrix}
+                    scmOperations={taskRuntime?.gitOperations ?? []}
+                    trustedDelivery={governance.trustedDelivery}
+                    runMode={taskRuntime?.runMode ?? governance.runMode}
+                    apiMode={afApi.mode}
+                    workSpecEditable={!governance.workSpec || workSpecRevisionEditing}
+                    workSpecDraft={workSpecDraft}
+                    onWorkSpecDraftChange={setWorkSpecDraft}
+                    onFreezeWorkSpec={(draft) => void freezeWorkSpec(draft)}
+                    onCreateWorkSpecRevision={createWorkSpecRevision}
+                    onRequestProposal={() => void requestProposal()}
+                    onCompile={() => void compilePlan()}
+                    onPlanDecision={(decision) => void decidePlan(decision)}
+                    onRun={() => void startLiveTask()}
+                    onAnswerRequirements={(input) => void answerRequirements(input)}
+                    busyAction={govBusy}
+                  />
+                ) : null}
+                controls={
+                  <RuntimeConsole
+                    detail={taskRuntime}
+                    trajectory={trajectory}
+                    load={runtimeLoad}
+                    profiles={agentProfiles}
+                    apiMode={afApi.mode}
+                    starting={startingTaskId === activeId}
+                    runActive={runActive}
+                    onStart={() => void startLiveTask()}
+                    approvingNodeId={approvingNodeId}
+                    onApproveNode={(nodeId) => void approveAndContinueTask(nodeId)}
+                    planningOperation={planningOperation}
+                    onPlanOperation={() => void planGitOperation()}
+                    confirmingOperationId={confirmingOperationId}
+                    onConfirmOperation={(operationId) => void confirmGitOperation(operationId)}
+                    onRefresh={() => { if (activeId) void fetchTaskRuntime(activeId); }}
+                  />
+                }
+                stream={
+                  /* 事件流只承担人工检查点这一操作入口；没有待处理检查点时
+                     不渲染空壳，也不重复阶段卡已展示的节点产出。 */
+                  events.length > 0 ? (
+                    <Stream
+                      events={events}
+                      streaming={streaming}
+                      pendingApproval={pendingApproval}
+                      onApprove={resolveApproval}
+                      onCheckpoint={handleCheckpoint}
+                      planPending={planPending}
+                      onAcceptPlan={acceptPlan}
+                      onOpenFile={(p) => {
+                        setActiveFile(p);
+                        setInspectorTab("diff");
+                        setInspectorOpen(true);
+                      }}
+                      onCopy={() => push({ tone: "ok", title: "已复制", body: "内容在剪贴板中。" })}
+                    />
+                  ) : null
+                }
               />
-            )}
-            {/* 点开 DAG 节点后，会话区整体切换为该节点视图；否则为正常事件流 */}
-            {focusNode ? (
-              <NodeConversation
-                wf={workflow}
-                runStates={runStates}
-                messages={wfRun.messages}
-                focus={focusNode}
-                onFocus={setFocusNode}
-                onBack={() => setFocusNode(null)}
-              />
-            ) : (
-              <Stream
-                events={events}
-                emptyLabel={afApi.mode === "http" ? "当前没有需要在会话流中展示的节点产出；审计轨迹摘要可在上方控制面和右侧检查面板查看。" : undefined}
-                streaming={streaming}
-                pendingApproval={pendingApproval}
-                onApprove={resolveApproval}
-                onCheckpoint={handleCheckpoint}
-                planPending={planPending}
-                onAcceptPlan={acceptPlan}
-                onOpenFile={(p) => {
-                  setActiveFile(p);
-                  setInspectorTab("diff");
-                  setInspectorOpen(true);
-                }}
-                onCopy={() => push({ tone: "ok", title: "已复制", body: "内容在剪贴板中。" })}
-              />
-            )}
+            </div>
           </>
         )}
 
@@ -1405,7 +1632,7 @@ export default function App() {
           activeFile={shownFile}
           onFile={setActiveFile}
           session={active}
-          bundle={afApi.mode === "http" ? realBundle : inspectorBundle}
+          bundle={inspectorBundleShown}
           onClose={() => setInspectorOpen(false)}
           onToast={push}
         />

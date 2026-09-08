@@ -2,6 +2,7 @@
 @import "./styles/panels.css";
 @import "./styles/settings.css";
 @import "./styles/workflow.css";
+@import "./styles/stage.css";
 @import "./styles/trust.css";
 
 /* ============================================================
@@ -591,12 +592,12 @@
 
 /* ============================== MAIN =================================== */
 
-/* 主区纵向排布改为 flex 列：
-   顶栏 / 提示条 / 编排条 / 输入区按内容高度固定，中间的控制面事实、治理事实
-   和事件流按比例分享剩余空间并各自滚动。之前用 4 行 grid-template-rows 固定
-   行数，但主区直接子元素会随状态增减（welcome 空态、apiNotice、govView 可选），
-   多出来的块落进隐式行，把 section.runtime 挤成 0 高并被后续面板盖住。
-   flex 不依赖子元素数量，任意组合都不会再出现挤扁。 */
+/* 主区纵向排布为 flex 列：顶栏 / 提示条 / 编排条 / 治理动作条 / 输入区按内容
+   高度固定，中间只有一个 .waterfall 滚动容器。
+   背景：此前 .runtime / .govView / .stream 各自按 flex 比例分配剩余高度并独立
+   滚动，1280×720 下三者互相争抢高度，实际可见率只有 4.5%–42%，且内容被裁切。
+   改为单一瀑布后，事实按顺序铺开，用户只在一个方向滚动。
+   flex 不依赖子元素数量，任意组合（welcome 空态、apiNotice 可选）都不会挤扁。 */
 .main {
   position: relative;
   display: flex;
@@ -613,30 +614,38 @@
 
 .main > .apiNotice,
 .main > .wfStrip,
+.main > .govBar,
 .main > .composerWrap {
   flex: none;
 }
 
-/* 可伸缩区：各自独立滚动。min-height 保证窗口变矮时也不会再把控制面
-   压没；runtime 内容超出时由自身滚动承载，而不是被裁掉。 */
-.main > .runtime {
-  flex: 1.5 1 0;
-  min-width: 0;
-  min-height: 150px;
-  overflow: auto;
-}
-
-.main > .govView {
+/* 唯一滚动区：阶段卡片 + 折叠事实全部在这里。
+   flex: 1 1 0 + min-height: 0 才能让 overflow-y 真正生效（flex item 默认
+   min-height: auto 会被内容撑破，滚动条就不出现）。 */
+.main > .waterfall {
   flex: 1 1 0;
   min-width: 0;
   min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px 28px;
+  scroll-behavior: smooth;
 }
 
-.main > .stream,
-.main > .nodeConv {
-  flex: 1.2 1 0;
-  min-width: 0;
-  min-height: 0;
+/* 事件流也进入同一个滚动容器：它自己不再滚动，否则会出现第二个滚动区。
+   Stream 内部有个 .stream__end 哨兵，挂载时会对它 scrollIntoView 来「跟随最新」；
+   在独立滚动时代这是对的，但放进瀑布后它会把整页拽到底部、盖住阶段卡片——
+   而卡片可见正是本次重构的目的。Stream.tsx 不在本包改动范围，故在 CSS 层
+   让哨兵不产生布局盒（无盒元素 scrollIntoView 是空操作），保留事件流内容。 */
+.main > .waterfall .stream {
+  overflow: visible;
+}
+
+.main > .waterfall .stream__end {
+  display: none;
 }
 
 /* 空态（Welcome）占满顶栏与输入区之间的空间，内部自行滚动 */
@@ -644,6 +653,220 @@
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
+}
+
+/* ---------------------- 治理动作条（常驻主列） ------------------------- */
+/* 动作留主列可见、事实折叠在瀑布底部：状态 + 下一步动作 + 一句后果说明。
+   不可逆/未满足前置条件的动作在这里同样按 GovernanceView 的判据置灰。 */
+.govBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--surface) 60%, transparent);
+}
+
+.govBar__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.govBar__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* 运行活性：静态的「执行中」看不出是在推进还是卡住。
+   这里的圆点承担这个判断——有节奏地呼吸＝仍在推进；静止且转 gold＝已停滞。
+   因此停滞态不是靠文案单独表达，形态差异（动 / 不动）先于颜色差异。 */
+.govBar__liveness {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-3);
+  background: var(--surface-2);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.govBar__liveness::before {
+  content: "";
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.6s var(--ease-in-out) infinite;
+}
+
+/* 停滞：圆点熄灭转 gold，把「不动了」和「在动」在余光里区分开 */
+.govBar__liveness[data-stalled="true"] {
+  color: var(--gold);
+  border-color: color-mix(in oklab, var(--gold) 38%, var(--line));
+  background: color-mix(in oklab, var(--gold) 9%, transparent);
+}
+
+.govBar__liveness[data-stalled="true"]::before {
+  background: var(--gold);
+  animation: none;
+}
+
+/* 合法停等（等待人工/审批/对账）：不推进是设计使然，用 azure 与「停滞」的
+   gold 区分，圆点同样不闪——状态是「等你」，不是「出事了」。 */
+.govBar__liveness[data-waiting="true"] {
+  color: var(--azure);
+  border-color: color-mix(in oklab, var(--azure) 38%, var(--line));
+  background: color-mix(in oklab, var(--azure) 9%, transparent);
+}
+
+.govBar__liveness[data-waiting="true"]::before {
+  background: var(--azure);
+  animation: none;
+}
+
+.govBar__hint {
+  flex: 1 1 220px;
+  min-width: 0;
+  color: var(--text-4);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.govBar__hint[data-tone="warn"] {
+  color: var(--gold);
+}
+
+.govBar__hint[data-tone="info"] {
+  color: var(--accent-text);
+}
+
+/* trust.css 已定义 pass/completed、fail/failed、warn/awaiting_human 等语气，
+   但「进行中」没有对应规则：补一条，语义与 --accent「当前进行中」一致。
+   draft / unknown 落到 .govPill 的中性底色即可，无需重复声明。 */
+.govBar .govPill[data-tone="running"] {
+  color: var(--accent-text);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+/* ---------------------- 瀑布内部：阶段与折叠事实 ----------------------- */
+.waterfall__body {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  /* flex 容器里按内容高度铺开，不参与剩余空间分配：滚动交给 .waterfall */
+  flex: none;
+}
+
+/* 节点卡片锚点：WorkflowStrip 点击节点后 scrollIntoView 到这里 */
+.waterfall__stage {
+  min-width: 0;
+  scroll-margin-top: 12px;
+}
+
+.waterfall__empty {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--surface) 72%, transparent);
+  line-height: 1.6;
+}
+
+.waterfall__section {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: color-mix(in oklab, var(--surface) 88%, transparent);
+  overflow: hidden;
+}
+
+.waterfall__sectionHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s var(--ease-out);
+}
+
+.waterfall__sectionHead:hover {
+  background: var(--surface-2);
+}
+
+.waterfall__sectionHead:focus-visible {
+  outline: 1px solid var(--accent-line);
+  outline-offset: -2px;
+}
+
+.waterfall__sectionTitle {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.waterfall__sectionMeta {
+  margin-left: auto;
+  color: var(--text-4);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.waterfall__chev {
+  flex: none;
+  color: var(--text-4);
+  transition: transform 0.2s var(--ease-out);
+}
+
+.waterfall__section[data-open="true"] .waterfall__chev {
+  transform: rotate(180deg);
+}
+
+/* 折叠：用 display 切换，保持受控组件的单一事实源 */
+.waterfall__sectionBody {
+  display: none;
+}
+
+.waterfall__section[data-open="true"] .waterfall__sectionBody {
+  display: block;
+  border-top: 1px dashed var(--line);
+  animation: fadeUp 0.28s var(--ease-out) both;
+}
+
+/* 事实面板自带边框与底色，折叠区内层去重，避免双重描边 */
+.waterfall__sectionBody > .govView,
+.waterfall__sectionBody > .runtime {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+/* govView / RuntimeConsole 原本自带 overflow，是为了在独立面板里控高。
+   进入瀑布后它们是普通内容块，高度由内容决定；把 overflow 归位到瀑布一层，
+   避免出现「滚动里的滚动」。 */
+.waterfall__sectionBody > .govView {
+  overflow: visible;
+}
+
+.waterfall .runtime__grid {
+  max-height: none;
+  overflow: visible;
 }
 
 .topbar {
@@ -657,47 +880,77 @@
   background: color-mix(in oklab, var(--bg-deep) 38%, transparent);
   backdrop-filter: blur(12px);
   min-width: 0;
+  /* 1280px 下顶栏内容宽于容器：裁掉溢出，绝不让它压到右侧检查面板上。
+     真正的解法是下面的可收缩声明，overflow 只是最后一道保险。 */
+  overflow: hidden;
 }
 
+/* 面包屑允许收缩：仓库名用省略号，分支胶囊整体裁切，不挤压右侧门禁轨 */
 .topbar__crumbs {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 10.5px;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .crumb--muted {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--text-4);
 }
 
 .crumb__sep {
+  flex: none;
   color: var(--text-4);
   opacity: 0.6;
 }
 
 .crumb--branch {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  /* 分支名是裸文本节点（TopBar 不在本包改动范围，无法包一层 span）。
+     在 inline-flex 里它会成为匿名 flex item，只能被压到 min-content 并换行；
+     改为 block + text-overflow: ellipsis 才能单行省略。图标是 inline SVG，
+     靠 vertical-align 对齐。 */
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--accent-text);
   padding: 2px 7px;
   border-radius: 99px;
   border: 1px solid var(--accent-line);
   background: var(--accent-soft);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+.crumb--branch > svg {
+  vertical-align: -1px;
+  margin-right: 4px;
 }
 
 .topbar__title {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-width: 0;
-  flex: 1;
+  /* flex-basis auto：标题与面包屑/右侧胶囊一起按内容宽度参与收缩，而不是被
+     压成 0（basis 0 时它在溢出时第一个消失，那是「牺牲结论」）。
+     min-width 兜底保证 1280px 下标题仍可辨认，先牺牲的是仓库名与模式标签。 */
+  flex: 1 1 auto;
+  min-width: 96px;
   padding-left: 4px;
 }
 
 .topbar__title h2 {
   font-size: var(--step-1);
+  /* flex item 默认 min-width:auto 会被长标题撑破，必须显式归零才能省略 */
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -734,7 +987,11 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-shrink: 0;
+  /* 可收缩但排在最后：先牺牲文字胶囊，图标按钮（.iconBtn 自带 flex-shrink:0）
+     必须留在视野里，因为它是检查面板的开关。 */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .chip {
@@ -749,6 +1006,14 @@
   color: var(--text-3);
   font-size: var(--step--2);
   transition: color 0.22s, border-color 0.22s, background 0.22s;
+}
+
+/* 顶栏里的模式胶囊是唯一可收缩的文字块：窄屏下先牺牲它，不牺牲门禁轨 */
+.topbar__right .chip {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .chip:hover {

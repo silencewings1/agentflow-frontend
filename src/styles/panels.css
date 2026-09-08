@@ -182,6 +182,41 @@
 
 /* ------------------------------- diff view ------------------------------ */
 
+/* 真实补丁不可用时的显式降级态：不用合成 diff 冒充真实改动 */
+.patchEmpty {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  margin: 12px;
+  padding: 14px;
+  border-radius: var(--r-md);
+  border: 1px dashed color-mix(in oklab, var(--gold) 42%, var(--line));
+  background: color-mix(in oklab, var(--gold) 8%, transparent);
+}
+
+.patchEmpty__reason {
+  font-size: var(--step--1);
+  color: color-mix(in oklab, var(--gold) 72%, var(--text));
+}
+
+.patchEmpty__hint {
+  font-size: 10.5px;
+  line-height: 1.72;
+  color: var(--text-3);
+}
+
+/* 演示数据提示：终端与沙箱面板的内容是硬编码样本，必须显式标注而非默认可信 */
+.panelDemoNote {
+  margin: 10px 12px 0;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid color-mix(in oklab, var(--gold) 34%, var(--line));
+  background: color-mix(in oklab, var(--gold) 10%, transparent);
+  font-size: var(--step--2);
+  letter-spacing: 0.06em;
+  color: color-mix(in oklab, var(--gold) 68%, var(--text));
+}
+
 .diffView {
   display: flex;
   flex-direction: column;

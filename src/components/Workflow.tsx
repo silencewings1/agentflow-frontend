@@ -211,15 +211,19 @@ export function WorkflowStrip({
                   ? "active"
                   : "todo";
             return (
-              <li
-                key={n.id}
-                className="wfStrip__step"
-                data-state={st}
-                style={{ ["--i" as string]: i }}
-                title={n.desc}
-              >
-                <i />
-                {n.name}
+              <li key={n.id} className="wfStrip__stepItem">
+                <button
+                  type="button"
+                  className="wfStrip__step"
+                  data-state={st}
+                  data-clickable={onNodeSelect ? "true" : undefined}
+                  style={{ ["--i" as string]: i }}
+                  title={onNodeSelect ? `${n.desc}（点击定位到该阶段）` : n.desc}
+                  onClick={onNodeSelect ? () => onNodeSelect(n.id) : undefined}
+                >
+                  <i />
+                  {n.name}
+                </button>
               </li>
             );
           })}

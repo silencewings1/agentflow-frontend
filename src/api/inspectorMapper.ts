@@ -1,10 +1,12 @@
-import type { TaskDetailDto, TrajectoryEventDto } from "./types";
+import type { TaskDetailDto, TaskPatchDto, TrajectoryEventDto } from "./types";
+import { parseUnifiedDiff } from "./diffParser";
 import type { DiffLine, FileNode } from "../data/mock";
 import type { EvidenceItem, ReplayStep } from "../data/settings";
 import type { InspectorBundle } from "../data/inspector";
 
 /* 把真实 detail 的节点结构化产出（changeSet.files / gate / test / gitWrite / approval）归一化为
-   检查面板所需现场（文件树 + diff + 证据链 + 回放），供 http 模式右栏渲染。 */
+   检查面板所需现场（文件树 + diff + 证据链 + 回放），供 http 模式右栏渲染。
+   改动行一律来自后端 /tasks/{id}/patch 的真实 unified diff；拿不到就显式不可用，不合成。 */
 
 interface AfFile { path: string; action: string; added: number; removed: number; }
 
@@ -31,15 +33,7 @@ function buildFileTree(files: AfFile[]): FileNode[] {
   return root;
 }
 
-function synthDiff(f: AfFile): DiffLine[] {
-  const lines: DiffLine[] = [{ type: "hunk", text: "@@ -1 +1 @@" }];
-  if (f.action === "A") for (let i = 0; i < Math.min(f.added, 8); i++) lines.push({ type: "add", n: i + 1, text: "+ " + f.path.split("/").pop() });
-  else if (f.action === "D") for (let i = 0; i < Math.min(f.removed, 8); i++) lines.push({ type: "del", n: i + 1, text: "− " + f.path.split("/").pop() });
-  else { lines.push({ type: "del", n: 1, text: "− " + f.path.split("/").pop() }); lines.push({ type: "add", n: 2, text: "+ " + f.path.split("/").pop() }); }
-  return lines;
-}
-
-export function realInspectorBundle(t: TaskDetailDto | null, trajectory: TrajectoryEventDto[]): InspectorBundle {
+export function realInspectorBundle(t: TaskDetailDto | null, trajectory: TrajectoryEventDto[], patch?: TaskPatchDto | null): InspectorBundle {
   const files: AfFile[] = [];
   const evidence: EvidenceItem[] = [];
   for (const n of t?.nodes ?? []) {
@@ -50,12 +44,24 @@ export function realInspectorBundle(t: TaskDetailDto | null, trajectory: Traject
     else if (s.kind === "git" && s.gitWrite) evidence.push({ id: "ev:" + n.nodeId, kind: "change", title: "写入 " + (s.gitWrite.repositoryRef ?? "") + " " + (s.gitWrite.targetBranch ?? ""), source: "af/api", version: "git:" + (s.gitWrite.changeSetDigest ?? "").slice(0, 8), at: "", actor: "af", confirmed: true, required: true });
     else if (s.kind === "git" && s.approval) evidence.push({ id: "ev:" + n.nodeId, kind: "approval", title: "人工检查点 " + (s.approval.prompt ?? ""), source: "af/api", version: "approve:" + (s.approval.decision ?? ""), at: "", actor: "me@agentflow.dev", confirmed: !!s.approval.decision, required: true });
   }
+
+  /* diffs 只来自真实补丁：key 必须与文件树路径完全一致，供 DiffView 的切换芯片与
+     shownFile 回退逻辑使用。available=false 时保持空对象。 */
   const diffs: Record<string, DiffLine[]> = {};
-  for (const f of files) diffs[f.path] = synthDiff(f);
+  if (patch?.available) {
+    for (const file of patch.files) diffs[file.path] = parseUnifiedDiff(file.patch);
+  }
 
   const replay: ReplayStep[] = (trajectory ?? []).slice(-20).map((ev) => ({
     id: ev.eventId, stage: ev.eventType, actor: ev.actor, action: ev.summary, materials: "", tier: "write", result: "ok", at: new Date(ev.occurredAt).toLocaleTimeString(),
   }));
 
-  return { files: buildFileTree(files), diffs, evidence, replay, terminal: [] };
+  return {
+    files: buildFileTree(files),
+    diffs,
+    evidence,
+    replay,
+    terminal: [],
+    patchStatus: { available: !!patch?.available, reason: patch?.available ? null : (patch?.reason ?? "未取到真实补丁") },
+  };
 }

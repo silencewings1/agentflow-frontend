@@ -812,6 +812,11 @@
 
 .wfStrip__steps::-webkit-scrollbar { display: none; }
 
+.wfStrip__stepItem {
+  display: inline-flex;
+  flex: none;
+}
+
 .wfStrip__step {
   display: inline-flex;
   align-items: center;
@@ -822,8 +827,28 @@
   font-size: 11.5px;
   color: var(--text-3);
   border: 1px solid transparent;
+  background: none;
+  font-family: inherit;
   animation: wfStepIn 0.4s var(--ease-out) both;
   animation-delay: calc(var(--i) * 70ms + 120ms);
+}
+
+/* 可下钻的节点是按钮：点击滚动定位到对应阶段卡 */
+.wfStrip__step[data-clickable="true"] {
+  cursor: pointer;
+  transition: background 0.18s var(--ease-out), color 0.18s var(--ease-out), border-color 0.18s var(--ease-out);
+}
+
+.wfStrip__step[data-clickable="true"]:hover,
+.wfStrip__step[data-clickable="true"]:focus-visible {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: var(--line);
+}
+
+.wfStrip__step[data-clickable="true"]:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 1px;
 }
 
 @keyframes wfStepIn {

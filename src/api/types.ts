@@ -348,6 +348,8 @@ export interface RunIntentDto {
   leaseGeneration: number;
   lastError?: string;
   lastAdvanceAt?: string;
+  /** 让出原因（服务端返回）：awaiting_human / awaiting_plan_approval / needs_reconcile / limits_reached 等。 */
+  yieldedReason?: string;
   createdAt: string;
   updatedAt: string;
   runMode?: RunMode;
@@ -668,6 +670,19 @@ export interface TrajectoryEventDto {
   evidenceRefs?: string[];
 }
 
+/** 任务补丁：真实 `git diff <base> <source>` 文本；available=false 时必须由 reason 说明原因，不得伪造。 */
+export interface TaskPatchFileDto { path: string; action: string; patch: string }
+export interface TaskPatchDto {
+  taskId: string;
+  baseRevision: string | null;
+  sourceRevision: string | null;
+  available: boolean;
+  /** 不可用原因；可用时为 null */
+  reason: string | null;
+  /** patch 为原始 unified diff 文本 */
+  files: TaskPatchFileDto[];
+}
+
 export interface ApproveResultDto { taskId: string; nodeId: string; state: TaskSummaryDto["state"]; revision: number; }
 export interface EvidenceMaterializationDto { evidenceMatrix: EvidenceMatrixDto; trustedDelivery: TrustedDeliveryDto; }
 
@@ -683,6 +698,7 @@ export interface AfApiClient {
   continueTask(taskId: string, signal?: AbortSignal, runMode?: RunMode, faultInjection?: FaultInjectionDto): Promise<StartResultDto>;
   approveTaskNode(taskId: string, nodeId: string, signal?: AbortSignal): Promise<ApproveTaskNodeResult>;
   getTrajectory(taskId: string, signal?: AbortSignal): Promise<TrajectoryEventDto[]>;
+  getTaskPatch(taskId: string, signal?: AbortSignal): Promise<TaskPatchDto>;
   listWorkSpecs(taskId: string, signal?: AbortSignal): Promise<WorkSpecDto[]>;
   getWorkSpec(taskId: string, revision?: number, signal?: AbortSignal): Promise<WorkSpecDto>;
   saveWorkSpec(taskId: string, input: WorkSpecDraftInput, signal?: AbortSignal): Promise<WorkSpecDto>;

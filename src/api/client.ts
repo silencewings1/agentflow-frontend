@@ -28,6 +28,7 @@ import type {
   RequirementsClarificationInput,
   StartResultDto,
   TaskDetailDto,
+  TaskPatchDto,
   TaskSummaryDto,
   TrajectoryEventDto,
   TrustedDeliveryDto,
@@ -460,6 +461,10 @@ function fixtureClient(): AfApiClient {
       return { taskId, nodeId, state: task.state, revision: task.revision + 1 };
     },
     async getTrajectory(taskId) { return fixtureTrajectory(await this.getTask(taskId)); },
+    /* fixture 没有真实工作区，不得伪造补丁；显式声明不可用并给出原因。 */
+    async getTaskPatch(taskId) {
+      return { taskId, baseRevision: null, sourceRevision: null, available: false, reason: "fixture 模式无真实补丁", files: [] };
+    },
     async listWorkSpecs(taskId) { return [ensureWorkSpec(taskId)]; },
     async getWorkSpec(taskId) { return ensureWorkSpec(taskId); },
     async saveWorkSpec(taskId, input) {
@@ -605,6 +610,7 @@ class HttpAfApiClient implements AfApiClient {
   continueTask(taskId: string, signal?: AbortSignal, runMode?: import("./types").RunMode, faultInjection?: import("./types").FaultInjectionDto) { return this.request<StartResultDto>(`/tasks/${encodeURIComponent(taskId)}/continue`, { method: "POST", body: JSON.stringify({ ...(runMode === undefined ? {} : { runMode }), ...(faultInjection === undefined ? {} : { faultInjection }) }) }, signal); }
   approveTaskNode(taskId: string, nodeId: string, signal?: AbortSignal) { return this.request<import("./types").ApproveTaskNodeResult>(`/tasks/${encodeURIComponent(taskId)}/approve`, { method: "POST", body: JSON.stringify({ nodeId }) }, signal); }
   getTrajectory(taskId: string, signal?: AbortSignal) { return this.request<AfTrajectoryDto>(`/tasks/${encodeURIComponent(taskId)}/trajectory`, undefined, signal).then(toTrajectory); }
+  getTaskPatch(taskId: string, signal?: AbortSignal) { return this.request<TaskPatchDto>(`/tasks/${encodeURIComponent(taskId)}/patch`, undefined, signal); }
   listWorkSpecs(taskId: string, signal?: AbortSignal) { return this.request<WorkSpecDto[]>(`/tasks/${encodeURIComponent(taskId)}/work-specs`, undefined, signal); }
   getWorkSpec(taskId: string, revision?: number, signal?: AbortSignal) { return this.request<WorkSpecDto>(`/tasks/${encodeURIComponent(taskId)}/work-specs${revision === undefined ? "" : `/${revision}`}`, undefined, signal); }
   saveWorkSpec(taskId: string, input: WorkSpecDraftInput, signal?: AbortSignal) { return this.request<WorkSpecDto>(`/tasks/${encodeURIComponent(taskId)}/work-specs`, { method: "POST", body: JSON.stringify(input) }, signal); }

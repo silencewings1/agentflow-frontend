@@ -43,6 +43,8 @@ export function Inspector({
   onToast: (t: Omit<Toast, "id">) => void;
 }) {
   const evReady = bundle.evidence.filter((e) => e.confirmed).length;
+  /* 真实补丁优先：有真实 diff 时用它计数，避免沿用可能过期的 session.diff 徽标。 */
+  const realDiffCount = Object.keys(bundle.diffs).length;
 
   return (
     <aside className="inspector">
@@ -57,7 +59,9 @@ export function Inspector({
             >
               {t.label}
               {t.key === "diff" && (
-                <span className="tab__badge mono">{session.diff?.files ?? "—"}</span>
+                <span className="tab__badge mono">
+                  {realDiffCount > 0 ? realDiffCount : (session.diff?.files ?? "—")}
+                </span>
               )}
               {t.key === "evidence" && (
                 <span className="tab__badge mono">
@@ -77,7 +81,11 @@ export function Inspector({
           <Tree nodes={bundle.files} onFile={(p) => { onFile(p); onTab("diff"); }} />
         )}
         {tab === "diff" && (
-          <DiffView path={activeFile} diffs={bundle.diffs} onFile={onFile} onToast={onToast} />
+          bundle.patchStatus && !bundle.patchStatus.available ? (
+            <PatchUnavailable reason={bundle.patchStatus.reason} />
+          ) : (
+            <DiffView path={activeFile} diffs={bundle.diffs} onFile={onFile} onToast={onToast} />
+          )
         )}
         {tab === "evidence" && <EvidencePane items={bundle.evidence} onToast={onToast} />}
         {tab === "replay" && <ReplayPane steps={bundle.replay} onToast={onToast} />}
@@ -378,6 +386,28 @@ function TreeNode({
 
 /* -------------------------------- diff view -------------------------------- */
 
+/* 拿不到真实补丁时的显式降级态：说明原因与补救路径，绝不用合成 diff 充数。 */
+function PatchUnavailable({ reason }: { reason: string | null }) {
+  return (
+    <div className="pane">
+      <div className="paneHead">
+        <div className="paneHead__text">
+          <span className="kicker">改动</span>
+          <h3 className="serif">真实补丁不可用</h3>
+        </div>
+      </div>
+      <div className="patchEmpty" data-state="unavailable">
+        <p className="patchEmpty__reason">{reason ?? "未取到真实补丁"}</p>
+        <p className="patchEmpty__hint">
+          补丁来自 <code className="inline mono">GET /tasks/&#123;taskId&#125;/patch</code>。
+          若该接口返回 404，说明后端仍是旧版本，需重启后端；若任务尚未产生交付，也会暂无补丁。
+          界面不会用合成的 diff 代替真实结果。
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function DiffView({
   path,
   diffs,
@@ -477,6 +507,7 @@ function Terminal({ log }: { log: string[] }) {
 
   return (
     <div className="term">
+      <p className="panelDemoNote">演示数据 · 非真实执行结果</p>
       <div className="term__log mono">
         {buf.map((l, i) => (
           <div key={i} data-kind={l.startsWith("$") ? "cmd" : l.includes("✓") || l.includes("✔") || l.includes("passed") ? "ok" : l.startsWith(" M") || l.startsWith("??") ? "vcs" : "ctx"}>
@@ -513,6 +544,7 @@ function Env({ session }: { session: Session }) {
 
   return (
     <div className="env">
+      <p className="panelDemoNote">演示数据 · 非真实执行结果</p>
       <div className="env__card">
         <span className="kicker">沙箱状态</span>
         <div className="env__state">
