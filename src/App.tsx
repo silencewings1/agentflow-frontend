@@ -23,7 +23,7 @@ import { Login } from "./components/Login";
 import { WorkflowStrip, NodeConversation } from "./components/Workflow";
 import { defaultModel, modelOptions } from "./data/settings";
 import { accounts, initialGrants, accountById, accountRoleLabel, type NodeGrant } from "./data/accounts";
-import { getLoginSetup, loginExtraTasks, postApprovalEvents } from "./data/loginSetup";
+import { getLoginSetup, buildExtraConversation, loginExtraTasks, postApprovalEvents } from "./data/loginSetup";
 import {
   buildOrchestratorPlan,
   runOf,
@@ -71,6 +71,11 @@ export default function App() {
   const [currentAccountId, setCurrentAccountId] = useState<string>("");
   const [grants, _setGrants] = useState<NodeGrant[]>(initialGrants);
   const loggedIn = currentAccountId !== "";
+  /* 每任务的独立运行数据：按会话 id 缓存事件流与流水线进度，
+     切换任务时按 id 取，不共享全局演示流 */
+  const [taskContexts, setTaskContexts] = useState<
+    Record<string, { events: AgentEvent[]; wfStep: number }>
+  >({});
 
   /* --- streamed event window --------------------------------------------- */
   const [visible, setVisible] = useState(() => conversationOf(sessions[0]?.workflow ?? "wf-legacy").length);
@@ -225,7 +230,8 @@ export default function App() {
         turns: 1,
         workflow: setup.workflow.id,
       };
-      const extras: Session[] = loginExtraTasks(id).map((t, i) => ({
+      const extras = loginExtraTasks(id);
+      const extraSessions: Session[] = extras.map((t, i) => ({
         id: `s-extra-${id}-${i}`,
         title: t.title,
         repo: "demo-app",
@@ -237,8 +243,19 @@ export default function App() {
         turns: t.turns,
         workflow: "wf-legacy",
       }));
-      setSessionList([main, ...extras]);
+      setSessionList([main, ...extraSessions]);
       setActiveId(sid);
+
+      /* 为每一条任务准备独立的运行数据：主任务 = 登录现场（含节点总结），
+         辅助任务 = 按任务生成的专属事件流。切换任务时按 id 取用。 */
+      const ctxs: Record<string, { events: AgentEvent[]; wfStep: number }> = {
+        [sid]: { events: setup.events, wfStep: setup.wfStep },
+      };
+      extras.forEach((t, i) => {
+        const eid = `s-extra-${id}-${i}`;
+        ctxs[eid] = { events: buildExtraConversation(id, t), wfStep: 1 };
+      });
+      setTaskContexts(ctxs);
 
       push({
         tone: "info",
@@ -500,13 +517,21 @@ export default function App() {
           const pick = next[0];
           setActiveId(pick.id);
           setMode("session");
-          setExtra([]);
-          setVisible(conversationOf(pick.workflow).length);
+          /* 接手会话同样按任务取独立运行数据 */
+          const ctx = taskContexts[pick.id];
+          if (ctx) {
+            setExtra(ctx.events);
+            setVisible(0);
+            setWfStep(ctx.wfStep);
+          } else {
+            setExtra([]);
+            setVisible(conversationOf(pick.workflow).length);
+            setWfStep(1);
+          }
           setPendingApproval(null);
           setStreaming(pick.state === "running");
           /* 顶部流水线也要跟着切到接手的这条会话，否则会残留上一条的编排 */
           setWorkflow(wfOf(pick.workflow));
-          setWfStep(1);
         } else {
           setMode("welcome");
           setStreaming(false);
@@ -515,7 +540,7 @@ export default function App() {
       }
       push({ tone: "warn", title: "已删除会话", body: "相关演示记录已从侧栏移除。" });
     },
-    [activeId, push, sessionList],
+    [activeId, push, sessionList, taskContexts],
   );
 
   const resolveApproval = useCallback(
@@ -667,8 +692,17 @@ export default function App() {
     stepTimers.current = [];
     setActiveId(s.id);
     setMode("session");
-    setExtra([]);
-    setVisible(conversationOf(s.workflow).length);
+    /* 每任务独立运行数据：优先取该任务的专属事件流；未知会话回落共享演示流 */
+    const ctx = taskContexts[s.id];
+    if (ctx) {
+      setExtra(ctx.events);
+      setVisible(0);
+      setWfStep(ctx.wfStep);
+    } else {
+      setExtra([]);
+      setVisible(conversationOf(s.workflow).length);
+      setWfStep(1);
+    }
     setPendingApproval(null);
     setStreaming(s.state === "running");
     /* 规划态与节点聚焦态属于单条会话，切换时必须清掉，否则会串台 */
@@ -676,10 +710,9 @@ export default function App() {
     setPlanPending(false);
     planPendingRef.current = false;
     setFocusNode(null);
-    setWfStep(1);
     /* 编排随会话切换：这条任务是缺陷修复就该显示缺陷修复的流水线 */
     setWorkflow(wfOf(s.workflow));
-  }, []);
+  }, [taskContexts]);
 
   /* 架构层 → 承载该层证据的界面，一次点击到位，不让用户自己去找 */
   const archJump = useCallback(

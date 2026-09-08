@@ -8,6 +8,7 @@ import type { AgentEvent, Session, SessionState } from "./mock";
 import type { Workflow, WfNode } from "./workflows";
 import { workflowTemplates } from "./workflows";
 import { accountById, accountRoleLabel } from "./accounts";
+import { roleLabel, type AgentRole } from "./settings";
 
 export interface LoginSetup {
   workflow: Workflow;
@@ -519,4 +520,130 @@ const EXTRA_TASKS: Record<string, ExtraTask[]> = {
 /** 取某账户的辅助任务列表；无记录时返回空数组 */
 export function loginExtraTasks(accountId: string): ExtraTask[] {
   return EXTRA_TASKS[accountId] ?? [];
+}
+
+/* ================================================================
+   每任务独立运行数据：辅助任务点开后必须有自己的事件流，
+   而不是共享全局演示流。内容由「任务标题 × 状态 × 角色」派生：
+   - 状态驱动走向：done 全绿闭环 / failed 测试含未过 / idle 未开工
+   - 角色驱动现场：产出物目录、契约措辞随角色变化
+   因此每条任务的对话都是唯一的，互不共享。
+   ================================================================ */
+
+/** 角色 → 产出物目录：让不同角色的任务打开后有不同的现场 */
+const roleDir: Record<AgentRole, string> = {
+  orchestrator: "orchestration",
+  requirement: "docs/requirement",
+  architecture: "docs/design",
+  development: "src/main/java/com/demo/legacy",
+  testing: "src/test/java/com/demo/legacy",
+  review: "docs/review",
+  delivery: "docs/delivery",
+  ops: "ops",
+};
+
+/** 为一条辅助任务生成独立的会话事件流 */
+export function buildExtraConversation(accountId: string, task: ExtraTask): AgentEvent[] {
+  const acc = accountById(accountId);
+  const role: AgentRole = acc?.role ?? "development";
+  const roleName = roleLabel[role];
+  const slug = task.title.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, "").slice(-12) || "task";
+  const dir = roleDir[role];
+  const ts = (k: string) => `x-${k}-${accountId}-${slug}`;
+
+  const ev: AgentEvent[] = [];
+
+  /* 1. 用户消息：任务本身 */
+  ev.push({ id: ts("u"), kind: "user", text: task.title });
+
+  /* 2. 任务契约：每个任务一份，措辞随标题与角色变化 */
+  ev.push({
+    id: ts("c"),
+    kind: "contract",
+    title: task.title,
+    problem: `在「存量系统逆向重构」项目内完成该工作项，由 ${acc?.name ?? "当前账户"}（${roleName}）负责，验收标准以契约为准。`,
+    repo: "demo-app · legacy-refactor",
+    workflow: "存量系统逆向重构",
+    scope: [`${task.title} 涉及的改动范围`, `${roleName} 职责边界内的产出物`],
+    doneCriteria:
+      task.state === "failed"
+        ? ["阻断问题已定位并修复", "证据链重新闭环"]
+        : [`${task.title} 完成判定达标`, "证据链闭环"],
+    approvals: task.state === "failed" ? ["返工后重新核验"] : ["结果进入下一节点"],
+    materials: ["上游节点交付物", "存量系统源码"],
+    tools: ["repo.read", "repo.patch", "test.run"],
+    deliverables: [`${dir}/${slug} 相关产物`, "证据记录"],
+  });
+
+  /* 3. 推理：状态不同则关注点不同 */
+  ev.push({
+    id: ts("r"),
+    kind: "reasoning",
+    title: `已思考 ${(task.turns + 2) * 2} 秒`,
+    body:
+      task.state === "idle"
+        ? "任务尚未认领：等待编排下发契约、上游交付物就绪后即可启动。"
+        : task.state === "failed"
+          ? `围绕「${task.title}」复盘失败原因：存在阻断问题，需要定向返工而非整体重来。`
+          : `围绕「${task.title}」梳理改动范围，按 ${roleName} 职责推进。`,
+    ms: (task.turns + 2) * 2000,
+  });
+
+  /* 4. 执行计划：待处理全未开始，其余全部完成 */
+  ev.push({
+    id: ts("p"),
+    kind: "plan",
+    steps: [
+      { label: "读取任务契约与上游交付物", status: task.state === "idle" ? "todo" : "done" },
+      { label: task.title, status: task.state === "idle" ? "todo" : "done" },
+      { label: "提交结果并附证据链", status: task.state === "done" ? "done" : "todo" },
+    ],
+  });
+
+  /* 5. 工具调用：待处理无执行记录 */
+  if (task.state !== "idle") {
+    ev.push({
+      id: ts("tool"),
+      kind: "tool",
+      tool: task.state === "failed" ? "shell" : "search",
+      label: task.state === "failed" ? "shell · 验证" : "grep · 定位",
+      meta: `${dir}/ — ${task.diff.files} files, ${task.diff.added + task.diff.removed} lines`,
+      status: task.state === "failed" ? "fail" : "ok",
+      lines:
+        task.state === "failed"
+          ? [`$ npm test -- ${slug}`, "  3 failed · 9 passed", "  ✗ 阻断问题未解决"]
+          : [`${dir}/${slug}.md:12  任务条目`, `${dir}/${slug}.md:31  交付物清单`],
+    });
+  }
+
+  /* 6. 改动摘要：有改动数字才展示 */
+  if (task.diff.files > 0) {
+    ev.push({
+      id: ts("d"),
+      kind: "diff",
+      summary: `${task.title} 的改动摘要`,
+      files: [{ path: `${dir}/${slug}.md`, added: task.diff.added, removed: task.diff.removed }],
+    });
+  }
+
+  /* 7. 测试结果：完成全绿、失败含未过项 */
+  if (task.state === "done") {
+    ev.push({ id: ts("t"), kind: "tests", passed: 12 + ((task.turns * 3) % 6), failed: 0, skipped: 1, ms: 900 });
+  } else if (task.state === "failed") {
+    ev.push({ id: ts("t"), kind: "tests", passed: 9, failed: 3, skipped: 0, ms: 1200 });
+  }
+
+  /* 8. 收尾：状态决定结论 */
+  ev.push({
+    id: ts("end"),
+    kind: "text",
+    body:
+      task.state === "done"
+        ? `「${task.title}」已完成，产出物与证据链已闭环。`
+        : task.state === "failed"
+          ? `「${task.title}」未通过：存在阻断问题，已退回责任节点返工。`
+          : `「${task.title}」待处理：等待编排下发契约后启动。`,
+  });
+
+  return ev;
 }
