@@ -141,7 +141,9 @@
 .sheet--task {
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
-  width: min(1100px, calc(100vw - 48px));
+  /* 编排步骤要看整条 DAG（9 节点自然宽约 1612px），窗口尽量给足；
+     仍超宽时由 .wfStage__scroll 横向滚动，不再把画布压扁。 */
+  width: min(1720px, calc(100vw - 48px));
 }
 
 /* 头部三块（标题 / 步骤 / 关闭）在窄屏允许换行，避免把标题挤成两行 */

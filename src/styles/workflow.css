@@ -344,6 +344,23 @@
     linear-gradient(color-mix(in oklab, var(--line) 42%, transparent) 1px, transparent 1px),
     linear-gradient(90deg, color-mix(in oklab, var(--line) 42%, transparent) 1px, transparent 1px);
   background-size: 22px 22px;
+  /* 画布通常比容器宽：macOS 的覆盖式滚动条默认不可见，会被误读成「画布被截断」。
+     常驻一条细滚动条，让「还能往右看」这件事本身可见。 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.wfStage__scroll::-webkit-scrollbar {
+  height: 8px;
+}
+
+.wfStage__scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--line-strong);
+}
+
+.wfStage__scroll::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /* --------------------------------- DAG --------------------------------- */
@@ -356,10 +373,11 @@
   display: block;
   height: auto;
   overflow: visible;
-}
-
-.dag[data-compact="true"] .dag__svg {
-  width: 100%;
+  /* 画布按自然尺寸绘制，宽度由内联 style 给出；容器负责滚动。
+     绝不能 width:100% —— 那会把 1600px 的画布压进浮层宽度，
+     节点文字被等比缩到不可读。 */
+  max-width: none;
+  flex: none;
 }
 
 /* 边 */
@@ -947,10 +965,8 @@
   animation: wfDagIn 0.26s var(--ease-out) both;
 }
 
-/* 面板内不再承载消息流，高度还给画布 */
-.wfStrip__dag .dag__svg {
-  max-height: 26vh;
-}
+/* 画布保持自然尺寸（浮层自己滚动）。此前用 max-height:26vh 压缩 SVG，
+   在矮视口下会把 12px 节点文字一起缩到读不出来——宁可让浮层纵向滚动。 */
 
 /* 下钻提示：说明点节点后内容去哪了，避免以为没反应 */
 .wfStrip__tip {

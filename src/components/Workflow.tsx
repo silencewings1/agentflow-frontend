@@ -62,7 +62,9 @@ export function DagCanvas({
       <svg
         className="dag__svg"
         viewBox={`-4 -6 ${vw + 8} ${vh + 12}`}
-        style={{ minWidth: compact ? undefined : vw }}
+        /* 固定为自然宽度：让容器横向滚动，而不是把 1600+ 宽的画布压进几百像素
+           （压缩会把 12px 节点文字缩到 5px，节点名完全读不出来）。 */
+        style={{ width: vw }}
         role="img"
         aria-label={`${wf.name} 编排图`}
       >
