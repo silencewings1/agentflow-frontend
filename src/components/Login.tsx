@@ -3,18 +3,17 @@ import { Icon } from "./Icons";
 import {
   accounts,
   accountById,
-  accountLayerLabel,
+  accountRoleLabel,
+  ACCOUNT_ROLE_ORDER,
   type Account,
 } from "../data/accounts";
-
-const LAYER_ORDER: Account["layer"][] = ["L1", "L2", "L3", "L4", "L5"];
 
 export function Login({ onLogin }: { onLogin: (accountId: string) => void }) {
   const [selId, setSelId] = useState<string>("ac-yz");
 
   const activeAccounts = accounts.filter((a) => a.state === "active");
-  const listByLayer = (layer: Account["layer"]) =>
-    activeAccounts.filter((a) => a.layer === layer);
+  const listByRole = (role: Account["role"]) =>
+    activeAccounts.filter((a) => a.role === role);
 
   const selected = accountById(selId, accounts);
 
@@ -32,13 +31,12 @@ export function Login({ onLogin }: { onLogin: (accountId: string) => void }) {
         </p>
 
         <div className="login__accounts">
-          {LAYER_ORDER.flatMap((layer) => {
-            const rows = listByLayer(layer);
+          {ACCOUNT_ROLE_ORDER.flatMap((role) => {
+            const rows = listByRole(role);
             if (!rows.length) return [];
             return [
-              <div key={`hd-${layer}`} className="loginAccounts__groupHead">
-                <span className="kicker">{layer}</span>
-                <span className="loginAccounts__groupLabel">{accountLayerLabel[layer]}</span>
+              <div key={`hd-${role}`} className="loginAccounts__groupHead">
+                <span className="kicker">{accountRoleLabel[role]}</span>
               </div>,
               ...rows.map((a, i) => (
                 <button
@@ -59,7 +57,7 @@ export function Login({ onLogin }: { onLogin: (accountId: string) => void }) {
                     <i className="mono">{a.handle}</i>
                   </span>
                   <span className="loginAccount__layer">
-                    {a.layer} · {accountLayerLabel[a.layer]}
+                    {accountRoleLabel[a.role]}
                   </span>
                 </button>
               )),

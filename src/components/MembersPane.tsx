@@ -2,15 +2,16 @@ import { useMemo, useState } from "react";
 import { Icon } from "./Icons";
 import {
   accounts,
-  accountLayerLabel,
+  accountRoleLabel,
   accountStateLabel,
+  ACCOUNT_ROLE_ORDER,
   initialAudit,
   initialGrants,
   nodePermLabel,
   nodePermRank,
   nodeRefs,
   type Account,
-  type AccountLayer,
+  type AccountRole,
   type GrantAudit,
   type NodeGrant,
   type NodePerm,
@@ -20,18 +21,6 @@ import {
 type Toast = (t: { tone: "ok" | "warn" | "info"; title: string; body: string }) => void;
 
 const PERMS: NodePerm[] = ["view", "run", "approve", "manage"];
-
-const LAYER_ORDER: AccountLayer[] = ["L1", "L2", "L3", "L4", "L5"];
-
-const ALL_LAYERS: AccountLayer[] = ["L1", "L2", "L3", "L4", "L5"];
-
-const LAYER_DUTY: Record<AccountLayer, string> = {
-  L1: "需求与交付",
-  L2: "开发与执行",
-  L3: "连接与调用",
-  L4: "验证与审查",
-  L5: "裁决与放行",
-};
 
 export function MembersPane({ onToast }: { onToast: Toast }) {
   const [accounts_, setAccounts] = useState<Account[]>(accounts);
@@ -43,7 +32,7 @@ export function MembersPane({ onToast }: { onToast: Toast }) {
   });
   const [creating, setCreating] = useState(false);
   const [draftName, setDraftName] = useState("");
-  const [draftLayer, setDraftLayer] = useState<AccountLayer>("L1");
+  const [draftRole, setDraftRole] = useState<AccountRole>("development");
 
   const nodeIndex = useMemo(() => nodeRefs(), []);
   const active = useMemo(
@@ -114,7 +103,7 @@ export function MembersPane({ onToast }: { onToast: Toast }) {
         id,
         name,
         handle: `${name.toLowerCase().replace(/\s+/g, ".")}@agentflow.dev`,
-        layer: draftLayer,
+        role: draftRole,
         duty: "自定义账户，尚未填写职责说明。",
         glyph: "Agent",
         tint: "accent",
@@ -125,19 +114,19 @@ export function MembersPane({ onToast }: { onToast: Toast }) {
     setSelected(id);
     setCreating(false);
     setDraftName("");
-    onToast({ tone: "ok", title: "已创建账户", body: `${name} · ${accountLayerLabel[draftLayer]}` });
+    onToast({ tone: "ok", title: "已创建账户", body: `${name} · ${accountRoleLabel[draftRole]}` });
   };
 
   return (
     <div className="split">
       {/* ------------ 左列：账户列表 ------------ */}
       <div className="split__list">
-        {LAYER_ORDER.map((layer) => {
-          const rows = accounts_.filter((a) => a.layer === layer);
+        {ACCOUNT_ROLE_ORDER.map((role) => {
+          const rows = accounts_.filter((a) => a.role === role);
           if (!rows.length) return null;
           return (
-            <section key={layer}>
-              <SectionLabel text={layer} hint={LAYER_DUTY[layer]} />
+            <section key={role}>
+              <SectionLabel text={accountRoleLabel[role]} />
               <div className="memberList">
                 {rows.map((a, i) => (
                   <button
@@ -191,18 +180,18 @@ export function MembersPane({ onToast }: { onToast: Toast }) {
               />
             </div>
             <div className="form__row">
-              <label>架构落位</label>
+              <label>角色</label>
               <div className="permKinds">
-                {ALL_LAYERS.map((l) => (
+                {ACCOUNT_ROLE_ORDER.map((r) => (
                   <button
                     type="button"
-                    key={l}
+                    key={r}
                     className="permKind"
-                    data-on={draftLayer === l ? "true" : undefined}
-                    onClick={() => setDraftLayer(l)}
-                    title={accountLayerLabel[l]}
+                    data-on={draftRole === r ? "true" : undefined}
+                    onClick={() => setDraftRole(r)}
+                    title={accountRoleLabel[r]}
                   >
-                    {l}
+                    {accountRoleLabel[r]}
                   </button>
                 ))}
               </div>
@@ -228,7 +217,7 @@ export function MembersPane({ onToast }: { onToast: Toast }) {
             <p>
               <span className="mono">{active.handle}</span>
               <i>·</i>
-              {accountLayerLabel[active.layer]}
+              {accountRoleLabel[active.role]}
               <i>·</i>
               {accountStateLabel[active.state]}
             </p>

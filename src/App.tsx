@@ -22,7 +22,7 @@ import { NewTaskDialog } from "./components/NewTask";
 import { Login } from "./components/Login";
 import { WorkflowStrip, NodeConversation } from "./components/Workflow";
 import { defaultModel, modelOptions } from "./data/settings";
-import { accounts, initialGrants, accountById, accountLayerLabel, type NodeGrant } from "./data/accounts";
+import { accounts, initialGrants, accountById, accountRoleLabel, type NodeGrant } from "./data/accounts";
 import { getLoginSetup, postApprovalEvents } from "./data/loginSetup";
 import {
   buildOrchestratorPlan,
@@ -231,7 +231,7 @@ export default function App() {
       push({
         tone: "info",
         title: `已登录为 ${acc.name}`,
-        body: `${acc.layer} · ${accountLayerLabel[acc.layer]} · 工作流推进到「${setup.currentNodeName}」`,
+        body: `${accountRoleLabel[acc.role]} · 工作流推进到「${setup.currentNodeName}」`,
       });
     },
     [push],

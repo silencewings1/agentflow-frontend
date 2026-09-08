@@ -25,6 +25,7 @@ import { roleLabel, skills, skillSourceLabel, type AgentRole, type Skill, type S
 import {
   accounts,
   accountById,
+  accountRoleLabel,
   assignableAccounts,
   canRun,
   type Account,
@@ -173,7 +174,7 @@ export function DagCanvas({
                   <text x="8" y="11" textAnchor="middle">
                     {assignee.name.charAt(0)}
                   </text>
-                  <title>{`执行者：${assignee.name} · ${assignee.layer}`}</title>
+                  <title>{`执行者：${assignee.name} · ${accountRoleLabel[assignee.role]}`}</title>
                 </g>
               )}
               {!assignee && (

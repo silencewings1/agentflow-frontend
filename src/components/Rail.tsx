@@ -5,6 +5,7 @@ import type { SettingsPane } from "./Settings";
 import {
   accounts as defaultAccounts,
   accountById,
+  accountRoleLabel,
   type Account,
 } from "../data/accounts";
 
@@ -112,7 +113,7 @@ export function Rail({
                     <b>{current.name}</b>
                     <i className="mono">{current.handle}</i>
                   </div>
-                  <span className="accountSwitcher__layer">{current.layer}</span>
+                  <span className="accountSwitcher__layer">{accountRoleLabel[current.role]}</span>
                 </div>
                 <button
                   className="accountSwitcher__foot accountSwitcher__foot--logout"

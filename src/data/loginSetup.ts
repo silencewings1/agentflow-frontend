@@ -7,7 +7,7 @@
 import type { AgentEvent } from "./mock";
 import type { Workflow } from "./workflows";
 import { workflowTemplates } from "./workflows";
-import { accountById, accountLayerLabel } from "./accounts";
+import { accountById, accountRoleLabel } from "./accounts";
 
 export interface LoginSetup {
   workflow: Workflow;
@@ -33,37 +33,37 @@ const LOGIN_MAP: Record<string, {
   nodeId: string;
   taskTitle: string;
 }> = {
-  // 杨知远（L5）：需求逆向审批 —— 确认逆向出的业务规则与接口行为
+  // 杨知远（审查）：需求逆向审批 —— 确认逆向出的业务规则与接口行为
   "ac-yz": {
     wfId: "wf-legacy",
     nodeId: "n2",
     taskTitle: "存量系统逆向重构",
   },
-  // 李雯（L1）：源码解析执行中 —— 整理模块、调用关系与依赖
+  // 李雯（需求）：源码解析执行中 —— 整理模块、调用关系与依赖
   "ac-lw": {
     wfId: "wf-legacy",
     nodeId: "n1",
     taskTitle: "存量系统逆向重构",
   },
-  // 周林（L2）：架构设计执行中 —— 确定新系统结构与模块职责
+  // 周林（编排）：架构设计执行中 —— 确定新系统结构与模块职责
   "ac-orch": {
     wfId: "wf-legacy",
     nodeId: "n3",
     taskTitle: "存量系统逆向重构",
   },
-  // 陈硕（L2）：测试驱动开发执行中 —— 先写用例再实现代码
+  // 陈硕（开发）：测试驱动开发执行中 —— 先写用例再实现代码
   "ac-dev": {
     wfId: "wf-legacy",
     nodeId: "n4",
     taskTitle: "存量系统逆向重构",
   },
-  // 林晓（L4）：集成验证执行中 —— 跨模块业务流程与冒烟测试
+  // 林晓（测试）：集成验证执行中 —— 跨模块业务流程与冒烟测试
   "ac-gate": {
     wfId: "wf-legacy",
     nodeId: "n5",
     taskTitle: "存量系统逆向重构",
   },
-  // 赵远（L3）：交付验收审批 —— 四类材料交付人工验收
+  // 赵远（交付）：交付验收审批 —— 四类材料交付人工验收
   "ac-conn": {
     wfId: "wf-legacy",
     nodeId: "n6",
@@ -142,7 +142,7 @@ export function getLoginSetup(accountId: string): LoginSetup {
 
   const acc = accountById(accountId);
   const accName = acc?.name ?? "当前账户";
-  const accLayer = acc?.layer ?? "L2";
+  const accRole = acc?.role ?? "orchestrator";
 
   const nextAssignee = nextNode?.assignee
     ? accountById(nextNode.assignee)?.name ?? null
@@ -168,7 +168,7 @@ export function getLoginSetup(accountId: string): LoginSetup {
       title: `已完成 ${prevNodes.length} 个节点`,
       body: prevNodes.map((n) => {
         const assignee = n.assignee ? accountById(n.assignee) : null;
-        return `${n.name}（${assignee?.name ?? "未指派"}${assignee ? ` · ${accountLayerLabel[assignee.layer]}` : ""}）`;
+        return `${n.name}（${assignee?.name ?? "未指派"}${assignee ? ` · ${accountRoleLabel[assignee.role]}` : ""}）`;
       }).join(" → "),
       ms: 800,
     });
@@ -193,7 +193,7 @@ export function getLoginSetup(accountId: string): LoginSetup {
       id: approvalId,
       kind: "approval",
       command: `批准节点「${node.name}」完成`,
-      rationale: `该节点的产出已通过门禁核验，需要你（${accName} · ${accLayer}）确认后才能进入下一节点${nextNode ? `「${nextNode.name}」` : ""}。`,
+      rationale: `该节点的产出已通过门禁核验，需要你（${accName} · ${accountRoleLabel[accRole]}）确认后才能进入下一节点${nextNode ? `「${nextNode.name}」` : ""}。`,
       risk: "low" as const,
     });
 
@@ -305,7 +305,7 @@ export function postApprovalEvents(
     {
       id: `post-handoff-${Date.now()}`,
       kind: "text",
-      body: `已通过审批。「${nextNode.name}」已交付给 ${nextAssignee?.name ?? "下一执行者"}${nextAssignee ? `（${accountLayerLabel[nextAssignee.layer]}）` : ""}，等待其处理。`,
+      body: `已通过审批。「${nextNode.name}」已交付给 ${nextAssignee?.name ?? "下一执行者"}${nextAssignee ? `（${accountRoleLabel[nextAssignee.role]}）` : ""}，等待其处理。`,
     },
   ];
 }
