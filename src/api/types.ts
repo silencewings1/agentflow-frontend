@@ -143,6 +143,8 @@ export interface TaskSummaryDto {
   executorMode: ExecutorMode | null;
   runMode?: RunMode;
   faultInjection?: FaultInjectionDto;
+  /** 仅表示「从默认列表隐藏」；任务事实、审计与证据仍可查询，不是删除。 */
+  archived?: boolean;
   createdAt: string;
   updatedAt: string;
   revision: number;
@@ -696,6 +698,10 @@ export interface AfApiClient {
   createTask(input: CreateTaskInput, signal?: AbortSignal): Promise<{ taskId: string; summary?: TaskSummaryDto; idempotent?: boolean }>;
   startTask(taskId: string, signal?: AbortSignal, runMode?: RunMode, faultInjection?: FaultInjectionDto): Promise<StartResultDto>;
   continueTask(taskId: string, signal?: AbortSignal, runMode?: RunMode, faultInjection?: FaultInjectionDto): Promise<StartResultDto>;
+  /** 终止非终态任务：取消其活动 RunIntent 并释放租约，任务状态置为 cancelled。 */
+  cancelTask(taskId: string, signal?: AbortSignal): Promise<TaskSummaryDto>;
+  /** 仅改变「是否从默认列表隐藏」；不删除任何事实、审计或证据。 */
+  setTaskArchived(taskId: string, archived: boolean, signal?: AbortSignal): Promise<TaskSummaryDto>;
   approveTaskNode(taskId: string, nodeId: string, signal?: AbortSignal): Promise<ApproveTaskNodeResult>;
   getTrajectory(taskId: string, signal?: AbortSignal): Promise<TrajectoryEventDto[]>;
   getTaskPatch(taskId: string, signal?: AbortSignal): Promise<TaskPatchDto>;

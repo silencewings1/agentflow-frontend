@@ -11,17 +11,29 @@ const stateLabel: Record<SessionState, string> = {
   draft: "待配置",
 };
 
+/* 终态判定：只有终态任务才能归档/恢复；非终态任务是「运行中」，
+   它的动作是取消运行。二者语义不同，不能共用一个按钮。 */
+const TERMINAL_STATES: SessionState[] = ["done", "failed", "idle"];
+
 export function Sidebar({
   sessions,
   activeId,
+  showArchived,
+  onToggleShowArchived,
   onSelect,
-  onDelete,
+  onCancel,
+  onArchive,
+  onUnarchive,
   onNew,
 }: {
   sessions: Session[];
   activeId: string;
+  showArchived: boolean;
+  onToggleShowArchived: (next: boolean) => void;
   onSelect: (s: Session) => void;
-  onDelete: (id: string) => void;
+  onCancel: (id: string) => void;
+  onArchive: (id: string) => void;
+  onUnarchive: (id: string) => void;
   onNew: () => void;
 }) {
   const [q, setQ] = useState("");
@@ -40,12 +52,42 @@ export function Sidebar({
       .filter((g) => g.items.length);
   }, [q, sessions]);
 
+  /* 每个会话只暴露一个与状态匹配的动作：非终态=取消运行，
+     终态未归档=归档，终态已归档=恢复。确认前不产生任何副作用。 */
+  const runAction = (s: Session) => {
+    if (s.archived) {
+      if (!window.confirm("恢复后该任务会重新出现在默认列表中，确定恢复？")) return;
+      onUnarchive(s.id);
+      return;
+    }
+    if (!TERMINAL_STATES.includes(s.state)) {
+      if (!window.confirm("取消后该运行将终止且不可恢复，确定取消？")) return;
+      onCancel(s.id);
+      return;
+    }
+    if (!window.confirm("归档后该任务将从默认列表隐藏；任务事实、审计与证据仍可查询，确定归档？")) return;
+    onArchive(s.id);
+  };
+
+  const actionLabel = (s: Session) =>
+    s.archived ? "恢复" : TERMINAL_STATES.includes(s.state) ? "归档" : "取消运行";
+  const actionKind = (s: Session) =>
+    s.archived ? "restore" : TERMINAL_STATES.includes(s.state) ? "archive" : "cancel";
+
   return (
     <aside className="sidebar">
       <header className="sidebar__head">
         <div className="sidebar__brandRow">
           <h1 className="sidebar__brand serif">AgentFlow</h1>
           <span className="sidebar__ver mono">1.0.1</span>
+          <label className="sessToggle">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => onToggleShowArchived(e.target.checked)}
+            />
+            显示已归档
+          </label>
         </div>
       </header>
 
@@ -76,11 +118,12 @@ export function Sidebar({
             <h2 className="grp__label kicker">{g.bucket}</h2>
             <ul>
               {g.items.map((s, i) => (
-                <li key={s.id} className="sessItem">
+                <li key={s.id} className="sessItem" data-archived={s.archived === true}>
                   <button
                     className="sess"
                     data-active={s.id === activeId}
                     data-state={s.state}
+                    data-archived={s.archived === true}
                     style={{ ["--i" as string]: i }}
                     onClick={() => onSelect(s)}
                   >
@@ -101,20 +144,27 @@ export function Sidebar({
                         {s.state === "running" && <i className="pulse" />}
                         {stateLabel[s.state]}
                       </span>
+                      {s.archived && <span className="pill pill--archived">已归档</span>}
                       {s.diff
                         ? <span className="delta mono"><b>+{s.diff.added}</b><i>−{s.diff.removed}</i></span>
                         : <span className="delta mono">diff —</span>}
                     </span>
                   </button>
                   <button
-                    className="sess__del"
-                    aria-label="删除会话"
+                    className="sess__act"
+                    data-action={actionKind(s)}
+                    aria-label={actionLabel(s)}
+                    title={actionLabel(s)}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onDelete(s.id);
+                      runAction(s);
                     }}
                   >
-                    <Icon.Trash size={12} />
+                    {actionKind(s) === "cancel"
+                      ? <Icon.Stop size={12} />
+                      : actionKind(s) === "archive"
+                        ? <Icon.Trash size={12} />
+                        : <Icon.Arrow size={12} />}
                   </button>
                 </li>
               ))}
@@ -122,7 +172,9 @@ export function Sidebar({
           </section>
         ))}
         {!groups.length && (
-          <p className="sidebar__empty mono">没有匹配 “{q}” 的会话</p>
+          <p className="sidebar__empty mono">
+            {q ? `没有匹配 “${q}” 的会话` : "暂无会话"}
+          </p>
         )}
       </nav>
     </aside>

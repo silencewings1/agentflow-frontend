@@ -451,6 +451,23 @@ function fixtureClient(): AfApiClient {
     async continueTask(taskId) {
       return this.startTask(taskId);
     },
+    /* 取消与归档只改 fixture 内存事实，不抛错：取消把任务置为终态，
+       归档只切换「是否从默认列表隐藏」，两者都不删除任何记录。 */
+    async cancelTask(taskId) {
+      const task = taskOrThrow(taskId);
+      task.state = "cancelled";
+      task.updatedAt = new Date().toISOString();
+      const run = runs.get(taskId);
+      if (run) runs.set(taskId, { ...run, status: "cancelled", updatedAt: task.updatedAt });
+      details.delete(taskId);
+      return task;
+    },
+    async setTaskArchived(taskId, archived) {
+      const task = taskOrThrow(taskId);
+      if (archived) task.archived = true;
+      else delete task.archived;
+      return task;
+    },
     async materializeEvidence(taskId) {
       taskOrThrow(taskId);
       return { evidenceMatrix: await this.getEvidenceMatrix(taskId), trustedDelivery: fixtureTrustedDelivery(await this.getTask(taskId)) };
@@ -609,6 +626,8 @@ class HttpAfApiClient implements AfApiClient {
   startTask(taskId: string, signal?: AbortSignal, runMode?: import("./types").RunMode, faultInjection?: import("./types").FaultInjectionDto) { return this.request<StartResultDto>(`/tasks/${encodeURIComponent(taskId)}/start`, { method: "POST", body: JSON.stringify({ ...(runMode === undefined ? {} : { runMode }), ...(faultInjection === undefined ? {} : { faultInjection }) }) }, signal); }
   continueTask(taskId: string, signal?: AbortSignal, runMode?: import("./types").RunMode, faultInjection?: import("./types").FaultInjectionDto) { return this.request<StartResultDto>(`/tasks/${encodeURIComponent(taskId)}/continue`, { method: "POST", body: JSON.stringify({ ...(runMode === undefined ? {} : { runMode }), ...(faultInjection === undefined ? {} : { faultInjection }) }) }, signal); }
   approveTaskNode(taskId: string, nodeId: string, signal?: AbortSignal) { return this.request<import("./types").ApproveTaskNodeResult>(`/tasks/${encodeURIComponent(taskId)}/approve`, { method: "POST", body: JSON.stringify({ nodeId }) }, signal); }
+  cancelTask(taskId: string, signal?: AbortSignal) { return this.request<TaskSummaryDto>(`/tasks/${encodeURIComponent(taskId)}/cancel`, { method: "POST", body: "{}" }, signal); }
+  setTaskArchived(taskId: string, archived: boolean, signal?: AbortSignal) { return this.request<TaskSummaryDto>(`/tasks/${encodeURIComponent(taskId)}/${archived ? "archive" : "unarchive"}`, { method: "POST", body: "{}" }, signal); }
   getTrajectory(taskId: string, signal?: AbortSignal) { return this.request<AfTrajectoryDto>(`/tasks/${encodeURIComponent(taskId)}/trajectory`, undefined, signal).then(toTrajectory); }
   getTaskPatch(taskId: string, signal?: AbortSignal) { return this.request<TaskPatchDto>(`/tasks/${encodeURIComponent(taskId)}/patch`, undefined, signal); }
   listWorkSpecs(taskId: string, signal?: AbortSignal) { return this.request<WorkSpecDto[]>(`/tasks/${encodeURIComponent(taskId)}/work-specs`, undefined, signal); }

@@ -248,6 +248,9 @@ export default function App() {
   const [activeId, setActiveId] = useState<string>("");
   /* 任务列表由 AF API bootstrap 注入；fixture 只由 api/client.ts 作为兜底适配器提供。 */
   const [sessionList, setSessionList] = useState<Session[]>([]);
+  /* 已归档会话默认隐藏，但完整列表仍留在 state 里（归档只是展示层隐藏，
+     事实与证据必须继续可查）；过滤只发生在传给 Sidebar 的渲染边界。 */
+  const [showArchived, setShowArchived] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("files");
@@ -318,12 +321,15 @@ export default function App() {
   useEffect(() => { currentActiveRef.current = activeId; }, [activeId]);
 
   /* 首屏只依赖 AF API。未配置后端时，client 会显式走 fixture adapter，
-     但组件仍通过同一套 API 契约工作，接入真实服务无需改页面状态模型。 */
-  const loadBootstrap = useCallback(() => {
+     但组件仍通过同一套 API 契约工作，接入真实服务无需改页面状态模型。
+     返回服务端最新列表，供取消/归档这类「以服务端为准」的动作在
+     refresh 之后据此决定是否要切换当前会话；拉取失败返回 null，
+     让调用方知道「没拿到事实」而不是「事实为空」。 */
+  const loadBootstrap = useCallback((): Promise<Session[] | null> => {
     setApiLoad({ status: "loading" });
     let disposed = false;
-    afApi.bootstrap().then((data) => {
-      if (disposed) return;
+    return afApi.bootstrap().then((data) => {
+      if (disposed) return null;
       const ui = toUiBootstrap(data);
       setWorkflowCatalog(ui.workflows);
       setSessionList(ui.tasks);
@@ -337,21 +343,24 @@ export default function App() {
       preferredActiveRef.current = null;
       if (!first) {
         setMode("welcome");
-        return;
+        return ui.tasks;
       }
       setActiveId(first.id);
       setWorkflow(wfOf(first.workflow, ui.workflows));
       setVisible(conversationOf(first.workflow).length);
       setMode("session");
+      return ui.tasks;
     }).catch((error: unknown) => {
-      if (disposed) return;
+      if (disposed) return null;
       setApiLoad({ status: "error", ...apiFailure(error, "无法读取 AF API 首屏数据") });
       setMode("welcome");
+      return null;
     });
-    return () => { disposed = true; };
   }, []);
 
-  useEffect(() => loadBootstrap(), [loadBootstrap]);
+  useEffect(() => {
+    void loadBootstrap();
+  }, [loadBootstrap]);
 
   const fetchTaskRuntime = useCallback(async (taskId: string, signal?: AbortSignal, quiet = false) => {
     if (!taskId) return;
@@ -896,35 +905,103 @@ export default function App() {
     });
   }, [planEvent, workflow, activeId, runTurn, push, loadBootstrap, fetchTaskRuntime]);
 
-  const deleteSession = useCallback(
-    (id: string) => {
-      const next = sessionList.filter((s) => s.id !== id);
-      setSessionList(next);
-      /* 删除当前会话时切到首条；若已无会话则回到空态 */
-      if (id === activeId) {
-        setPlanEvent(null);
-        setPlanPending(false);
-        planPendingRef.current = false;
-        if (next.length) {
-          const pick = next[0];
-          setActiveId(pick.id);
-          setMode("session");
-          setExtra([]);
-          setVisible(conversationOf(pick.workflow).length);
-          setPendingApproval(null);
-          setStreaming(pick.state === "running");
-          /* 顶部流水线也要跟着切到接手的这条会话，否则会残留上一条的编排 */
-          setWorkflow(wfOf(pick.workflow, workflowCatalog));
-          setWfStep(1);
-        } else {
-          setMode("welcome");
-          setStreaming(false);
-          setPendingApproval(null);
-        }
+  /* 取消/归档/恢复都先落服务端事实，再以服务端返回的列表为准刷新界面。
+     本地只读缓存绝不伪造删除：调用失败时列表保持不变，并如实提示错误码。 */
+
+  /* 被操作的任务若离开可见列表（归档后隐藏、或被取消后仍隐藏），
+     当前会话要落到刷新后列表里的第一条，或回到空态。判据来自
+     loadBootstrap 返回的服务端列表，而不是本地过滤出来的数组。 */
+  const fallbackFromHidden = useCallback(
+    (refreshed: Session[] | null, hiddenId: string, archivedOnly: boolean) => {
+      /* 没拿到服务端事实时不做任何切换：宁可留在原任务，也不凭猜测跳走。 */
+      if (!refreshed || hiddenId !== activeId) return;
+      const stillVisible = refreshed.some(
+        (s) => s.id === hiddenId && (!archivedOnly || s.archived !== true),
+      );
+      if (stillVisible) return;
+      const next = refreshed.find((s) => !archivedOnly || s.archived !== true);
+      setPlanEvent(null);
+      setPlanPending(false);
+      planPendingRef.current = false;
+      if (next) {
+        setActiveId(next.id);
+        setMode("session");
+        setExtra([]);
+        setVisible(conversationOf(next.workflow).length);
+        setPendingApproval(null);
+        setStreaming(next.state === "running");
+        setWorkflow(wfOf(next.workflow, workflowCatalog));
+        setWfStep(1);
+      } else {
+        setActiveId("");
+        setMode("welcome");
+        setStreaming(false);
+        setPendingApproval(null);
       }
-      push({ tone: "warn", title: "已删除会话", body: "相关演示记录已从侧栏移除。" });
     },
-    [activeId, push, sessionList, workflowCatalog],
+    [activeId, workflowCatalog],
+  );
+
+  const cancelRun = useCallback(
+    async (id: string) => {
+      try {
+        await afApi.cancelTask(id);
+      } catch (error: unknown) {
+        const failure = apiFailure(error, "无法取消运行");
+        push({ tone: "warn", title: "取消运行失败", body: `${failure.code} · ${failure.message}` });
+        return;
+      }
+      const [refreshed] = await Promise.all([
+        loadBootstrap(),
+        fetchTaskRuntime(id),
+        fetchGovernance(id),
+      ]);
+      /* 取消把任务置为终态，但不会隐藏它：只要服务端仍返回该任务，就留在原位。 */
+      fallbackFromHidden(refreshed, id, false);
+      push({ tone: "ok", title: "运行已取消", body: "该任务已终止；已完成的节点事实与证据仍然保留。" });
+    },
+    [fallbackFromHidden, fetchGovernance, fetchTaskRuntime, loadBootstrap, push],
+  );
+
+  const setArchived = useCallback(
+    async (id: string, archived: boolean) => {
+      try {
+        await afApi.setTaskArchived(id, archived);
+      } catch (error: unknown) {
+        const failure = apiFailure(error, archived ? "无法归档任务" : "无法恢复任务");
+        push({ tone: "warn", title: archived ? "归档失败" : "恢复失败", body: `${failure.code} · ${failure.message}` });
+        return;
+      }
+      const refreshed = await loadBootstrap();
+      /* 只有「归档且归档列表当前不可见」才需要让出当前会话；开着
+         「显示已归档」时它仍留在原位。 */
+      fallbackFromHidden(refreshed, id, archived && !showArchived);
+      push(
+        archived
+          ? { tone: "info", title: "已归档", body: "已从默认列表隐藏；任务事实、审计与证据仍可查询。" }
+          : { tone: "ok", title: "已恢复", body: "该任务已重新出现在默认列表中。" },
+      );
+    },
+    [fallbackFromHidden, loadBootstrap, push, showArchived],
+  );
+
+  const archiveTask = useCallback((id: string) => void setArchived(id, true), [setArchived]);
+  const unarchiveTask = useCallback((id: string) => void setArchived(id, false), [setArchived]);
+
+  /* 侧栏渲染边界：已归档会话默认不显示，但完整列表保留在 state 中。 */
+  const visibleSessions = useMemo(
+    () => (showArchived ? sessionList : sessionList.filter((s) => s.archived !== true)),
+    [sessionList, showArchived],
+  );
+
+  /* 关闭「显示已归档」时，若当前会话正是被隐藏的归档任务，
+     同样要让位给仍在列表里的第一条，避免主区与侧栏失去对应关系。 */
+  const toggleShowArchived = useCallback(
+    (next: boolean) => {
+      setShowArchived(next);
+      if (!next) fallbackFromHidden(sessionList, activeId, true);
+    },
+    [activeId, fallbackFromHidden, sessionList],
   );
 
   const resolveApproval = useCallback(
@@ -1449,10 +1526,14 @@ export default function App() {
         onPane={(p) => setSettingsPane((cur) => (cur === p ? null : p))}
       />
       <Sidebar
-        sessions={sessionList}
+        sessions={visibleSessions}
         activeId={activeId}
+        showArchived={showArchived}
+        onToggleShowArchived={toggleShowArchived}
         onSelect={selectSession}
-        onDelete={deleteSession}
+        onCancel={(id) => void cancelRun(id)}
+        onArchive={archiveTask}
+        onUnarchive={unarchiveTask}
         onNew={() => setNewTaskOpen(true)}
       />
 

@@ -31,7 +31,7 @@ function toSession(task: TaskSummaryDto): Session {
       : task.state === "awaiting_human" ? "review"
       : task.state === "blocked_unavailable" || task.state === "needs_reconcile" || task.state === "failed" ? "failed"
         : task.state === "cancelled" ? "idle" : "running";
-  return { id: task.taskId, title: task.title, repo: repository, branch: task.targetBranch, state, time: task.updatedAt, bucket: "今天", workflow: task.workflowId };
+  return { id: task.taskId, title: task.title, repo: repository, branch: task.targetBranch, state, time: task.updatedAt, bucket: "今天", workflow: task.workflowId, archived: task.archived === true };
 }
 
 function toWorkflow(dto: WorkflowDefinitionDto): Workflow {

@@ -63,7 +63,7 @@ src/
 ├─ index.css               设计令牌 + reset + 排版基础（唯一的令牌来源）
 ├─ components/
 │  ├─ Rail.tsx             最左侧图标导航栏（60px）
-│  ├─ Sidebar.tsx          会话列表，按 今天 / 昨天 / 更早 分组
+│  ├─ Sidebar.tsx          会话列表（今天/昨天/更早）+ 按状态分派的取消运行 / 归档 / 恢复
 │  ├─ TopBar.tsx           面包屑 + 门禁轨 + 命令面板 + 检查面板开关
 │  ├─ Stream.tsx           事件流渲染器：按 AgentEvent.kind 分派
 │  ├─ Waterfall.tsx        主区瀑布：阶段卡序列 + 底部折叠的治理/控制面事实
@@ -121,6 +121,24 @@ src/
 - 每个阶段一个 `StageCard`，按工作流节点顺序排列，默认展开，可逐卡折叠。
 - 阶段卡内容只能来自 `buildStageCards(taskRuntime, governance.assessments)`；字段名以 `src/api/stageMapper.ts` 映射的真实 `outputSchemaVersion` 为准，**不得**在组件内自行猜测字段。
 - 治理动作（生成方案 / 批准 / 开始执行 / 澄清）必须常驻 `.govBar` 可见，不能埋进折叠区。
+
+### 3.2 任务生命周期契约：取消与归档，不是删除
+
+任务列表的操作**按状态分派，且只允许一个动作**（避免把不可逆操作放在不适用处）：
+
+| 会话状态 | 动作 | 语义 |
+| --- | --- | --- |
+| 非终态（`running` / 草稿 / 待审阅） | **取消运行** | `POST /tasks/{id}/cancel`：取消活动 RunIntent、释放租约、任务置 `cancelled`；不可逆 |
+| 终态且未归档 | **归档** | `POST /tasks/{id}/archive`：从默认列表隐藏 |
+| 已归档 | **恢复** | `POST /tasks/{id}/unarchive` |
+
+约束：
+
+- **归档只是展示标记**（`archivedAt`），绝不删除治理事实、`task_events` 审计、交付物或证据；界面文案不得暗示「已删除」。
+- 取消与归档**必须二次确认**，取消要明确写出不可逆。
+- 列表必须以**服务端返回**为准：调用后重新 `loadBootstrap()`，不得只改本地 state 假装删除（历史缺陷：旧 `deleteSession` 只过滤本地数组，刷新即复活）。
+- 「显示已归档」开关默认关闭；关闭状态下若当前会话是归档任务，要按服务端列表让位，而不是继续展示一个侧栏看不见的任务。
+- 物理删除任务不在本契约内：它与 `doc/invariants.md` 的 append-only 审计约定冲突，需单独设计权限与二次确认。
 
 ---
 

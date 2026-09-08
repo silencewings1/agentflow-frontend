@@ -228,6 +228,26 @@
   gap: 8px;
 }
 
+/* 「显示已归档」开关：归档只是展示层隐藏，必须让用户能主动把它调出来，
+   否则「已归档」会变成一种看不见也回不去的假删除。 */
+.sessToggle {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--text-3);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sessToggle input {
+  width: 12px;
+  height: 12px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .sidebar__brand {
   font-size: var(--step-3);
   line-height: 1;
@@ -411,7 +431,9 @@
   position: relative;
 }
 
-.sess__del {
+/* 会话动作按钮：按状态只呈现一个动作（取消运行 / 归档 / 恢复），
+   用 data-action 区分语气——取消是破坏性的，归档/恢复是整理性的。 */
+.sess__act {
   position: absolute;
   top: 7px;
   right: 7px;
@@ -428,15 +450,43 @@
   transition: opacity 0.18s, color 0.18s, border-color 0.18s, background 0.18s;
 }
 
-.sessItem:hover > .sess__del,
-.sessItem:focus-within > .sess__del {
+.sessItem:hover > .sess__act,
+.sessItem:focus-within > .sess__act {
   opacity: 1;
 }
 
-.sess__del:hover {
+.sess__act:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+.sess__act[data-action="cancel"]:hover {
   color: var(--rose);
   border-color: color-mix(in oklab, var(--rose) 40%, var(--line));
   background: color-mix(in oklab, var(--rose) 10%, transparent);
+}
+
+.sess__act[data-action="restore"]:hover {
+  color: var(--sage);
+  border-color: color-mix(in oklab, var(--sage) 40%, var(--line));
+  background: color-mix(in oklab, var(--sage) 10%, transparent);
+}
+
+/* 已归档：只降低呈现权重，不隐藏任何事实；「已归档」pill 明确说明它不是删除。 */
+.sess[data-archived="true"] {
+  opacity: 0.55;
+}
+
+.sess[data-archived="true"]:hover,
+.sess[data-archived="true"][data-active="true"] {
+  opacity: 0.85;
+}
+
+.pill--archived {
+  color: var(--text-3);
+  border-color: var(--line-strong);
+  background: var(--surface-2);
 }
 
 .sess__bar {
