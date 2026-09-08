@@ -2418,6 +2418,15 @@
 .govNotice strong { white-space: nowrap; }
 .govNotice--warn { color: var(--gold); border-color: color-mix(in oklab, var(--gold) 38%, var(--line)); background: color-mix(in oklab, var(--gold) 8%, transparent); }
 .govNotice--info { color: var(--sage); border-color: color-mix(in oklab, var(--sage) 38%, var(--line)); background: color-mix(in oklab, var(--sage) 8%, transparent); }
+.govQuestions { margin: 10px 0; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: color-mix(in oklab, var(--surface-1) 92%, transparent); }
+.govQuestions__head { display: flex; gap: 9px; align-items: baseline; margin-bottom: 8px; font-size: 12px; }
+.govQuestions__head span { color: var(--text-3); }
+.govQuestions article { display: grid; grid-template-columns: auto 1fr; gap: 3px 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+.govQuestions article p, .govQuestions article small { grid-column: 2; margin: 0; }
+.govQuestions article p { color: var(--text-2); font-size: 12px; }
+.govQuestions article small { color: var(--text-3); font-size: 11px; }
+.govQuestions__badge { align-self: start; padding: 2px 5px; border-radius: 999px; color: var(--sage); background: color-mix(in oklab, var(--sage) 10%, transparent); white-space: nowrap; font-size: 10px; }
+.govQuestions article[data-tone="warn"] .govQuestions__badge { color: var(--gold); background: color-mix(in oklab, var(--gold) 10%, transparent); }
 .govReadOnly { display: grid; gap: 8px; }
 .govReadOnly__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .govList { display: grid; gap: 3px; margin: 4px 0 0; padding-left: 13px; color: var(--text-2); font-size: 9px; }

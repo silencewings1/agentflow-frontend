@@ -470,6 +470,7 @@ export interface AttemptDetailDto {
   finishedAt: string | null;
   error: string | null;
   executionMeta: { profileId: string | null; profileVersion: string | null; profileDigest: string | null; promptId: string | null; promptVersion: string | null; provider: string | null; model: string | null; toolPolicyVersion: string | null; outputSchemaVersion: string } | null;
+  structured?: Record<string, unknown> | null;
 }
 
 export interface AfGateDetailDto {

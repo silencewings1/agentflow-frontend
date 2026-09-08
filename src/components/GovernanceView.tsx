@@ -122,6 +122,26 @@ function RequirementsGateHint({ gates, taskStatus }: { gates: AfGateDetailDto[];
   return <div className="govNotice govNotice--warn"><strong>{taskStatus === "awaiting_human" ? "需要人工澄清后才能继续" : "需求门禁未通过"}</strong><span>{blocking !== undefined ? `仍有 ${blocking} 项需要人工确认。` : (gate.failureCode ?? "请查看门禁详情。")} 当前版本不会把覆盖率工具、测试文件布局等可推断偏好视为阻塞；涉及分支、远端写入、权限或安全边界的问题才需要确认。</span></div>;
 }
 
+function isLikelyInferableQuestion(question: string): boolean {
+  const text = question.trim().toLowerCase();
+  if (!text) return false;
+  if (["远端写", "远端提交", "push", "merge", "deploy", "release", "发布", "目标分支", "target branch", "仓库", "repository", "credential", "凭据", "权限", "授权", "批准", "生产", "production", "secret", "密钥", "安全边界", "验收冲突", "是否允许修改业务"].some((token) => text.includes(token))) return false;
+  return ["覆盖率", "coverage", "百分比", "threshold", "门槛", "测试工具", "第三方依赖", "devdepend", "依赖", "测试文件", "文件布局", "脚本", "实现细节", "命名"].some((token) => text.includes(token));
+}
+
+function RequirementsQuestionCard({ attempts }: { attempts: AttemptDetailDto[] }) {
+  const attempt = [...attempts].reverse().find((item) => item.nodeId === "requirements" && item.structured && Array.isArray(item.structured.openQuestions));
+  const questions = Array.isArray(attempt?.structured?.openQuestions) ? attempt.structured.openQuestions : [];
+  if (!questions.length) return null;
+  return <div className="govQuestions"><div className="govQuestions__head"><strong>需求澄清问题</strong><span>模型问题会先经过平台分类，只有真正影响授权或执行边界的问题才阻断。</span></div>{questions.map((raw, index) => {
+    const item = typeof raw === "object" && raw !== null ? raw as Record<string, unknown> : {};
+    const question = String(item.question ?? "");
+    const inferred = item.blocking === true && isLikelyInferableQuestion(question);
+    const blocking = item.blocking === true && !inferred;
+    return <article key={`${String(item.id ?? "question")}-${index}`} data-tone={blocking ? "warn" : "info"}><span className="govQuestions__badge">{blocking ? "需要确认" : inferred ? "可自动推断" : "说明"}</span><p>{question || "未提供问题文本"}</p><small>{blocking ? "请在冻结新 revision 前确认；确认后重试 requirements。" : "平台将按当前 WorkSpec 默认策略处理，不影响继续执行。"}</small></article>;
+  })}</div>;
+}
+
 function Section({ title, kicker, children, empty }: { title: string; kicker?: string; children: ReactNode; empty?: boolean }) {
   return (
     <section className="govSection">
@@ -280,6 +300,7 @@ export function GovernanceView({
       </div>
 
       <RequirementsGateHint gates={gates} taskStatus={currentStatus} />
+      <RequirementsQuestionCard attempts={attempts} />
 
       <div className="govGrid">
         <Section title="WorkSpec" kicker="唯一入口">
