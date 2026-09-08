@@ -108,6 +108,20 @@ function StatusPill({ value, tone }: { value: string | undefined; tone?: string 
   return <span className="govPill" data-tone={tone ?? value ?? "unknown"}>{statusLabel(value)}</span>;
 }
 
+function RequirementsGateHint({ gates, taskStatus }: { gates: AfGateDetailDto[]; taskStatus?: string }) {
+  const gate = [...gates].reverse().find((item) => item.gateType === "requirements" || item.gateId.includes("requirements-contract-v1"));
+  if (!gate) return null;
+  const actual = gate.actual as Record<string, unknown>;
+  const blocking = typeof actual.blockingQuestionCount === "number" ? actual.blockingQuestionCount : undefined;
+  const inferred = typeof actual.inferredQuestionCount === "number" ? actual.inferredQuestionCount : undefined;
+  if (gate.outcome === "pass" && !inferred) return null;
+  if (gate.outcome === "pass") {
+    return <div className="govNotice govNotice--info"><strong>需求澄清已通过</strong><span>{inferred} 项偏好问题已由任务契约自动推断，无需额外填写。</span></div>;
+  }
+  if (gate.outcome !== "fail") return null;
+  return <div className="govNotice govNotice--warn"><strong>{taskStatus === "awaiting_human" ? "需要人工澄清后才能继续" : "需求门禁未通过"}</strong><span>{blocking !== undefined ? `仍有 ${blocking} 项需要人工确认。` : (gate.failureCode ?? "请查看门禁详情。")} 当前版本不会把覆盖率工具、测试文件布局等可推断偏好视为阻塞；涉及分支、远端写入、权限或安全边界的问题才需要确认。</span></div>;
+}
+
 function Section({ title, kicker, children, empty }: { title: string; kicker?: string; children: ReactNode; empty?: boolean }) {
   return (
     <section className="govSection">
@@ -264,6 +278,8 @@ export function GovernanceView({
         {plan && !planDecision && onPlanDecision && <button className="btn btn--accent btn--sm" disabled={busyAction !== null} onClick={() => onPlanDecision("approved")}>{busyAction === "decision" ? "提交中…" : "批准 Execution Plan"}</button>}
         {planDecision?.decision === "approved" && onRun && <button className="btn btn--accent btn--sm" disabled={busyAction !== null || ["completed", "cancelled"].includes(String(taskStatus))} onClick={onRun}>{busyAction === "run" ? "排队中…" : "创建 RunIntent"}</button>}
       </div>
+
+      <RequirementsGateHint gates={gates} taskStatus={currentStatus} />
 
       <div className="govGrid">
         <Section title="WorkSpec" kicker="唯一入口">
