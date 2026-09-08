@@ -5,7 +5,7 @@
    纯展示 + 受控组件：展开状态全部由 App.tsx 持有，本组件不持有任何状态。 */
 import type { JSX, ReactNode } from "react";
 import type { StageCardModel } from "../api/stageModel";
-import { StageCard } from "./StageCard";
+import { StageCard, type StageTraceView } from "./StageCard";
 import { Icon } from "./Icons";
 
 /* 折叠区标题：kicker 给归属，标题给对象，meta 在折叠时给一句结论 */
@@ -60,6 +60,7 @@ export function Waterfall({
   facts,
   controls,
   stream,
+  traceOf,
 }: {
   cards: StageCardModel[];
   openIds: Set<string>;
@@ -73,6 +74,8 @@ export function Waterfall({
   /* 可选：事件流（节点审批/人工检查点的操作入口）。放在阶段卡片与折叠事实之间，
      保证折叠区始终位于瀑布底部。 */
   stream?: ReactNode;
+  /* 可选：按 nodeId 取该卡片的执行诊断展示态（App.tsx 持有），省略即不渲染执行过程段。 */
+  traceOf?: (nodeId: string) => StageTraceView | undefined;
 }): JSX.Element {
   const accepted = cards.filter((card) => card.status === "accepted").length;
   const attention = cards.filter(
@@ -100,6 +103,7 @@ export function Waterfall({
               card={card}
               open={openIds.has(card.nodeId)}
               onToggle={() => onToggle(card.nodeId)}
+              trace={traceOf?.(card.nodeId)}
             />
           </div>
         ))

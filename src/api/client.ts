@@ -9,6 +9,7 @@ import type {
   AfTaskDetailDto,
   AfTrajectoryDto,
   ApprovalQueryDto,
+  AttemptTraceDto,
   ClarificationDecisionDto,
   CompilePlanInput,
   CompilePlanResultDto,
@@ -38,6 +39,7 @@ import type {
   WorkflowValidation,
   WorkflowVersion,
 } from "./types";
+import { normalizeAttemptTrace } from "./types";
 
 const FIXTURE_TIME = "2026-09-02T08:00:00.000Z";
 const FIXTURE_DIGEST = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
@@ -482,6 +484,11 @@ function fixtureClient(): AfApiClient {
     async getTaskPatch(taskId) {
       return { taskId, baseRevision: null, sourceRevision: null, available: false, reason: "fixture 模式无真实补丁", files: [] };
     },
+    /* fixture 没有真实 DSH 会话日志，不得伪造模型执行轨迹；
+       显式声明不可用并给出与后端同型的原因，让界面呈现诚实的降级态。 */
+    async getAttemptTrace(taskId, attemptId) {
+      return { schemaVersion: 1, kind: "diagnostic", taskId, attemptId, nodeId: "", sessionId: null, available: false, unavailableReason: "session-log-not-found", capturedThroughSeq: null, truncated: false, usage: null, events: [] };
+    },
     async listWorkSpecs(taskId) { return [ensureWorkSpec(taskId)]; },
     async getWorkSpec(taskId) { return ensureWorkSpec(taskId); },
     async saveWorkSpec(taskId, input) {
@@ -630,6 +637,13 @@ class HttpAfApiClient implements AfApiClient {
   setTaskArchived(taskId: string, archived: boolean, signal?: AbortSignal) { return this.request<TaskSummaryDto>(`/tasks/${encodeURIComponent(taskId)}/${archived ? "archive" : "unarchive"}`, { method: "POST", body: "{}" }, signal); }
   getTrajectory(taskId: string, signal?: AbortSignal) { return this.request<AfTrajectoryDto>(`/tasks/${encodeURIComponent(taskId)}/trajectory`, undefined, signal).then(toTrajectory); }
   getTaskPatch(taskId: string, signal?: AbortSignal) { return this.request<TaskPatchDto>(`/tasks/${encodeURIComponent(taskId)}/patch`, undefined, signal); }
+  getAttemptTrace(taskId: string, attemptId: string, window?: number, signal?: AbortSignal) {
+    const query = window === undefined ? "" : `?window=${encodeURIComponent(String(window))}`;
+    return this.request<AttemptTraceDto>(`/tasks/${encodeURIComponent(taskId)}/attempts/${encodeURIComponent(attemptId)}/trace${query}`, undefined, signal).then(normalizeAttemptTrace).then((trace) => {
+      if (trace === null) throw new AfApiError({ code: "AF_RESPONSE_INVALID", message: "AF API 返回的执行诊断不是可解析的 AttemptTrace", retryable: false });
+      return trace;
+    });
+  }
   listWorkSpecs(taskId: string, signal?: AbortSignal) { return this.request<WorkSpecDto[]>(`/tasks/${encodeURIComponent(taskId)}/work-specs`, undefined, signal); }
   getWorkSpec(taskId: string, revision?: number, signal?: AbortSignal) { return this.request<WorkSpecDto>(`/tasks/${encodeURIComponent(taskId)}/work-specs${revision === undefined ? "" : `/${revision}`}`, undefined, signal); }
   saveWorkSpec(taskId: string, input: WorkSpecDraftInput, signal?: AbortSignal) { return this.request<WorkSpecDto>(`/tasks/${encodeURIComponent(taskId)}/work-specs`, { method: "POST", body: JSON.stringify(input) }, signal); }

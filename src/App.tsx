@@ -8,7 +8,8 @@ import {
 import { afApi, AfApiError, structuredToEvents, toUiBootstrap, toWorkflowDto } from "./api";
 import { realInspectorBundle } from "./api/inspectorMapper";
 import { buildStageCards } from "./api/stageMapper";
-import type { AgentProfileSummaryDto, ApprovalQueryDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
+import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
+import type { StageTraceView } from "./components/StageCard";
 import { conversationOf } from "./data/streams";
 import { inspectorOf } from "./data/inspector";
 import { Rail } from "./components/Rail";
@@ -224,6 +225,17 @@ function taskStatusTone(value: string | undefined): string {
    正常的长节点误报成故障，取太大则失去「一眼看出卡住」的意义。 */
 const RUN_STALL_THRESHOLD_MS = 90_000;
 
+/* 执行诊断轮询：只跟随当前运行中的节点。
+   窗口 200 足够覆盖一个节点的近期活动；1500ms 让「实时跟随」有肉眼可见的
+   推进感，又不至于把会话日志读成压力源。诊断只读，绝不写任务状态。 */
+const TRACE_WINDOW = 200;
+const TRACE_POLL_MS = 1500;
+/* 终态任务不再跟随：控制面已经结束，诊断通道也停止轮询 */
+const TERMINAL_TASK_STATES = new Set<TaskDetailDto["status"]>(["completed", "failed", "cancelled"]);
+
+/* 单个节点的执行诊断展示态。attemptId 用于识别「卡片换了 attempt」需重新拉取。 */
+type TraceEntry = { attemptId: string; status: "loading" | "ready" | "error"; trace: AttemptTraceDto | null; error: { code: string; message: string } | null };
+
 /* 运行活性：把 lastAdvanceAt 换算成中文相对时间。
    页面每 2 秒轮询一次并重渲染，这个值随轮询自然刷新，不需要额外定时器；
    缺失或不可解析时返回「未知」，绝不猜一个时间出来。 */
@@ -305,6 +317,9 @@ export default function App() {
   const [openStages, setOpenStages] = useState<Set<string>>(new Set());
   const [factsOpen, setFactsOpen] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
+  /* 执行诊断：按 nodeId 存放展示态。它是只读诊断通道，与治理状态严格分开；
+     轮询只作用于当前运行中的节点，且任何定时器都不写任务事实。 */
+  const [traces, setTraces] = useState<Record<string, TraceEntry>>({});
   /* planPending 的同步镜像：acceptPlan 内紧接着要调 runTurn，
      而此时 setPlanPending(false) 尚未生效，闭包里读到的仍是旧值，
      会导致确认动作被误判为「又一轮修改意见」。用 ref 做同步判据。 */
@@ -315,6 +330,11 @@ export default function App() {
      中断上一轮脚本播放，若与推进共用一个数组，推进会被连带清掉（表现为
      流水线卡在中途不动）。两者生命周期不同，就该分开管。 */
   const stepTimers = useRef<number[]>([]);
+  /* 执行诊断轮询定时器：只跟随当前运行中的节点，单独存放以免被演示流的
+     清理逻辑误伤；同样在卸载时统一清除。诊断只读展示，定时器绝不写任务状态。 */
+  const traceTimers = useRef<number[]>([]);
+  /* 已按需拉取过的 task:node:attempt 组合；展开卡片只拉一次，去重防止重复请求 */
+  const traceRequestedRef = useRef<Set<string>>(new Set());
   const currentActiveRef = useRef("");
   const preferredActiveRef = useRef<string | null>(null);
 
@@ -458,6 +478,9 @@ export default function App() {
     const controller = new AbortController();
     setTaskRuntime(null);
     setTrajectory([]);
+    /* 诊断态属于单条任务：切换任务必须清空，避免把上一条任务的轨迹带到新卡片上 */
+    setTraces({});
+    traceRequestedRef.current = new Set();
     void fetchTaskRuntime(activeId, controller.signal);
     void fetchGovernance(activeId, controller.signal);
     const interval = window.setInterval(() => {
@@ -535,6 +558,78 @@ export default function App() {
     });
   }, []);
 
+  /* --- 执行诊断（阶段 B2）：只读跟随，绝不写任务状态 ----------------------
+     拉取单个 attempt 的模型执行轨迹。成功/失败都只写 traces 展示态；
+     任务事实、门禁、交付物一律不受影响。 */
+  const fetchTrace = useCallback(async (taskId: string, nodeId: string, attemptId: string, signal?: AbortSignal) => {
+    try {
+      const trace = await afApi.getAttemptTrace(taskId, attemptId, TRACE_WINDOW, signal);
+      if (signal?.aborted) return;
+      setTraces((prev) => ({ ...prev, [nodeId]: { attemptId, status: "ready", trace, error: null } }));
+    } catch (error: unknown) {
+      if (signal?.aborted) return;
+      const failure = apiFailure(error, "无法读取执行诊断");
+      setTraces((prev) => ({ ...prev, [nodeId]: { attemptId, status: "error", trace: null, error: { code: failure.code, message: failure.message } } }));
+    }
+  }, []);
+
+  /* 当前唯一运行中的卡片：只有它会被轮询跟随。终态任务或没有 running 节点时为空，
+     轮询随之停止——诊断通道的节奏必须跟着控制面，而不是自己空转。 */
+  const runningCard = useMemo(
+    () => (taskRuntime !== null && !TERMINAL_TASK_STATES.has(taskRuntime.status)
+      ? stageCards.find((card) => card.status === "running" && card.attemptId !== undefined) ?? null
+      : null),
+    [stageCards, taskRuntime],
+  );
+  const runningNodeId = runningCard?.nodeId;
+  const runningAttemptId = runningCard?.attemptId;
+  const runningTaskId = taskRuntime?.taskId;
+
+  /* 轮询：只跟随当前运行节点，每 1500ms 一次、窗口 200。
+     依赖全部是原始值，避免 2 秒任务轮询刷新 detail 时把定时器反复重建。 */
+  useEffect(() => {
+    if (!runningTaskId || !runningNodeId || !runningAttemptId) return;
+    const controller = new AbortController();
+    void fetchTrace(runningTaskId, runningNodeId, runningAttemptId, controller.signal);
+    const timer = window.setInterval(() => {
+      void fetchTrace(runningTaskId, runningNodeId, runningAttemptId, controller.signal);
+    }, TRACE_POLL_MS);
+    traceTimers.current.push(timer);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+      traceTimers.current = traceTimers.current.filter((item) => item !== timer);
+    };
+  }, [fetchTrace, runningAttemptId, runningNodeId, runningTaskId]);
+
+  /* 展开卡片时按需拉取一次（不是轮询）：让历史节点在事后仍可复核。
+     用 requestedRef 去重，避免同一 attempt 反复请求；失败不自动重试，
+     由用户收起再展开触发。
+
+     注意：这里刻意不返回 abort 清理函数。依赖里的 stageCards 会随 2 秒任务
+     轮询重建，若在清理时 abort，会把尚未完成的按需请求连同 requestedRef 标记
+     一起作废，导致历史节点永远拉不到轨迹。改为在任务切换时整体重置
+     （见 activeId effect 中的 traces 清理）。 */
+  useEffect(() => {
+    if (!runningTaskId) return;
+    for (const card of stageCards) {
+      const attemptId = card.attemptId;
+      /* 运行中的节点由上面的轮询 effect 负责，这里跳过，避免首次重复请求 */
+      if (attemptId === undefined || card.nodeId === runningNodeId || !openStages.has(card.nodeId)) continue;
+      const key = `${runningTaskId}:${card.nodeId}:${attemptId}`;
+      if (traceRequestedRef.current.has(key)) continue;
+      traceRequestedRef.current.add(key);
+      void fetchTrace(runningTaskId, card.nodeId, attemptId);
+    }
+  }, [fetchTrace, openStages, runningNodeId, runningTaskId, stageCards]);
+
+  /* 传给卡片的诊断视图：live 仅当该节点正是当前被轮询跟随的运行节点 */
+  const traceOf = useCallback((nodeId: string): StageTraceView | undefined => {
+    const entry = traces[nodeId];
+    if (entry === undefined) return undefined;
+    return { status: entry.status, trace: entry.trace, error: entry.error, live: runningNodeId === nodeId };
+  }, [runningNodeId, traces]);
+
   /* 检查面板实际渲染的现场：http 模式是真实归一化结果，fixture 才是演示数据。
      两者必须用同一份，否则文件树与 diff 会各说各话。 */
   const inspectorBundleShown = afApi.mode === "http" ? realBundle : inspectorBundle;
@@ -606,6 +701,7 @@ export default function App() {
     () => () => {
       timers.current.forEach(clearTimeout);
       stepTimers.current.forEach(clearTimeout);
+      traceTimers.current.forEach(clearInterval);
     },
     [],
   );
@@ -1608,6 +1704,7 @@ export default function App() {
                 cards={stageCards}
                 openIds={openStages}
                 onToggle={toggleStage}
+                traceOf={traceOf}
                 factsOpen={factsOpen}
                 onToggleFacts={() => setFactsOpen((v) => !v)}
                 controlsOpen={controlsOpen}

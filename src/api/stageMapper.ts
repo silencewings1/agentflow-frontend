@@ -555,6 +555,8 @@ export function buildStageCards(detail: TaskDetailDto | null, assessments: Crite
       criteria: attemptId === undefined ? [] : assessmentList.filter((assessment) => assessment.attemptId === attemptId),
       evidenceRefs: [...evidenceRefs],
     };
+    /* attemptId 是可选增补字段：缺失即省略，让卡片如实呈现「无执行诊断可拉取」 */
+    if (attemptId !== undefined) card.attemptId = attemptId;
     if (findings !== undefined) card.findings = findings;
     if (gate !== undefined) card.gate = gate;
     if (diffFiles.length > 0) card.diffFiles = diffFiles;

@@ -1,9 +1,24 @@
 /* 阶段卡片：把单个节点的真实结构化交付物渲染成「可逐条验收」的记录。
-   纯展示 + 受控组件：展开状态由 App.tsx 持有，本组件不持有任何状态。
-   数据契约见 src/api/stageModel.ts 的 StageCardModel（冻结）；
-   字段缺失即整段省略，绝不补造内容，也绝不把对象渲染成 [object Object]。 */
+   纯展示 + 受控组件：展开状态由 App.tsx 持有，本组件不持有任何跨组件状态。
+   数据契约见 src/api/stageModel.ts 的 StageCardModel（冻结，attemptId 为阶段 B2 可选增补）；
+   字段缺失即整段省略，绝不补造内容，也绝不把对象渲染成 [object Object]。
+
+   执行过程（阶段 B2）：把模型在该节点里的真实活动（推理文本、工具调用/结果、
+   节点输入、token 用量）如实呈现。它是**只读诊断**，不是治理事实——界面上
+   必须与门禁/交付物结论在视觉与文案上分开，绝不因轨迹内容暗示门禁通过。 */
+import { useState } from "react";
 import { Icon } from "./Icons";
 import type { StageCardModel, StageStatus } from "../api/stageModel";
+import type { AttemptTraceDto, TraceEventDto, TraceUnavailableReason } from "../api/types";
+
+/** 执行诊断的受控展示态；由 App.tsx 持有并下传（组件内不存跨组件状态）。 */
+export interface StageTraceView {
+  status: "idle" | "loading" | "ready" | "error";
+  trace: AttemptTraceDto | null;
+  error: { code: string; message: string } | null;
+  /** 当前节点是否正在运行并被实时跟随（决定文案与是否提示「不再刷新」）。 */
+  live: boolean;
+}
 
 /* 只接受标量文本：结构化数据里可能混入对象/数组，直接渲染会得到 [object Object] */
 function safeText(value: unknown): string {
@@ -77,14 +92,210 @@ function outcomeTone(outcome: string): string {
   return "pending";
 }
 
+/* --------------------------- 执行过程诊断 ------------------------------- */
+
+/* 不可用原因是后端枚举，这里给出中文说明 + 后果。未知原因也如实呈现，不吞掉。 */
+function unavailableReasonLabel(reason: TraceUnavailableReason | null): string {
+  switch (reason) {
+    case "session-id-missing": return "该 attempt 未记录会话 ID";
+    case "session-log-not-found": return "未找到对应的 DSH 会话日志";
+    case "session-query-unavailable": return "当前服务未提供会话查询能力";
+    case "session-read-failed": return "会话日志读取失败";
+    default: return "原因未声明";
+  }
+}
+
+/* 诊断事件的语义标签与语气；颜色只是辅助，文字必须自解释 */
+function traceEventMeta(event: TraceEventDto): { label: string; tone: string } {
+  switch (event.type) {
+    case "assistant-text": return { label: "模型输出", tone: "model" };
+    case "tool-call": return { label: "工具调用", tone: "call" };
+    case "tool-result": return { label: event.isError ? "工具结果 · 失败" : "工具结果", tone: event.isError ? "error" : "result" };
+    case "user-message": return { label: "节点输入", tone: "input" };
+    case "step": return { label: `轮次 ${event.turn} · 步骤 ${event.step}`, tone: "step" };
+  }
+}
+
+/* 一条诊断事件。tool-call / tool-result 用等宽体，失败结果加左色条。 */
+function TraceEventRow({ event }: { event: TraceEventDto }) {
+  const [inputOpen, setInputOpen] = useState(false);
+  const meta = traceEventMeta(event);
+
+  if (event.type === "step") {
+    return (
+      <li className="stage__traceStep" data-type="step">
+        <span className="stage__traceStepRule" aria-hidden />
+        <span className="stage__traceStepLabel mono">{meta.label}</span>
+        <span className="stage__traceStepRule" aria-hidden />
+      </li>
+    );
+  }
+
+  if (event.type === "user-message") {
+    return (
+      <li className="stage__traceItem" data-type="input">
+        <div className="stage__traceItemHead">
+          <span className="stage__traceTag" data-tone={meta.tone}>{meta.label}</span>
+          <button
+            type="button"
+            className="stage__traceToggle"
+            aria-expanded={inputOpen}
+            onClick={() => setInputOpen((v) => !v)}
+          >
+            {inputOpen ? "收起节点输入" : "展开节点输入"}
+          </button>
+        </div>
+        {inputOpen && <pre className="stage__traceMono">{event.preview}</pre>}
+      </li>
+    );
+  }
+
+  if (event.type === "assistant-text") {
+    return (
+      <li className="stage__traceItem" data-type="assistant">
+        <div className="stage__traceItemHead">
+          <span className="stage__traceTag" data-tone={meta.tone}>{meta.label}</span>
+        </div>
+        <p className="stage__traceProse">{event.text}</p>
+      </li>
+    );
+  }
+
+  if (event.type === "tool-call") {
+    return (
+      <li className="stage__traceItem" data-type="call">
+        <div className="stage__traceItemHead">
+          <span className="stage__traceTag" data-tone={meta.tone}>{meta.label}</span>
+          {event.name.length > 0 && <span className="mono stage__traceToolName">{event.name}</span>}
+        </div>
+        {event.argumentsPreview.length > 0 && (
+          <pre className="stage__traceMono">{event.argumentsPreview}</pre>
+        )}
+      </li>
+    );
+  }
+
+  return (
+    <li className="stage__traceItem" data-type="result" data-error={event.isError}>
+      <div className="stage__traceItemHead">
+        <span className="stage__traceTag" data-tone={meta.tone}>{meta.label}</span>
+      </div>
+      {event.preview.length > 0 && <pre className="stage__traceMono">{event.preview}</pre>}
+    </li>
+  );
+}
+
+/* 执行过程段：只在卡片展开时渲染；诊断自身可再折叠，避免长轨迹压垮卡片。
+   默认展开策略：正在被实时跟随的节点默认展开（用户正想看它「现在在做什么」），
+   已结束的节点默认收起（结论已由上方交付物承载，轨迹按需回看）。 */
+function TraceSection({ traceView }: { traceView: StageTraceView | undefined }) {
+  const [open, setOpen] = useState(() => traceView?.live === true);
+  if (traceView === undefined) return null;
+
+  const { status, trace, error, live } = traceView;
+  const events = trace?.events ?? [];
+  const usage = trace?.usage ?? null;
+  const reason = unavailableReasonLabel(trace?.unavailableReason ?? null);
+
+  /* 计数只统计真实事件；不含未渲染的未知类型 */
+  const toolCalls = events.filter((event) => event.type === "tool-call").length;
+  const assistantTexts = events.filter((event) => event.type === "assistant-text").length;
+
+  const meta = (() => {
+    if (status === "loading" && trace === null) return "正在读取…";
+    if (status === "error") return "读取失败";
+    if (trace === null) return "暂无数据";
+    if (!trace.available) return "不可用";
+    if (live) return `实时跟随 · ${events.length} 条`;
+    return `${events.length} 条事件`;
+  })();
+
+  /* 诚实态（不可用 / 读取失败 / 空窗口）永远可见：折叠只作用于可能很长的
+     事件列表，绝不把「拿不到诊断」这件事藏进折叠区。 */
+  const hasEvents = trace !== null && trace.available && events.length > 0;
+  const honestState = status === "loading" && trace === null
+    ? { tone: "loading", text: "正在读取执行诊断…", sub: "" }
+    : status === "error"
+      ? { tone: "error", text: `执行诊断读取失败 · ${error?.code ?? "AF_NETWORK_ERROR"}`, sub: `${error?.message ?? "无法连接 AF API"}；这是诊断通道的问题，不影响节点事实与治理结论。` }
+      : trace !== null && !trace.available
+        ? { tone: "unavailable", text: `执行诊断不可用 · ${reason}`, sub: "无法展示模型在该节点内的真实活动；节点的交付物与门禁结论仍以下方事实为准。" }
+        : trace !== null && trace.available && events.length === 0
+          ? { tone: "empty", text: "诊断通道可用，但当前窗口内没有可展示的事件。", sub: "" }
+          : null;
+
+  return (
+    <section className="stage__section stage__trace" data-live={live} data-state={status}>
+      <div className="stage__traceHead">
+        <h4 className="kicker stage__label">执行过程</h4>
+        <span className="govPill stage__traceKind" data-tone="mode">诊断</span>
+        {usage !== null && trace?.available === true && (
+          <span className="stage__traceUsage mono" title="token 用量">
+            <span className="stage__traceUsageLabel">输入</span>
+            <span className="stage__traceUsageValue">{usage.inputTokens}</span>
+            <span className="stage__traceUsageLabel">输出</span>
+            <span className="stage__traceUsageValue">{usage.outputTokens}</span>
+            <span className="stage__traceUsageLabel">缓存读</span>
+            <span className="stage__traceUsageValue">{usage.cacheReadTokens}</span>
+          </span>
+        )}
+        {trace?.truncated === true && (
+          <span className="govPill stage__traceTruncated" data-tone="warn">截断</span>
+        )}
+        {live && <span className="stage__traceLive">实时跟随</span>}
+        {hasEvents && (
+          <button
+            type="button"
+            className="stage__traceToggle"
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+          >
+            {open ? "收起执行过程" : `展开执行过程 · ${meta}`}
+          </button>
+        )}
+      </div>
+
+      {honestState !== null && (
+        <div className="stage__traceState" data-tone={honestState.tone}>
+          <p>{honestState.text}</p>
+          {honestState.sub.length > 0 && <p className="stage__traceStateSub">{honestState.sub}</p>}
+        </div>
+      )}
+
+      {hasEvents && !open && (
+        <p className="stage__traceHint">
+          模型在此节点内的真实活动（推理、工具调用与结果、token 用量）属于只读诊断，
+          不构成门禁结论或交付物验收依据。
+        </p>
+      )}
+
+      {hasEvents && open && (
+        <div className="stage__traceBody">
+          <p className="stage__traceMeta mono">
+            {toolCalls} 次工具调用 · {assistantTexts} 段模型输出
+            {trace.capturedThroughSeq === null ? "" : ` · 已读至 seq ${trace.capturedThroughSeq}`}
+          </p>
+          <ol className="stage__traceList">
+            {events.map((event, index) => (
+              <TraceEventRow event={event} key={`${event.type}-${String(event.seq)}-${String(index)}`} />
+            ))}
+          </ol>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function StageCard({
   card,
   open,
   onToggle,
+  trace,
 }: {
   card: StageCardModel;
   open: boolean;
   onToggle: () => void;
+  /** 执行诊断展示态（App.tsx 持有）；省略时整段不渲染。 */
+  trace?: StageTraceView;
 }) {
   const facts = listOf(card.facts);
   const lists = listOf(card.lists);
@@ -100,6 +311,7 @@ export function StageCard({
   const dimensions = gate === undefined ? [] : listOf(gate.dimensions);
 
   const hasBody =
+    trace !== undefined ||
     summary.length > 0 ||
     facts.length > 0 ||
     lists.length > 0 ||
@@ -135,6 +347,8 @@ export function StageCard({
       </button>
 
       <div className="stage__body">
+        <TraceSection traceView={trace} />
+
         {summary.length > 0 && (
           <section className="stage__section">
             <h4 className="kicker stage__label">摘要</h4>

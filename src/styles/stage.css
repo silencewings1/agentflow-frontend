@@ -524,6 +524,300 @@
   gap: 4px;
 }
 
+/* ----------------------------- 执行过程诊断 ------------------------------ */
+/* 设计主张：节点不是「跑过了」，而是「模型在这里真做过什么」。
+   这一段呈现 DSH 会话日志里的推理、工具调用/结果与 token 用量。
+   它是一条**只读诊断通道**，必须在视觉与文案上与门禁/交付物结论分开：
+   - 顶部「诊断」徽标 + 折叠态提示句反复声明它不是治理事实；
+   - 不用 sage/rose 这类「通过/失败」结论色去包裹整段（避免被读成门禁结论）；
+   - 工具调用与结果用等宽体，是「原样转录」的视觉语言。
+   令牌全部来自 src/index.css，不新增令牌、不硬编码颜色。 */
+.stage__trace {
+  gap: 8px;
+  padding: 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--surface-1) 88%, transparent);
+}
+
+/* 运行中跟随：用 accent 左边条提示「这段还在长」，与卡片运行态同一套语言 */
+.stage__trace[data-live="true"] {
+  border-left: 2px solid var(--accent-line);
+}
+
+.stage__traceHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+
+.stage__traceKind {
+  flex: none;
+}
+
+/* token 用量：等宽 + tabular-nums，数字纵向可比 */
+.stage__traceUsage {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+  color: var(--text-3);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stage__traceUsageLabel {
+  color: var(--text-4);
+}
+
+.stage__traceUsageValue {
+  color: var(--text-2);
+}
+
+.stage__traceTruncated {
+  flex: none;
+}
+
+/* 实时跟随标记：小圆点 + 文字，形态先于颜色 */
+.stage__traceLive {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  color: var(--accent-text);
+  font-size: 9px;
+}
+
+.stage__traceLive::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: stageBreath 1.6s var(--ease-in-out) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage__traceLive::before {
+    animation: none;
+  }
+}
+
+/* 展开/收起执行过程：与卡片头部的折叠语义一致，放在头部右侧 */
+.stage__traceToggle {
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-3);
+  background: var(--surface-2);
+  font: inherit;
+  font-size: 9px;
+  cursor: pointer;
+  transition: color 0.18s var(--ease-out), border-color 0.18s var(--ease-out);
+}
+
+.stage__traceToggle:hover {
+  color: var(--text-2);
+  border-color: var(--line-strong);
+}
+
+.stage__traceToggle:focus-visible {
+  outline: 1px solid var(--accent-line);
+  outline-offset: 1px;
+}
+
+.stage__traceHint {
+  margin: 0;
+  color: var(--text-4);
+  font-size: 10px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.stage__traceBody {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 不可用 / 读取失败 / 空窗口：显式诚实态，绝不空白 */
+.stage__traceState {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--line-strong);
+  border-radius: var(--r-xs);
+  color: var(--text-2);
+  background: var(--surface-1);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.stage__traceState[data-tone="unavailable"] {
+  border-left-color: var(--gold);
+}
+
+.stage__traceState[data-tone="error"] {
+  border-left-color: var(--rose);
+}
+
+.stage__traceStateSub {
+  margin: 4px 0 0;
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+.stage__traceMeta {
+  margin: 0;
+  color: var(--text-4);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* 事件按时间顺序排列；序号不展示，顺序由 DOM 顺序承担 */
+.stage__traceList {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.stage__traceItem {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--line-strong);
+  border-radius: var(--r-xs);
+  background: var(--bg);
+}
+
+/* 工具结果是「外部世界的回话」：给一层底色，与模型自己的输出区分 */
+.stage__traceItem[data-type="result"] {
+  background: var(--surface-1);
+}
+
+.stage__traceItem[data-type="result"][data-error="true"] {
+  border-left-color: var(--rose);
+  background: color-mix(in oklab, var(--rose) 6%, var(--surface-1));
+}
+
+.stage__traceItemHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+/* 事件类型标签：形状统一，语气靠 data-tone 区分 */
+.stage__traceTag {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-3);
+  background: var(--surface-2);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.stage__traceTag[data-tone="model"] {
+  color: var(--azure);
+  border-color: color-mix(in oklab, var(--azure) 38%, var(--line));
+  background: color-mix(in oklab, var(--azure) 9%, transparent);
+}
+
+.stage__traceTag[data-tone="call"] {
+  color: var(--cyan);
+  border-color: color-mix(in oklab, var(--cyan) 38%, var(--line));
+  background: color-mix(in oklab, var(--cyan) 9%, transparent);
+}
+
+.stage__traceTag[data-tone="result"] {
+  color: var(--sage);
+  border-color: color-mix(in oklab, var(--sage) 38%, var(--line));
+  background: color-mix(in oklab, var(--sage) 9%, transparent);
+}
+
+.stage__traceTag[data-tone="error"] {
+  color: var(--rose);
+  border-color: color-mix(in oklab, var(--rose) 38%, var(--line));
+  background: color-mix(in oklab, var(--rose) 10%, transparent);
+}
+
+.stage__traceTag[data-tone="input"] {
+  color: var(--plum);
+  border-color: color-mix(in oklab, var(--plum) 38%, var(--line));
+  background: color-mix(in oklab, var(--plum) 9%, transparent);
+}
+
+.stage__traceToolName {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-2);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* 模型输出：保留换行的散文，与卡片的 summary 同一阅读节奏 */
+.stage__traceProse {
+  margin: 0;
+  max-width: 74ch;
+  color: var(--text-2);
+  font-size: 11.5px;
+  line-height: 1.66;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 工具调用参数 / 工具结果：原样转录，等宽 + 横向可滚动但不撑破卡片 */
+.stage__traceMono {
+  margin: 0;
+  max-height: 260px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+  background: var(--surface-1);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: auto;
+}
+
+/* 轮次分隔：两侧细线 + 居中标签，作为时间轴上的轻量刻度 */
+.stage__traceStep {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 2px 0;
+  list-style: none;
+}
+
+.stage__traceStepRule {
+  height: 1px;
+  background: var(--line);
+}
+
+.stage__traceStepLabel {
+  color: var(--text-4);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ------------------------------ 空态 ------------------------------------ */
 
 .stage__empty {

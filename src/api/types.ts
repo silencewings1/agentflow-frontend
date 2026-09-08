@@ -899,6 +899,136 @@ export interface TaskPatchDto {
   files: TaskPatchFileDto[];
 }
 
+/* ---------------------------------------------------------------------------
+ * Attempt 执行诊断轨迹（交互重构阶段 B2）
+ *
+ * 与治理事实严格区分：`kind: "diagnostic"` 是一条只读诊断通道，不参与状态机、
+ * 门禁、CAS/revision，也不写入 `task_events`。内容来自 DSH 会话日志（模型推理、
+ * 工具调用/结果、token 用量），可能缺失、截断或被服务端脱敏。因此下面的归一化
+ * 只做「丢弃无法核验的字段」，绝不补造内容，也绝不让对象渲染成 [object Object]。
+ * 后端权威定义见 packages/af/af-api/src/dto/trace.ts。
+ * ------------------------------------------------------------------------- */
+export type TraceUnavailableReason =
+  | "session-id-missing"
+  | "session-log-not-found"
+  | "session-query-unavailable"
+  | "session-read-failed";
+
+export interface AttemptTraceUsageDto { inputTokens: number; outputTokens: number; cacheReadTokens: number }
+
+export type TraceEventDto =
+  | { seq: number; time: string; type: "assistant-text"; text: string }
+  | { seq: number; time: string; type: "tool-call"; callId: string; name: string; argumentsPreview: string }
+  | { seq: number; time: string; type: "tool-result"; callId: string; preview: string; isError: boolean }
+  | { seq: number; time: string; type: "user-message"; preview: string }
+  | { seq: number; time: string; type: "step"; turn: number; step: number };
+
+export interface AttemptTraceDto {
+  schemaVersion: 1;
+  /** 显式声明：诊断通道，非治理事实。 */
+  kind: "diagnostic";
+  taskId: string;
+  attemptId: string;
+  nodeId: string;
+  sessionId: string | null;
+  available: boolean;
+  unavailableReason: TraceUnavailableReason | null;
+  capturedThroughSeq: number | null;
+  truncated: boolean;
+  usage: AttemptTraceUsageDto | null;
+  events: TraceEventDto[];
+}
+
+const TRACE_UNAVAILABLE_REASONS: readonly TraceUnavailableReason[] = [
+  "session-id-missing",
+  "session-log-not-found",
+  "session-query-unavailable",
+  "session-read-failed",
+];
+
+function isTraceUnavailableReason(value: unknown): value is TraceUnavailableReason {
+  return typeof value === "string" && (TRACE_UNAVAILABLE_REASONS as readonly string[]).includes(value);
+}
+
+/* 诊断文本一律收口成字符串：对象/数组直接丢弃，避免渲染出 [object Object] */
+function asTraceText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "boolean") return String(value);
+  return "";
+}
+
+function asTraceCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function asTraceUsage(value: unknown): AttemptTraceUsageDto | null {
+  const record = asPayloadRecord(value);
+  if (!record) return null;
+  return {
+    inputTokens: asTraceCount(record.inputTokens) ?? 0,
+    outputTokens: asTraceCount(record.outputTokens) ?? 0,
+    cacheReadTokens: asTraceCount(record.cacheReadTokens) ?? 0,
+  };
+}
+
+/* 只接受五种已知事件；未知 type 或缺失关键字段的事件被丢弃，不猜测语义 */
+function asTraceEvent(value: unknown): TraceEventDto | null {
+  const record = asPayloadRecord(value);
+  if (!record) return null;
+  const seq = asTraceCount(record.seq);
+  if (seq === undefined) return null;
+  const time = asTraceText(record.time);
+  switch (record.type) {
+    case "assistant-text":
+      return { seq, time, type: "assistant-text", text: asTraceText(record.text) };
+    case "tool-call":
+      return { seq, time, type: "tool-call", callId: asTraceText(record.callId), name: asTraceText(record.name), argumentsPreview: asTraceText(record.argumentsPreview) };
+    case "tool-result":
+      return { seq, time, type: "tool-result", callId: asTraceText(record.callId), preview: asTraceText(record.preview), isError: record.isError === true };
+    case "user-message":
+      return { seq, time, type: "user-message", preview: asTraceText(record.preview) };
+    case "step": {
+      const turn = asTraceCount(record.turn);
+      const step = asTraceCount(record.step);
+      if (turn === undefined || step === undefined) return null;
+      return { seq, time, type: "step", turn, step };
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * 归一化 AttemptTraceDto；非对象、schemaVersion/kind 不符时返回 null。
+ * 不可用时 events 恒为空，缺 reason 时退化为 `session-read-failed`（读不到就是读不到）。
+ */
+export function normalizeAttemptTrace(value: unknown): AttemptTraceDto | null {
+  const record = asPayloadRecord(value);
+  if (!record) return null;
+  if (record.schemaVersion !== 1 || record.kind !== "diagnostic") return null;
+  const available = record.available === true;
+  const unavailableReason: TraceUnavailableReason | null = available
+    ? null
+    : (isTraceUnavailableReason(record.unavailableReason) ? record.unavailableReason : "session-read-failed");
+  const sessionId = typeof record.sessionId === "string" ? record.sessionId : null;
+  const capturedThroughSeq = asTraceCount(record.capturedThroughSeq);
+  return {
+    schemaVersion: 1,
+    kind: "diagnostic",
+    taskId: asTraceText(record.taskId),
+    attemptId: asTraceText(record.attemptId),
+    nodeId: asTraceText(record.nodeId),
+    sessionId,
+    available,
+    unavailableReason,
+    capturedThroughSeq: capturedThroughSeq === undefined ? null : capturedThroughSeq,
+    truncated: record.truncated === true,
+    usage: available ? asTraceUsage(record.usage) : null,
+    events: available ? (Array.isArray(record.events) ? record.events.map(asTraceEvent).filter((event): event is TraceEventDto => event !== null) : []) : [],
+  };
+}
+
 export interface ApproveResultDto { taskId: string; nodeId: string; state: TaskSummaryDto["state"]; revision: number; }
 export interface EvidenceMaterializationDto { evidenceMatrix: EvidenceMatrixDto; trustedDelivery: TrustedDeliveryDto; }
 
@@ -919,6 +1049,8 @@ export interface AfApiClient {
   approveTaskNode(taskId: string, nodeId: string, signal?: AbortSignal): Promise<ApproveTaskNodeResult>;
   getTrajectory(taskId: string, signal?: AbortSignal): Promise<TrajectoryEventDto[]>;
   getTaskPatch(taskId: string, signal?: AbortSignal): Promise<TaskPatchDto>;
+  /** 单个 attempt 的模型执行诊断轨迹（只读诊断，非治理事实）。 */
+  getAttemptTrace(taskId: string, attemptId: string, window?: number, signal?: AbortSignal): Promise<AttemptTraceDto>;
   listWorkSpecs(taskId: string, signal?: AbortSignal): Promise<WorkSpecDto[]>;
   getWorkSpec(taskId: string, revision?: number, signal?: AbortSignal): Promise<WorkSpecDto>;
   saveWorkSpec(taskId: string, input: WorkSpecDraftInput, signal?: AbortSignal): Promise<WorkSpecDto>;
