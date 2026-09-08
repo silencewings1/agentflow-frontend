@@ -57,6 +57,7 @@
   --line-strong: rgba(16, 38, 72, 0.2);
 
   --text: #0b1524;
+  --text-1: #24334a;
   --text-2: #41536b;
   --text-3: #71829a;
   --text-4: #a3b0c2;
@@ -96,6 +97,7 @@
   --line-strong: rgba(180, 214, 255, 0.19);
 
   --text: #eaf2fb;
+  --text-1: #c8d6e8;
   --text-2: #a3b4c9;
   --text-3: #6e8199;
   --text-4: #4a5a70;
