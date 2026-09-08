@@ -27,7 +27,15 @@ export function Stream({
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    /* 滚动目标是整列的最底部（含输入区）。事件流末尾哨兵只对齐到
+       事件流底边，会把输入区顶到视口下方看不见 —— 那会让底部看起来
+       像是一截悬空的空白 */
+    const main = document.querySelector<HTMLElement>(".main");
+    if (main) {
+      main.scrollTo({ top: main.scrollHeight, behavior: "smooth" });
+    } else {
+      endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
   }, [events.length, streaming]);
 
   return (
