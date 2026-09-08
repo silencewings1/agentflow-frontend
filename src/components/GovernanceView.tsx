@@ -163,9 +163,13 @@ function isRequirementsQuestionBlocking(item: Record<string, unknown>): boolean 
   return item.blocking === true && !isLikelyInferableQuestion(String(item.question ?? ""));
 }
 
-function RequirementsQuestionCard({ attempts, onAnswer, busy, apiMode }: { attempts: AttemptDetailDto[]; onAnswer?: GovernanceViewProps["onAnswerRequirements"]; busy?: boolean; apiMode: "http" | "fixture" }) {
+function RequirementsQuestionCard({ attempts, onAnswer, busy, apiMode, taskStatus }: { attempts: AttemptDetailDto[]; onAnswer?: GovernanceViewProps["onAnswerRequirements"]; busy?: boolean; apiMode: "http" | "fixture"; taskStatus?: string }) {
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [reason, setReason] = useState("");
+  // 澄清提交后 requirements 节点会被重置、任务回到 created，但历史 attempt
+  // 仍作为审计证据留在列表里。只有任务确实停在等待人工时才展示问题卡片，
+  // 否则会一直显示已经回答过的旧问题。
+  if (taskStatus !== "awaiting_human") return null;
   const attempt = [...attempts].reverse().find((item) => item.nodeId === "requirements" && item.structured && Array.isArray(item.structured.openQuestions));
   const questions = Array.isArray(attempt?.structured?.openQuestions) ? attempt.structured.openQuestions : [];
   if (!questions.length) return null;
@@ -360,7 +364,7 @@ export function GovernanceView({
       </div>
 
       <RequirementsGateHint gates={gates} taskStatus={taskStatus ?? currentStatus} />
-      <RequirementsQuestionCard attempts={attempts} onAnswer={onAnswerRequirements} busy={busyAction === "clarification"} apiMode={apiMode} />
+      <RequirementsQuestionCard attempts={attempts} onAnswer={onAnswerRequirements} busy={busyAction === "clarification"} apiMode={apiMode} taskStatus={taskStatus ?? currentStatus} />
 
       <div className="govGrid">
         <Section title="WorkSpec" kicker="唯一入口">
