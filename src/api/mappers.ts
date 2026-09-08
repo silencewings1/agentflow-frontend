@@ -118,9 +118,11 @@ export function toTaskDetail(dto: AfTaskDetailDto): TaskDetailDto {
       ...(attempt?.outputDigest ? { outputDigest: attempt.outputDigest } : {}),
       ...(node.agentProfileRef ? { agentProfileRef: node.agentProfileRef } : {}),
       ...(node.skillRef ? { skillRef: node.skillRef } : {}),
+      requiresApproval: node.requiresApproval,
       ...(attempt?.executorMode ? { executorMode: attempt.executorMode } : {}),
       ...(attempt?.executionMeta?.provider ? { provider: attempt.executionMeta.provider } : {}),
       ...(attempt?.executionMeta?.model ? { model: attempt.executionMeta.model } : {}),
+      ...(attempt?.structured ? { structured: attempt.structured } : {}),
       evidenceRefs,
       ...(node.lastFailureCode ? { failureCode: node.lastFailureCode } : {}),
       ...(node.lastFailureCode && node.failTarget ? { reworkTargetNodeId: node.failTarget } : {}),
@@ -216,13 +218,23 @@ export function structuredToEvents(t: TaskDetailDto | null): AgentEvent[] {
     if (s.kind === "gate" && s.gate) {
       const g = s.gate as any;
       ev.push({ id: "ev:" + n.nodeId + ":gate", kind: "gate", gate: g.gateId ?? n.nodeId, node: n.nodeId, verdict: g.outcome === "pass" ? "pass" : "block", checks: ((g.dimensions as any[]) ?? []).map((d) => ({ dim: d.name ?? "维度", state: d.passed ? "pass" : "fail", note: "" })), reviewer: s.agent ?? "af", evidence: [] });
+    } else if (n.kind === "gate" && (typeof s.unitStatus === "string" || typeof s.integrationStatus === "string")) {
+      const checks = [
+        ["unit-tests", s.unitStatus],
+        ["integration-tests", s.integrationStatus],
+      ].filter(([, status]) => typeof status === "string").map(([dim, status]) => ({ dim, state: status === "passed" ? "pass" as const : "fail" as const, note: String(status) }));
+      ev.push({ id: "ev:" + n.nodeId + ":gate", kind: "gate", gate: n.nodeId, node: n.nodeId, verdict: checks.every((check) => check.state === "pass") ? "pass" : "block", checks, reviewer: "af", evidence: Array.isArray(s.evidenceRefs) ? s.evidenceRefs.filter((value): value is string => typeof value === "string") : [] });
     } else if (s.kind === "skill" && s.test) {
       const tt = s.test as any;
       ev.push({ id: "ev:" + n.nodeId + ":tests", kind: "tests", passed: tt.passed ?? 0, failed: tt.failed ?? 0, skipped: 0, ms: 0 });
-    } else if (s.changeSet || s.files) {
+    } else if (n.kind === "skill" && s.skill && typeof s.skill === "object") {
+      const result = s.skill as Record<string, unknown>;
+      const passed = result.status === "passed" ? 1 : 0;
+      ev.push({ id: "ev:" + n.nodeId + ":tests", kind: "tests", passed, failed: passed ? 0 : 1, skipped: 0, ms: typeof result.startedAt === "string" && typeof result.finishedAt === "string" ? Math.max(0, Date.parse(result.finishedAt) - Date.parse(result.startedAt)) : 0 });
+    } else if (Array.isArray(s.files)) {
       ev.push({ id: "ev:" + n.nodeId + ":diff", kind: "diff", summary: s.summary ?? "改动摘要", files: ((s.files as any[]) ?? []).map((f) => ({ path: f.path, added: f.added ?? 0, removed: f.removed ?? 0 })) });
     }
-    if (s.kind === "git") {
+    if (s.kind === "git" || n.kind === "git") {
       if (s.gitWrite) {
         const gw = s.gitWrite as any;
         ev.push({ id: "ev:" + n.nodeId + ":git", kind: "controlled", conn: gw.repositoryRef ?? "git", tier: s.approval ? "highrisk" : "write", action: "创建合并请求 " + (gw.targetBranch ?? "") + " → " + (gw.baseBranch ?? ""), steps: [{ label: "写入 " + (gw.mcpServerRef ?? "git"), state: "ok" }], traceId: gw.changeSetDigest ?? "git-" + n.nodeId });

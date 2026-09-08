@@ -422,11 +422,12 @@ export default function App() {
     () => afApi.mode === "http"
       ? (() => {
           const rich = structuredToEvents(taskRuntime);
-          if (rich.length) return rich;
-          return trajectory.map((event) => ({ id: event.eventId, kind: "text" as const, body: `#${event.seq} · ${event.eventType} · ${event.summary}（${event.actor}）` }));
+          // task_events 是审计投影，不是面向人的会话消息。轨迹摘要由
+          // RuntimeConsole/Inspector 的回放视图承载；主区只展示结构化节点产出。
+          return rich;
         })()
       : [...baseConversation.slice(0, visible), ...extra],
-    [baseConversation, visible, extra, trajectory, taskRuntime],
+    [baseConversation, visible, extra, taskRuntime],
   );
 
   /* 当前模板的模拟运行现场：换编排即换整套消息与最终态 */
@@ -1362,6 +1363,7 @@ export default function App() {
             ) : (
               <Stream
                 events={events}
+                emptyLabel={afApi.mode === "http" ? "当前没有需要在会话流中展示的节点产出；审计轨迹摘要可在上方控制面和右侧检查面板查看。" : undefined}
                 streaming={streaming}
                 pendingApproval={pendingApproval}
                 onApprove={resolveApproval}
