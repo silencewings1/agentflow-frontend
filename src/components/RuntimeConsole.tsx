@@ -162,7 +162,7 @@ export function RuntimeConsole({
                 </dl>
                 <button className="btn btn--accent btn--sm" disabled={planningOperation} onClick={onPlanOperation}>
                   <Icon.Branch size={12} />
-                  {planningOperation ? "生成中…" : "生成 SCM operation"}
+                  {planningOperation ? "正在准备远端写入…" : "准备远端写入操作"}
                 </button>
               </article>
             )}

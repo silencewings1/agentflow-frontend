@@ -1015,7 +1015,7 @@ export default function App() {
       await afApi.startTask(activeId, undefined, taskRuntime?.runMode ?? "real", taskRuntime?.faultInjection);
       await Promise.all([fetchTaskRuntime(activeId), fetchGovernance(activeId)]);
       loadBootstrap();
-      push({ tone: "ok", title: "任务已启动", body: "控制面已推进到下一人工检查点或终态。" });
+      push({ tone: "info", title: "运行请求已提交", body: "任务已进入后台队列，Requirements 和后续节点会异步执行；请等待状态刷新，不要重复点击执行。" });
     } catch (error: unknown) {
       const failure = apiFailure(error, "无法启动任务");
       push({ tone: "warn", title: "任务启动失败", body: `${failure.code} · ${failure.message}` });

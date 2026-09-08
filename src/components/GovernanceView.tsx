@@ -309,6 +309,7 @@ export function GovernanceView({
   // authority: never expose a new RunIntent while a gate/reconcile block is
   // active, even if the old intent is merely yielded.
   const controlBlocked = ["awaiting_human", "blocked_unavailable", "needs_reconcile"].includes(String(taskStatus));
+  const runActive = ["queued", "claimed", "running", "yielded"].includes(String(runIntent?.status));
   const currentEvidence = useMemo(() => evidenceMatrix?.rows ?? [], [evidenceMatrix]);
   const acceptedAttempts = attempts.filter((attempt) => attempt.status === "accepted");
   const pendingApprovals = (approvals?.nodeApprovals ?? []).filter((approval) => approval.decision !== "approved").length;
@@ -327,13 +328,14 @@ export function GovernanceView({
 
       <div className="govActions">
         {!workSpec && onFreezeWorkSpec && <span className="govHint">先完成 WorkSpec，服务端才会生成规划事实。</span>}
-        {workSpec && onCreateWorkSpecRevision && <button className="btn btn--ghost btn--sm" disabled={busyAction !== null} onClick={onCreateWorkSpecRevision}>创建 WorkSpec 新 revision</button>}
-        {workSpec && !proposal && onRequestProposal && <button className="btn btn--accent btn--sm" disabled={busyAction !== null} onClick={onRequestProposal}>{busyAction === "proposal" ? "生成 Proposal…" : "请求 Supervisor Proposal"}</button>}
-        {proposal && !compilationReport && onCompile && <button className="btn btn--accent btn--sm" disabled={busyAction !== null} onClick={onCompile}>{busyAction === "compile" ? "编译中…" : "运行 Plan Compiler"}</button>}
+        {workSpec && onCreateWorkSpecRevision && <button className="btn btn--ghost btn--sm" disabled={busyAction !== null || runActive} onClick={onCreateWorkSpecRevision}>创建任务契约新版本</button>}
+        {workSpec && !proposal && onRequestProposal && <button className="btn btn--accent btn--sm" disabled={busyAction !== null || runActive} onClick={onRequestProposal}>{busyAction === "proposal" ? "正在生成方案…" : "生成执行方案"}</button>}
+        {proposal && !compilationReport && onCompile && <button className="btn btn--accent btn--sm" disabled={busyAction !== null || runActive} onClick={onCompile}>{busyAction === "compile" ? "正在检查执行计划…" : "检查执行计划"}</button>}
         {compilationReport?.outcome === "rejected" && <span className="govHint govHint--warn">Compiler 已拒绝当前 revision；先创建新 revision 修正 WorkSpec，再重新请求 Proposal。</span>}
-        {plan && !planDecision && onPlanDecision && <button className="btn btn--accent btn--sm" disabled={busyAction !== null} onClick={() => onPlanDecision("approved")}>{busyAction === "decision" ? "提交中…" : "批准 Execution Plan"}</button>}
-        {controlBlocked && <span className="govHint govHint--warn">当前任务处于 {statusLabel(String(taskStatus))}，请先完成澄清、能力恢复或对账，暂不能创建 RunIntent。</span>}
-        {planDecision?.decision === "approved" && onRun && <button className="btn btn--accent btn--sm" disabled={busyAction !== null || controlBlocked || ["completed", "cancelled"].includes(String(taskStatus))} onClick={onRun}>{busyAction === "run" ? "排队中…" : "创建 RunIntent"}</button>}
+        {plan && !planDecision && onPlanDecision && <button className="btn btn--accent btn--sm" disabled={busyAction !== null || runActive} onClick={() => onPlanDecision("approved")}>{busyAction === "decision" ? "正在提交审批…" : "批准执行计划"}</button>}
+        {controlBlocked && <span className="govHint govHint--warn">当前任务处于 {statusLabel(String(taskStatus))}，请先完成澄清、能力恢复或对账，暂不能开始执行。</span>}
+        {runActive && !controlBlocked && <span className="govHint govHint--info">运行请求已提交，后台正在执行；请等待节点状态刷新后再操作。</span>}
+        {planDecision?.decision === "approved" && onRun && <button className="btn btn--accent btn--sm" disabled={busyAction !== null || controlBlocked || runActive || ["completed", "cancelled"].includes(String(taskStatus))} onClick={onRun}>{busyAction === "run" ? "正在提交运行请求…" : "开始执行任务"}</button>}
       </div>
 
       <RequirementsGateHint gates={gates} taskStatus={taskStatus ?? currentStatus} />
