@@ -146,6 +146,17 @@
   height: 2px;
 }
 
+.stream__empty {
+  margin: 8px 0 0 48px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text-4);
+  background: color-mix(in oklab, var(--surface) 72%, transparent);
+  font-size: var(--step--1);
+  line-height: 1.55;
+}
+
 .ev {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
@@ -866,32 +877,6 @@ code.inline {
 
 .tests__meta b[data-zero="true"] {
   color: var(--text-4);
-}
-
-.tests__spark {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 32px;
-  flex-shrink: 0;
-}
-
-.tests__spark i {
-  width: 3px;
-  height: var(--h);
-  border-radius: 1px;
-  background: color-mix(in oklab, var(--sage) 44%, transparent);
-  animation: sparkUp 0.6s var(--ease-out) both;
-  transform-origin: bottom;
-}
-
-.tests__spark i:nth-child(3n) {
-  background: color-mix(in oklab, var(--sage) 74%, transparent);
-}
-
-@keyframes sparkUp {
-  from { transform: scaleY(0); }
-  to { transform: scaleY(1); }
 }
 
 /* --------------------------------- live --------------------------------- */

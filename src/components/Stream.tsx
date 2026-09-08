@@ -6,6 +6,7 @@ import { roleGlyph } from "../data/workflows";
 
 export function Stream({
   events,
+  emptyLabel,
   streaming,
   pendingApproval,
   onApprove,
@@ -16,6 +17,7 @@ export function Stream({
   onAcceptPlan,
 }: {
   events: AgentEvent[];
+  emptyLabel?: string;
   streaming: boolean;
   pendingApproval: string | null;
   onApprove: (id: string, ok: boolean) => void;
@@ -50,6 +52,7 @@ export function Stream({
             onAcceptPlan={onAcceptPlan}
           />
         ))}
+        {!events.length && !streaming && emptyLabel && <p className="stream__empty">{emptyLabel}</p>}
         {streaming && <Thinking />}
         <div ref={endRef} className="stream__end" />
       </div>
@@ -261,11 +264,6 @@ function Event({
                 <b>{(e.ms / 1000).toFixed(2)}s</b>
               </li>
             </ul>
-            <div className="tests__spark" aria-hidden>
-              {Array.from({ length: 24 }).map((_, i) => (
-                <i key={i} style={{ ["--h" as string]: `${28 + ((i * 37) % 62)}%` }} />
-              ))}
-            </div>
           </div>
         </article>
       );
