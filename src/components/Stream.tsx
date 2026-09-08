@@ -279,6 +279,9 @@ function Event({
     case "checkpoint":
       return <Checkpoint e={e} style={style} />;
 
+    case "node-summary":
+      return <NodeSummary e={e} style={style} />;
+
     case "contract":
       return <Contract e={e} style={style} />;
 
@@ -760,6 +763,102 @@ function Checkpoint({ e, style }: { e: Extract<AgentEvent, { kind: "checkpoint" 
             已判定「{pick}」· {e.decidedBy ?? "me@agentflow.dev"} · 判定结论进入证据链
           </p>
         )}
+      </div>
+    </article>
+  );
+}
+
+/* ================= 节点总结（上游 + 任务项明细 + 下游） ==================
+   一张卡片回答三件事：从哪来（上游交付了什么）、干了什么（任务项逐条）、
+   到哪去（下游需要什么）。审批人就着这张卡片做节点判定；
+   通过审批后工作流流转到下游节点 —— 下游区块就是流转的预告。 */
+
+function NodeSummary({ e, style }: { e: Extract<AgentEvent, { kind: "node-summary" }>; style: object }) {
+  const doneCount = e.tasks.filter((t) => t.status === "done").length;
+  const PrevIcon = e.prev ? Icon[roleGlyph[e.prev.role]] : null;
+  const NextIcon = e.next ? Icon[roleGlyph[e.next.role]] : null;
+
+  return (
+    <article className="ev ev--card" style={style}>
+      <div className="ev__gutter" />
+      <div className="card card--nsum" data-state={e.state}>
+        <header className="card__head">
+          <span className="kicker">节点总结</span>
+          <span className="nsum__node">{e.node}</span>
+          <span className="mono card__count">
+            {doneCount}/{e.tasks.length} 项
+          </span>
+        </header>
+
+        {/* 上一个节点：首个节点为起点，输入是任务契约 */}
+        {e.prev ? (
+          <div className="nsum__peer nsum__peer--prev">
+            <span className="nsum__peerIcon" data-role={e.prev.role}>
+              {PrevIcon ? <PrevIcon size={12} /> : null}
+            </span>
+            <div className="nsum__peerBody">
+              <span className="kicker">上游 · {e.prev.name}</span>
+              <p>
+                <b>{e.prev.assignee}</b>（{roleLabel[e.prev.role]}）已交付：{e.prev.outputs.join("、")}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="nsum__peer nsum__peer--prev nsum__peer--none">
+            <div className="nsum__peerBody">
+              <span className="kicker">上游 · 无</span>
+              <p>本节点是工作流起点，输入为任务契约。</p>
+            </div>
+          </div>
+        )}
+
+        {/* 本节点任务项：逐条列出，完成度一眼可读 */}
+        <ol className="nsum__tasks">
+          {e.tasks.map((t, i) => (
+            <li key={t.text} data-status={t.status} style={{ ["--i" as string]: i }}>
+              <span className="nsum__mark">
+                {t.status === "done" ? (
+                  <Icon.Check size={10} />
+                ) : t.status === "active" ? (
+                  <i className="plan__spin" />
+                ) : (
+                  <i className="plan__idle" />
+                )}
+              </span>
+              <span className="nsum__text">{t.text}</span>
+              {t.note && <span className="nsum__note">{t.note}</span>}
+            </li>
+          ))}
+        </ol>
+
+        {/* 下一个节点：末节点为终点，验收后流水线收尾 */}
+        {e.next ? (
+          <div className="nsum__peer nsum__peer--next">
+            <span className="nsum__peerIcon" data-role={e.next.role}>
+              {NextIcon ? <NextIcon size={12} /> : null}
+            </span>
+            <div className="nsum__peerBody">
+              <span className="kicker">下游 · {e.next.name}</span>
+              <p>
+                待 <b>{e.next.assignee}</b>（{roleLabel[e.next.role]}）接手，需要本节点交付：
+                {e.next.needs.join("、")}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="nsum__peer nsum__peer--next nsum__peer--none">
+            <div className="nsum__peerBody">
+              <span className="kicker">下游 · 无</span>
+              <p>本节点是工作流终点，验收通过后整条流水线收尾。</p>
+            </div>
+          </div>
+        )}
+
+        <p className="nsum__foot">
+          {e.state === "review"
+            ? "任务项已执行完毕 · 通过审批后流转到下游节点"
+            : "任务项执行中 · 完成后交人工检查点判定"}
+        </p>
       </div>
     </article>
   );

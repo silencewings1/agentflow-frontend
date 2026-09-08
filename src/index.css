@@ -57,6 +57,9 @@
   --line-strong: rgba(16, 38, 72, 0.2);
 
   --text: #0b1524;
+  /* --text-1 与 --text 同值：trust.css 多处按「主文字」语义引用它，
+     历史上从未定义导致静默降级 —— 依约定补齐而非悄悄改用邻近令牌 */
+  --text-1: #0b1524;
   --text-2: #41536b;
   --text-3: #71829a;
   --text-4: #a3b0c2;
@@ -96,6 +99,7 @@
   --line-strong: rgba(180, 214, 255, 0.19);
 
   --text: #eaf2fb;
+  --text-1: #eaf2fb;
   --text-2: #a3b4c9;
   --text-3: #6e8199;
   --text-4: #4a5a70;

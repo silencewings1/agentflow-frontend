@@ -5,7 +5,7 @@
    ================================================================ */
 
 import type { AgentEvent } from "./mock";
-import type { Workflow } from "./workflows";
+import type { Workflow, WfNode } from "./workflows";
 import { workflowTemplates } from "./workflows";
 import { accountById, accountRoleLabel } from "./accounts";
 
@@ -70,6 +70,141 @@ const LOGIN_MAP: Record<string, {
     taskTitle: "存量系统逆向重构",
   },
 };
+
+/* ================================================================
+   节点总结 mock 数据：每个节点的任务项逐条明细 + 节点交付物。
+   设计主张：审批人不需要翻聊天记录 —— 一张节点总结卡片回答
+   「从哪来（上游交付）、干了什么（任务项逐条）、到哪去（下游所需）」。
+   ================================================================ */
+
+/** 节点总结数据：tasks 为逐条任务项；deliverables 为本节点最终交付物
+ *  （同时充当「下游节点需要本节点交付什么」的数据来源） */
+const NODE_SUMMARIES: Record<string, {
+  deliverables: string[];
+  tasks: { text: string; status: "done" | "active" | "todo"; note?: string }[];
+}> = {
+  /* ---- n1 源码解析（李雯 · 需求）—— 工作流起点，无上游 ---- */
+  "wf-legacy.n1": {
+    deliverables: ["《源码解析报告》", "《模块依赖清单》"],
+    tasks: [
+      { text: "导入存量系统源码 v2.3.1，建立代码基线快照", status: "done", note: "git tag legacy-baseline" },
+      { text: "按模块整理包结构，识别出 12 个业务模块与 4 个公共组件", status: "done" },
+      { text: "绘制订单、库存、结算 3 条核心调用链路图", status: "done" },
+      { text: "盘点外部依赖：2 个数据库、3 个中间件、1 个支付网关", status: "done" },
+      { text: "标记无法解析的混淆代码位置，共 17 处", status: "done", note: "已登记待人工排查" },
+      { text: "输出《源码解析报告》与《模块依赖清单》", status: "active" },
+    ],
+  },
+  /* ---- n2 需求逆向（杨知远 · 审查）—— 含人工检查点 ---- */
+  "wf-legacy.n2": {
+    deliverables: ["《业务规则清单》", "《接口行为说明》"],
+    tasks: [
+      { text: "从订单模块抽取业务规则 8 条（满减、限购、拆单）", status: "done" },
+      { text: "从库存模块抽取业务规则 6 条（预占、回补、告警阈值）", status: "done" },
+      { text: "标注 11 个对外接口的边界行为与错误码语义", status: "done" },
+      { text: "区分代码事实 21 处与合理推断 5 处", status: "done" },
+      { text: "标记 3 处尚无源码佐证的推断，待人工裁决", status: "done", note: "见下方检查点" },
+      { text: "输出《业务规则清单》与《接口行为说明》", status: "done" },
+    ],
+  },
+  /* ---- n3 架构设计（周林 · 编排）---- */
+  "wf-legacy.n3": {
+    deliverables: ["《架构设计说明书》v1.0", "14 个接口契约", "ADR-001 ~ 005"],
+    tasks: [
+      { text: "确定新系统四层结构：接入 / 服务 / 领域 / 基础设施", status: "done" },
+      { text: "划分 6 个服务模块并定义职责边界", status: "done" },
+      { text: "定义 14 个核心接口契约（REST 8 个 + 事件 6 个）", status: "done" },
+      { text: "制定数据迁移方案：按业务域拆分为 3 库", status: "done" },
+      { text: "沉淀关键技术决定 ADR-001 ~ ADR-005", status: "done" },
+      { text: "输出《架构设计说明书》v1.0 并提交 G1 门禁", status: "done" },
+    ],
+  },
+  /* ---- n4 测试驱动开发（陈硕 · 开发）---- */
+  "wf-legacy.n4": {
+    deliverables: ["feat/legacy-refactor 分支", "《单元测试报告》"],
+    tasks: [
+      { text: "按《业务规则清单》先写用例，新增 32 个", status: "done" },
+      { text: "保留 8 个预期失败用例作为实现路标", status: "done" },
+      { text: "实现订单服务核心逻辑，8/8 用例转通过", status: "done" },
+      { text: "实现库存服务预占与回补，6/6 用例转通过", status: "done" },
+      { text: "单元覆盖率从 78% 提升至 89%（目标 85%）", status: "done" },
+      { text: "推送可编译分支并附《单元测试报告》", status: "done" },
+    ],
+  },
+  /* ---- n5 集成验证（林晓 · 测试）---- */
+  "wf-legacy.n5": {
+    deliverables: ["《集成验证报告》", "《性能基线报告》"],
+    tasks: [
+      { text: "搭建集成环境，灌入 3 个月脱敏生产数据", status: "done" },
+      { text: "执行跨模块集成测试 48 条：48 通过 / 0 失败", status: "done" },
+      { text: "跑通 6 条核心业务路径冒烟测试", status: "done" },
+      { text: "性能压测下单峰值 1200 TPS，达标（≥ 1000）", status: "done" },
+      { text: "新旧系统并行对账 7 天，数据差异 0 条", status: "done" },
+      { text: "输出《集成验证报告》与《性能基线报告》", status: "done" },
+    ],
+  },
+  /* ---- n6 交付验收（赵远 · 交付）—— 工作流终点，无下游 ---- */
+  "wf-legacy.n6": {
+    deliverables: ["需求 / 设计 / 验证 / 运维四类材料", "回滚方案"],
+    tasks: [
+      { text: "汇总需求材料：业务规则清单、接口行为说明", status: "done" },
+      { text: "汇总设计材料：架构设计说明书、ADR 决定记录", status: "done" },
+      { text: "汇总验证材料：集成验证报告、覆盖率报告", status: "done" },
+      { text: "编写运维材料：部署手册、回滚方案、应急预案", status: "done" },
+      { text: "核对证据链：7 条必需证据全部闭环", status: "done" },
+      { text: "提交人工验收，等待最终裁决", status: "done", note: "见下方检查点" },
+    ],
+  },
+};
+
+/** 组装一张「节点总结」事件：上游信息 + 本节点任务项明细 + 下游预告。
+ *  上游交付物取自上游节点的 deliverables；下游所需取自本节点 deliverables
+ *  —— 交接物链条首尾相接，与主控契约的产物推导一致。 */
+export function buildNodeSummary(
+  wf: Workflow,
+  nodeIndex: number,
+  state: "running" | "review",
+): AgentEvent {
+  const node = wf.nodes[nodeIndex] ?? wf.nodes[0];
+  const prevNode = nodeIndex > 0 ? wf.nodes[nodeIndex - 1] : null;
+  const nextNode = nodeIndex < wf.nodes.length - 1 ? wf.nodes[nodeIndex + 1] : null;
+  const summary = NODE_SUMMARIES[`${wf.id}.${node.id}`];
+
+  const peerOf = (n: WfNode) => {
+    const acc = n.assignee ? accountById(n.assignee) : undefined;
+    return {
+      name: n.name,
+      assignee: acc?.name ?? "未指派",
+      role: acc?.role ?? n.role,
+    };
+  };
+
+  return {
+    id: `nsum-${wf.id}-${node.id}-${state}`,
+    kind: "node-summary",
+    node: node.name,
+    state,
+    prev: prevNode
+      ? {
+          ...peerOf(prevNode),
+          outputs:
+            NODE_SUMMARIES[`${wf.id}.${prevNode.id}`]?.deliverables ??
+            wf.orchestrator.contracts[prevNode.id]?.outputs ?? [],
+        }
+      : null,
+    tasks: summary?.tasks ?? [
+      { text: node.desc, status: state === "review" ? "done" : "active" },
+    ],
+    next: nextNode
+      ? {
+          ...peerOf(nextNode),
+          needs:
+            summary?.deliverables ??
+            wf.orchestrator.contracts[node.id]?.outputs ?? [],
+        }
+      : null,
+  };
+}
 
 /** 节点审批问题模板（服务存量系统逆向重构编排） */
 const NODE_QUESTIONS: Record<string, {
@@ -174,11 +309,14 @@ export function getLoginSetup(accountId: string): LoginSetup {
     });
   }
 
-  /* 3. 当前节点状态 — 需要审批时出 checkpoint + approval */
+  /* 3. 当前节点状态 — 需要审批时出 checkpoint + approval，否则出执行计划 */
   const isApproval = node.approval || node.gate !== undefined;
 
   if (isApproval) {
     const q = getQuestion(wf.id, node.id, node.name);
+
+    /* 节点总结先行：审批人就着「上游交付 + 任务项明细 + 下游预告」做判定 */
+    events.push(buildNodeSummary(wf, nodeIndex, "review"));
 
     events.push({
       id: `login-ckpt-${accountId}`,
@@ -209,7 +347,8 @@ export function getLoginSetup(accountId: string): LoginSetup {
     };
   }
 
-  /* 不需要审批：节点正在执行 */
+  /* 不需要审批：节点正在执行。先出全局进度，再出节点总结明细；
+     「完成后交付给谁」已由总结卡片的下游区块说明，不再重复一条文本 */
   events.push({
     id: `login-plan-${accountId}`,
     kind: "plan",
@@ -220,11 +359,7 @@ export function getLoginSetup(accountId: string): LoginSetup {
     ],
   });
 
-  events.push({
-    id: `login-text-${accountId}`,
-    kind: "text",
-    body: `正在执行「${node.name}」节点。完成后将交付给${nextAssignee ? ` ${nextAssignee}` : "下一节点"}${nextNode ? `（${nextNode.name}）` : ""}。`,
-  });
+  events.push(buildNodeSummary(wf, nodeIndex, "running"));
 
   return {
     workflow: wf,
@@ -238,7 +373,9 @@ export function getLoginSetup(accountId: string): LoginSetup {
   };
 }
 
-/** 审批通过后，推入下一节点的运行事件 */
+/** 审批通过后，推入下一节点的运行事件。
+ *  流转时先给出下一节点的总结卡片（上游=刚通过的节点，任务项、下游预告），
+ *  让「流转到下一个节点」在会话流里有明确的现场，而不只是一句文字。 */
 export function postApprovalEvents(
   wf: Workflow,
   fromNodeIndex: number,
@@ -247,7 +384,8 @@ export function postApprovalEvents(
   const acc = accountById(accountId);
   const accName = acc?.name ?? "当前账户";
 
-  const nextNode = wf.nodes[fromNodeIndex + 1] ?? null;
+  const nextIndex = fromNodeIndex + 1;
+  const nextNode = wf.nodes[nextIndex] ?? null;
   if (!nextNode) {
     return [
       {
@@ -260,11 +398,11 @@ export function postApprovalEvents(
 
   const nextAssignee = nextNode.assignee ? accountById(nextNode.assignee) : null;
   const isMine = nextNode.assignee === accountId;
+  const nextIsApproval = nextNode.approval || nextNode.gate !== undefined;
+  const nsum = buildNodeSummary(wf, nextIndex, nextIsApproval ? "review" : "running");
 
   if (isMine) {
-    const isApproval = nextNode.approval || nextNode.gate !== undefined;
-
-    if (isApproval) {
+    if (nextIsApproval) {
       const q = getQuestion(wf.id, nextNode.id, nextNode.name);
       return [
         {
@@ -274,6 +412,7 @@ export function postApprovalEvents(
           body: `上一节点已通过审批，推进到「${nextNode.name}」（你负责）。`,
           ms: 600,
         },
+        nsum,
         {
           id: `post-ckpt-${Date.now()}`,
           kind: "checkpoint",
@@ -294,14 +433,18 @@ export function postApprovalEvents(
 
     return [
       {
-        id: `post-text-${Date.now()}`,
-        kind: "text",
-        body: `上一节点已通过审批，正在执行「${nextNode.name}」（你负责）…`,
+        id: `post-reasoning-${Date.now()}`,
+        kind: "reasoning",
+        title: `进入「${nextNode.name}」节点`,
+        body: `上一节点已通过审批，推进到「${nextNode.name}」（你负责）。`,
+        ms: 600,
       },
+      nsum,
     ];
   }
 
   return [
+    nsum,
     {
       id: `post-handoff-${Date.now()}`,
       kind: "text",

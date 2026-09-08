@@ -107,6 +107,33 @@ export type AgentEvent = EventBase &
         decidedBy?: string;
       }
     | {
+        /** 节点总结：上游节点信息 + 本节点任务项逐条明细 + 下游节点预告。
+            让审批人看一张卡片就知道「从哪来、干了什么、到哪去」，
+            通过审批后工作流即流转到下游节点。 */
+        kind: "node-summary";
+        node: string;
+        /** 当前节点状态：running 执行中 / review 执行完毕待审批 */
+        state: "running" | "review";
+        /** 上一个节点的信息（工作流起点为 null） */
+        prev: {
+          name: string;
+          assignee: string;
+          role: AgentRole;
+          /** 上游节点交付给本节点的材料 */
+          outputs: string[];
+        } | null;
+        /** 本节点具体任务项，逐条列出 */
+        tasks: { text: string; status: "done" | "active" | "todo"; note?: string }[];
+        /** 下一个节点的信息（工作流终点为 null） */
+        next: {
+          name: string;
+          assignee: string;
+          role: AgentRole;
+          /** 下游节点需要本节点交付的材料 */
+          needs: string[];
+        } | null;
+      }
+    | {
         /** 智能执行中枢：任务契约是任务的唯一入口与验收依据 */
         kind: "contract";
         title: string;
@@ -284,6 +311,26 @@ export const conversation: AgentEvent[] = [
       { label: "留痕归档", state: "ok" },
     ],
     approver: "me@agentflow.dev",
+  },
+  {
+    id: "e11b",
+    kind: "node-summary",
+    node: "交付",
+    state: "review",
+    prev: {
+      name: "评审",
+      assignee: "林晓",
+      role: "testing",
+      outputs: ["AI 审查门禁第 2 轮放行结论", "安全整改对照表"],
+    },
+    tasks: [
+      { text: "汇总需求材料：验收条件清单与范围边界", status: "done" },
+      { text: "汇总设计材料：接口契约与关键 ADR 决定", status: "done" },
+      { text: "汇总验证材料：测试报告与覆盖率数据", status: "done" },
+      { text: "编写运维材料：部署手册与回滚方案", status: "done" },
+      { text: "核对证据链完整性，提交人工验收", status: "done" },
+    ],
+    next: null,
   },
   {
     id: "e12",

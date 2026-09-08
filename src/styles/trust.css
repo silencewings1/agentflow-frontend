@@ -678,6 +678,139 @@
   animation: fadeUp 0.3s var(--ease-out) both;
 }
 
+/* ----------------------------- 节点总结卡片 -----------------------------
+   上游（azure）/ 下游（gold）两块信息包住中间的任务项清单；
+   状态语义：running 用 accent（进行中），review 用 gold（待人工） */
+
+.card--nsum {
+  border-left: 2px solid var(--accent);
+}
+
+.card--nsum[data-state="review"] {
+  border-left-color: var(--gold);
+}
+
+.nsum__node {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+  letter-spacing: -0.01em;
+}
+
+/* 上下游信息条：形态差异先于颜色差异 —— prev 有实线左缘，next 用图标区分 */
+.nsum__peer {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg);
+}
+
+.nsum__peer--prev { border-left: 2px solid var(--azure); }
+.nsum__peer--next { border-left: 2px solid var(--gold); }
+.nsum__peer--none { border-style: dashed; background: transparent; }
+
+.nsum__peerIcon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: var(--r-sm);
+  color: var(--layer, var(--accent));
+  background: color-mix(in oklab, var(--layer, var(--accent)) 12%, transparent);
+}
+
+/* 角色到语义色的映射：与 DAG 节点、交接卡的用色保持一致 */
+.nsum__peerIcon[data-role="requirement"]  { --layer: var(--azure); }
+.nsum__peerIcon[data-role="architecture"] { --layer: var(--cyan); }
+.nsum__peerIcon[data-role="development"]  { --layer: var(--accent); }
+.nsum__peerIcon[data-role="testing"]      { --layer: var(--sage); }
+.nsum__peerIcon[data-role="review"]       { --layer: var(--gold); }
+.nsum__peerIcon[data-role="delivery"]     { --layer: var(--plum); }
+.nsum__peerIcon[data-role="orchestrator"] { --layer: var(--accent); }
+.nsum__peerIcon[data-role="ops"]          { --layer: var(--sage); }
+
+.nsum__peerBody {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.nsum__peerBody p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.nsum__peerBody b { color: var(--text-1); font-weight: 600; }
+
+/* 任务项清单：发丝分隔网格，完成度用形态区分（对色觉障碍友好） */
+.nsum__tasks {
+  list-style: none;
+  margin: 11px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 1px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--line);
+}
+
+.nsum__tasks li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  background: var(--bg);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+  animation: fadeUp 0.3s var(--ease-out) both;
+  animation-delay: calc(var(--i) * 40ms);
+}
+
+.nsum__mark {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 999px;
+}
+
+.nsum__tasks li[data-status="done"] .nsum__mark {
+  color: var(--sage);
+  background: color-mix(in oklab, var(--sage) 14%, transparent);
+}
+
+.nsum__tasks li[data-status="active"] { color: var(--text-1); font-weight: 500; }
+.nsum__tasks li[data-status="active"] .nsum__mark { color: var(--accent); }
+
+.nsum__tasks li[data-status="todo"] { color: var(--text-4); }
+.nsum__tasks li[data-status="todo"] .nsum__mark { color: var(--text-4); }
+
+.nsum__text { min-width: 0; }
+
+.nsum__note {
+  margin-left: auto;
+  flex: none;
+  font-size: 10.5px;
+  color: var(--text-4);
+}
+
+.nsum__foot {
+  margin: 10px 0 0;
+  font-size: 10.5px;
+  color: var(--text-4);
+}
+
 /* ---------------------------- 任务契约卡片 ----------------------------- */
 
 .card--contract {
