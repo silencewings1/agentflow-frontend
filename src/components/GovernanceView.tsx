@@ -24,7 +24,7 @@ import type {
   WorkSpecDraftInput,
   WorkSpecDto,
 } from "../api/types";
-import { deriveWorkSpecPreflight, type WorkSpecPreflightItem, type WorkSpecPreflightTone } from "./workSpecPreflight";
+import { deriveWorkSpecPreflight, type WorkSpecPreflightItem } from "./workSpecPreflight";
 
 export interface GovernanceReworkItem {
   reworkId: string;
@@ -354,16 +354,20 @@ function initialDraft(workSpec?: WorkSpecDto | null, draft?: WorkSpecDraftInput)
   };
 }
 
-function WorkSpecPreflightCard({ draft }: { draft: WorkSpecDraftInput }) {
+/* 契约预检把「平台已推断 / 你必须确认 / 冻结后需新 revision」并排放进 WorkSpec 面板：
+   推断项用空心圆标记，待确认边界用实心方块标记 —— 形态差异先于颜色差异，
+   色觉障碍用户也能分辨哪一组需要自己签字。 */
+function WorkSpecPreflightCard({ draft, frozenRevision }: { draft: WorkSpecDraftInput; frozenRevision?: number }) {
   const preflight = deriveWorkSpecPreflight(draft);
-  const groups: Array<{ title: string; summary: string; items: WorkSpecPreflightItem[]; tone: WorkSpecPreflightTone }> = [
-    { title: "已自动推断的偏好", summary: "这些是实现选择，不会要求你为了通过门禁而预先填写内部规则。", items: preflight.inferred, tone: "info" },
-    { title: "冻结前需要确认的边界", summary: "只有会影响授权、外部写入或执行范围的事项才会阻塞后续运行。", items: preflight.boundaries, tone: "warn" },
-    { title: "冻结后会影响运行的内容", summary: "这不是不可修改；修改时会创建新的不可变 revision，历史记录继续保留。", items: preflight.frozenChanges, tone: "info" },
+  const pending = preflight.boundaries.filter((item) => item.tone === "warn").length;
+  const groups: Array<{ key: "inferred" | "boundaries" | "frozen"; title: string; summary: string; items: WorkSpecPreflightItem[] }> = [
+    { key: "inferred", title: "可推断偏好", summary: "平台按项目现状补齐，不会要求你为了通过门禁预先填写内部规则。", items: preflight.inferred },
+    { key: "boundaries", title: "必须确认的边界", summary: "只有影响授权、外部写入或执行范围的事项才阻塞后续运行。", items: preflight.boundaries },
+    { key: "frozen", title: "冻结后需新 revision", summary: "不是不可修改；改动会创建新的不可变 revision，历史记录继续保留。", items: preflight.frozenChanges },
   ];
-  return <aside className="govPreflight" aria-label="WorkSpec 冻结前预检">
-    <div className="govPreflight__head"><div><strong>冻结前预检</strong><span>先确认业务边界，平台再补齐可推断的执行细节。</span></div><em>本地预览</em></div>
-    <div className="govPreflight__groups">{groups.map((group) => <section key={group.title} data-tone={group.tone}><h4>{group.title}</h4><p>{group.summary}</p><ul>{group.items.map((item) => <li key={item.label} data-tone={item.tone}><strong>{item.label}</strong><span>{item.detail}</span></li>)}</ul></section>)}</div>
+  return <aside className="govPreflight" aria-label="WorkSpec 契约预检">
+    <div className="govPreflight__head"><div><strong>契约预检</strong><span>先看平台推断了什么、哪些边界必须你确认，再决定是否冻结。</span></div>{frozenRevision === undefined ? <em data-kind="draft">本地预览</em> : <em data-kind="frozen">revision <b className="mono">{frozenRevision}</b> 已冻结</em>}</div>
+    <div className="govPreflight__groups">{groups.map((group) => <section key={group.key} data-kind={group.key}><h4>{group.title}{group.key === "boundaries" && <i className="govPreflight__count" data-pending={pending > 0}>{pending ? `${pending} 项待确认` : "全部已满足"}</i>}</h4><p>{group.summary}</p><ul>{group.items.map((item) => <li key={item.label} data-kind={group.key} data-tone={item.tone}><strong>{item.label}</strong><span>{item.detail}</span></li>)}</ul></section>)}</div>
   </aside>;
 }
 
@@ -397,9 +401,10 @@ function WorkSpecEditor({
         <Fact label="digest" value={shortDigest(workSpec?.workSpecDigest)} mono />
         <Fact label="created" value={dateLabel(workSpec?.createdAt)} />
       </div>
+      {/* 预检两种状态都展示：编辑态核对草稿，已冻结态回看当时确认的边界与后果 */}
+      <WorkSpecPreflightCard draft={draft} frozenRevision={editable ? undefined : workSpec?.workSpecRevision} />
       {editable ? (
         <div className="govForm">
-          <WorkSpecPreflightCard draft={draft} />
           <label><span>标题</span><input value={draft.title ?? ""} onChange={(event) => update({ title: event.target.value })} placeholder="这项任务要交付什么" /></label>
           <label><span>目标</span><textarea value={draft.objective ?? ""} onChange={(event) => update({ objective: event.target.value })} rows={3} placeholder="可验证的目标与边界" /></label>
           <label><span>背景（可选）</span><textarea value={draft.background ?? ""} onChange={(event) => update({ background: event.target.value })} rows={2} placeholder="为什么现在做" /></label>

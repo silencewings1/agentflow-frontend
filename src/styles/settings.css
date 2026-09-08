@@ -141,12 +141,9 @@
 .sheet--task {
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
-  /* 编排步骤要看整条 DAG（9 节点自然宽约 1612px），窗口尽量给足；
-     仍超宽时由 .wfStage__scroll 横向滚动，不再把画布压扁。 */
-  width: min(1720px, calc(100vw - 48px));
 }
 
-/* 头部三块（标题 / 步骤 / 关闭）在窄屏允许换行，避免把标题挤成两行 */
+/* 单屏创建：头部只剩标题与关闭按钮，窄屏换行只为不挤标题 */
 .sheet--task .sheet__head {
   flex-wrap: wrap;
   row-gap: 10px;
@@ -154,68 +151,6 @@
 
 .sheet--task .sheet__headText {
   flex: 1 1 220px;
-}
-
-.taskSteps {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  min-width: 0;
-}
-
-.taskSteps__seg {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.taskSteps__rule {
-  width: 26px;
-  height: 1px;
-  flex-shrink: 0;
-  background: var(--line-strong);
-}
-
-.taskStep {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: 28px;
-  flex-shrink: 0;
-  padding: 0 11px 0 5px;
-  border-radius: 99px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  font-size: var(--step--2);
-  color: var(--text-3);
-  transition: color 0.2s, border-color 0.2s, background 0.2s;
-}
-
-.taskStep:hover {
-  color: var(--text);
-}
-
-.taskStep[data-on="true"] {
-  color: var(--accent-text);
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
-}
-
-.taskStep__n {
-  width: 18px;
-  height: 18px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  font-size: 9px;
-  background: var(--surface-3);
-  color: var(--text-3);
-}
-
-.taskStep[data-on="true"] .taskStep__n {
-  background: var(--accent);
-  color: #fff;
 }
 
 .sheet__foot {
