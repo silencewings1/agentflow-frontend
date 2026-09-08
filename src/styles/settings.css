@@ -136,6 +136,29 @@
   animation: fadeUp 0.36s var(--ease-out) both;
 }
 
+/* 成员与权限面板：三列各自独立滚动 */
+.sheet__body[data-pane="members"] {
+  overflow: hidden;
+  padding: 14px 16px 16px;
+}
+
+.sheet__body[data-pane="members"] .split {
+  height: 100%;
+  align-items: stretch;
+}
+
+.sheet__body[data-pane="members"] .split__list {
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 4px;
+}
+
+.sheet__body[data-pane="members"] .memberDetail {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0 4px 0 0;
+}
+
 /* ---------------------------- 新建任务对话框 ---------------------------- */
 
 .sheet--task {
@@ -356,8 +379,8 @@
 
 .split {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 268px;
-  gap: 18px;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 20px;
   align-items: start;
 }
 
@@ -1702,6 +1725,19 @@
   .split__detail {
     position: static;
   }
+  /* 窄屏下取消列级独立滚动，恢复整面板滚动 */
+  .sheet__body[data-pane="members"] {
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .sheet__body[data-pane="members"] .split {
+    height: auto;
+    align-items: start;
+  }
+  .sheet__body[data-pane="members"] .split__list,
+  .sheet__body[data-pane="members"] .memberDetail {
+    overflow-y: visible;
+  }
   .conn {
     grid-template-columns: 32px minmax(0, 1fr) auto;
     row-gap: 10px;
@@ -1915,7 +1951,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin: 10px 0 22px;
+  margin: 8px 0 14px;
 }
 
 .memberRow {
@@ -2015,10 +2051,16 @@
 /* ---------------- 右列：详情与矩阵 ---------------- */
 
 .memberDetail {
+  /* 覆盖 .split__detail 的卡片外观 —— 成员面板自带分区结构，不需要外层卡片包裹 */
+  position: static;
+  padding: 0;
+  border: none;
+  background: transparent;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
+  /* 独立滚动由 .sheet__body[data-pane="members"] .memberDetail 控制 */
 }
 
 .memberHead {
@@ -2026,7 +2068,7 @@
   grid-template-columns: 44px minmax(0, 1fr);
   gap: 14px;
   align-items: start;
-  padding: 6px 0 16px;
+  padding: 4px 4px 18px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -2086,8 +2128,12 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 16px;
-  padding: 12px 0 4px;
+  gap: 8px 14px;
+  padding: 10px 16px;
+  margin-bottom: 6px;
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--surface-1) 50%, transparent);
+  border: 1px solid var(--line);
 }
 
 .permLegend__item {
@@ -2101,8 +2147,8 @@
 }
 
 .permLegend__item i {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: var(--r-xs);
   background: var(--swatch, var(--line-2));
   border: 1px solid color-mix(in oklab, var(--swatch, var(--line-strong)) 55%, transparent);
@@ -2165,8 +2211,8 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 14px;
-  padding: 10px 14px;
+  gap: 16px;
+  padding: 11px 16px;
   background: var(--bg);
   transition: background 0.22s var(--ease-out);
 }
@@ -2213,13 +2259,13 @@
 
 .permRow__cells {
   display: grid;
-  grid-template-columns: repeat(4, 30px);
-  gap: 6px;
+  grid-template-columns: repeat(4, 38px);
+  gap: 8px;
 }
 
 .permCell {
-  width: 30px;
-  height: 26px;
+  width: 38px;
+  height: 28px;
   display: grid;
   place-items: center;
   border-radius: var(--r-xs);
@@ -2251,484 +2297,7 @@
 .permCell[data-on="true"][data-perm="approve"] { --swatch: var(--sage); }
 .permCell[data-on="true"][data-perm="manage"] { --swatch: var(--plum); }
 
-/* 低于当前等级的格：弱显示（表示已包含） */
-.permCell[data-below="true"] {
-  background: color-mix(in oklab, var(--surface-3) 80%, transparent);
-  border-color: transparent;
-  color: var(--text-4);
-}
-
-/* 非法组合：形态差异先于颜色差异 —— 直接禁用手势 */
-.permCell[data-illegal="true"] {
-  border-style: dashed;
-  border-color: var(--line);
-  background: transparent;
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.permCell[data-illegal="true"]:hover {
-  transform: none;
-  border-color: var(--line);
-}
-
-/* 可授权节点 chips */
-
-.permAdd {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px 0 4px;
-}
-
-.permAdd__chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line-2);
-  background: color-mix(in oklab, var(--surface-1) 60%, transparent);
-  font-size: var(--step--1);
-  color: var(--text-2);
-  transition: border-color 0.2s var(--ease-out), color 0.2s var(--ease-out),
-    background 0.2s var(--ease-out);
-}
-
-.permAdd__chip i {
-  font-style: normal;
-  font-size: var(--step--2);
-  color: var(--text-4);
-}
-
-.permAdd__chip:hover {
-  color: var(--accent-text);
-  border-color: color-mix(in oklab, var(--accent) 36%, var(--line));
-  background: color-mix(in oklab, var(--accent) 6%, transparent);
-}
-
-/* 审计记录 */
-
-.permAudit {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px 0 4px;
-}
-
-.permAudit__row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px;
-  font-size: var(--step--1);
-  color: var(--text-2);
-  padding: 5px 10px;
-  border-radius: var(--r-xs);
-  animation: fadeUp 0.32s var(--ease-out) both;
-}
-
-.permAudit__row:nth-child(2n) {
-  background: color-mix(in oklab, var(--surface-1) 55%, transparent);
-}
-
-.permAudit__row .mono {
-  color: var(--text-4);
-}
-
-.permAudit__row b {
-  font-weight: 550;
-  color: var(--text);
-}
-
-.permAudit__row i {
-  font-style: normal;
-  color: var(--text-3);
-}
-
-.permAudit__perm {
-  font-family: var(--font-mono);
-  font-size: var(--step--2);
-  padding: 0 6px;
-  border-radius: var(--r-xs);
-  border: 1px solid var(--line-2);
-  color: var(--text-2);
-}
-
-/* 新建账户表单里的分段选择 */
-
-.permKinds {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.permKind {
-  padding: 5px 11px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line-2);
-  font-size: var(--step--1);
-  color: var(--text-2);
-  transition: all 0.2s var(--ease-out);
-}
-
-.permKind[data-on="true"] {
-  color: var(--accent-text);
-  border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
-  background: color-mix(in oklab, var(--accent) 8%, transparent);
-}
-
-.permKind:hover {
-  border-color: color-mix(in oklab, var(--accent) 30%, var(--line));
-}
-/* ============================================================
-   成员与权限 · 账户目录 + 节点授权矩阵
-   视觉语汇沿用：BEM + data-* 状态 + color-mix 派生 + --layer 间接层
-   ============================================================ */
-
-/* ---------------- 左列：账户列表 ---------------- */
-
-.memberList {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 10px 0 22px;
-}
-
-.memberRow {
-  display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: var(--r-sm);
-  border: 1px solid transparent;
-  text-align: left;
-  animation: fadeUp 0.38s var(--ease-out) both;
-  animation-delay: calc(var(--i, 0) * 40ms);
-  transition: background 0.22s var(--ease-out), border-color 0.22s var(--ease-out);
-}
-
-.memberRow:hover {
-  background: color-mix(in oklab, var(--surface-2) 72%, transparent);
-}
-
-.memberRow[data-active="true"] {
-  background: color-mix(in oklab, var(--accent) 7%, transparent);
-  border-color: color-mix(in oklab, var(--accent) 26%, var(--line));
-}
-
-.memberRow__glyph {
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--r-sm);
-  color: var(--layer, var(--accent));
-  background: color-mix(in oklab, var(--layer, var(--accent)) 9%, transparent);
-  border: 1px solid color-mix(in oklab, var(--layer, var(--accent)) 22%, transparent);
-}
-
-.memberRow__glyph[data-tint="accent"] { --layer: var(--accent); }
-.memberRow__glyph[data-tint="cyan"] { --layer: var(--cyan); }
-.memberRow__glyph[data-tint="sage"] { --layer: var(--sage); }
-.memberRow__glyph[data-tint="gold"] { --layer: var(--gold); }
-.memberRow__glyph[data-tint="plum"] { --layer: var(--plum); }
-.memberRow__glyph[data-tint="azure"] { --layer: var(--azure); }
-
-.memberRow__body {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.memberRow__body b {
-  font-size: var(--step-0);
-  font-weight: 550;
-  color: var(--text);
-}
-
-.memberRow__body i {
-  font-size: var(--step--2);
-  color: var(--text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.memberRow__flag {
-  font-size: var(--step--2);
-  font-family: var(--font-mono);
-  color: var(--gold);
-  border: 1px dashed color-mix(in oklab, var(--gold) 44%, transparent);
-  border-radius: var(--r-xs);
-  padding: 1px 6px;
-}
-
-.memberRow[data-state="suspended"] .memberRow__body b {
-  color: var(--text-3);
-}
-
-.memberNew {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 8px 12px;
-  border-radius: var(--r-sm);
-  border: 1px dashed var(--line-2);
-  color: var(--text-2);
-  font-size: var(--step--1);
-  transition: color 0.22s var(--ease-out), border-color 0.22s var(--ease-out),
-    background 0.22s var(--ease-out);
-}
-
-.memberNew:hover {
-  color: var(--accent-text);
-  border-color: color-mix(in oklab, var(--accent) 34%, var(--line));
-  background: color-mix(in oklab, var(--accent) 5%, transparent);
-}
-
-/* ---------------- 右列：详情与矩阵 ---------------- */
-
-.memberDetail {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.memberHead {
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
-  gap: 14px;
-  align-items: start;
-  padding: 6px 0 16px;
-  border-bottom: 1px solid var(--line);
-}
-
-.memberHead__glyph {
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--r-md);
-  color: var(--layer, var(--accent));
-  background: color-mix(in oklab, var(--layer, var(--accent)) 10%, transparent);
-  border: 1px solid color-mix(in oklab, var(--layer, var(--accent)) 24%, transparent);
-}
-
-.memberHead__glyph[data-tint="accent"] { --layer: var(--accent); }
-.memberHead__glyph[data-tint="cyan"] { --layer: var(--cyan); }
-.memberHead__glyph[data-tint="sage"] { --layer: var(--sage); }
-.memberHead__glyph[data-tint="gold"] { --layer: var(--gold); }
-.memberHead__glyph[data-tint="plum"] { --layer: var(--plum); }
-.memberHead__glyph[data-tint="azure"] { --layer: var(--azure); }
-
-.memberHead__text h3 {
-  font-family: var(--font-display);
-  font-weight: 400;
-  font-size: var(--step-2);
-  line-height: 1.1;
-  color: var(--text);
-}
-
-.memberHead__text p {
-  margin-top: 4px;
-  font-size: var(--step--1);
-  color: var(--text-2);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 7px;
-}
-
-.memberHead__text p i {
-  font-style: normal;
-  color: var(--text-4);
-}
-
-.memberHead__text em {
-  display: block;
-  margin-top: 6px;
-  font-style: normal;
-  font-size: var(--step--1);
-  color: var(--text-3);
-  max-width: 64ch;
-}
-
-/* 权限图例 */
-
-.permLegend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 16px;
-  padding: 12px 0 4px;
-}
-
-.permLegend__item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--step--2);
-  font-family: var(--font-mono);
-  letter-spacing: 0.04em;
-  color: var(--text-2);
-}
-
-.permLegend__item i {
-  width: 10px;
-  height: 10px;
-  border-radius: var(--r-xs);
-  background: var(--swatch, var(--line-2));
-  border: 1px solid color-mix(in oklab, var(--swatch, var(--line-strong)) 55%, transparent);
-}
-
-.permLegend__item[data-perm="view"] { --swatch: var(--text-4); }
-.permLegend__item[data-perm="run"] { --swatch: var(--accent); }
-.permLegend__item[data-perm="approve"] { --swatch: var(--sage); }
-.permLegend__item[data-perm="manage"] { --swatch: var(--plum); }
-
-.permLegend__hint {
-  margin-left: auto;
-  font-size: var(--step--2);
-  color: var(--text-4);
-}
-
-/* 空态：没有操作者的账户不隐藏问题，直说 */
-
-.permEmpty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 30px 16px;
-  margin: 12px 0;
-  border: 1px dashed var(--line-2);
-  border-radius: var(--r-md);
-  color: var(--text-3);
-  text-align: center;
-}
-
-.permEmpty p {
-  font-size: var(--step-0);
-  color: var(--text-2);
-}
-
-.permEmpty em {
-  font-style: normal;
-  font-size: var(--step--1);
-  max-width: 44ch;
-}
-
-/* 矩阵 */
-
-.permGroup {
-  margin: 10px 0 6px;
-}
-
-.permMatrix {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: color-mix(in oklab, var(--surface) 60%, transparent);
-  overflow: hidden;
-}
-
-/* 发丝分隔：间隙露出底色 */
-.permRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 14px;
-  background: var(--bg);
-  transition: background 0.22s var(--ease-out);
-}
-
-.permRow + .permRow {
-  border-top: 1px solid var(--line);
-}
-
-.permRow:hover {
-  background: color-mix(in oklab, var(--surface-2) 55%, var(--bg));
-}
-
-.permRow__node {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.permRow__node b {
-  font-size: var(--step-0);
-  font-weight: 550;
-  color: var(--text);
-}
-
-.permRow__node i {
-  font-style: normal;
-  font-size: var(--step--2);
-  color: var(--text-3);
-}
-
-.permRow__human {
-  display: inline-flex !important;
-  width: fit-content;
-  padding: 0 6px;
-  border-radius: var(--r-xs);
-  border: 1px solid color-mix(in oklab, var(--gold) 40%, transparent);
-  color: var(--gold) !important;
-}
-
-.permRow[data-on="true"] .permRow__node b {
-  color: var(--text);
-}
-
-.permRow__cells {
-  display: grid;
-  grid-template-columns: repeat(4, 30px);
-  gap: 6px;
-}
-
-.permCell {
-  width: 30px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--r-xs);
-  border: 1px solid var(--line-2);
-  background: color-mix(in oklab, var(--surface-1) 70%, transparent);
-  color: var(--bg);
-  transition: background 0.2s var(--ease-out), border-color 0.2s var(--ease-out),
-    transform 0.2s var(--ease-spring);
-}
-
-.permCell:hover {
-  border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
-  transform: translateY(-1px);
-}
-
-.permCell:focus-visible {
-  outline: 2px solid var(--accent-line);
-  outline-offset: 1px;
-}
-
-/* 命中格：按权限等级着色（视觉语义 = 图例） */
-.permCell[data-on="true"] {
-  border-color: color-mix(in oklab, var(--swatch, var(--accent)) 55%, transparent);
-  background: color-mix(in oklab, var(--swatch, var(--accent)) 78%, transparent);
-}
-
-.permCell[data-on="true"][data-perm="view"] { --swatch: var(--text-3); }
-.permCell[data-on="true"][data-perm="run"] { --swatch: var(--accent); }
-.permCell[data-on="true"][data-perm="approve"] { --swatch: var(--sage); }
-.permCell[data-on="true"][data-perm="manage"] { --swatch: var(--plum); }
-
-/* 低于当前等级的格：已包含 —— 染对应权限色的稀释版（色相准确、形态弱于命中） */
+/* 低于当前等级的格：染对应权限色的稀释版（色相准确、形态弱于命中） */
 .permCell[data-below="true"] {
   border-color: transparent;
 }

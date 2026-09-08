@@ -473,7 +473,7 @@ const wfLegacy: WfTemplate = {
       lane: 0,
       desc: "确定新系统结构、模块职责、接口与关键设计决定。",
       gate: "G1 需求与设计",
-      assignee: "ac-lw",
+      assignee: "ac-orch",
     },
     {
       id: "n4",
@@ -493,7 +493,7 @@ const wfLegacy: WfTemplate = {
       lane: 0,
       desc: "跨模块业务流程集成测试与浏览器冒烟测试。",
       gate: "G3 集成验证",
-      assignee: "ac-dev",
+      assignee: "ac-gate",
     },
     {
       id: "n6",
@@ -504,7 +504,7 @@ const wfLegacy: WfTemplate = {
       desc: "输出需求、设计、验证与运维四类材料，交付人工验收。",
       gate: "G4 交付提交",
       approval: true,
-      assignee: "ac-yz",
+      assignee: "ac-conn",
     },
   ],
   edges: [

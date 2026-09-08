@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { Icon } from "./Icons";
 import {
   accounts,
-  accountKindLabel,
   accountLayerLabel,
   accountStateLabel,
   initialAudit,
@@ -10,10 +9,8 @@ import {
   nodePermLabel,
   nodePermRank,
   nodeRefs,
-  permAllowed,
-  permDenyReason,
   type Account,
-  type AccountKind,
+  type AccountLayer,
   type GrantAudit,
   type NodeGrant,
   type NodePerm,
@@ -24,28 +21,29 @@ type Toast = (t: { tone: "ok" | "warn" | "info"; title: string; body: string }) 
 
 const PERMS: NodePerm[] = ["view", "run", "approve", "manage"];
 
-const KIND_ORDER: AccountKind[] = ["human", "ai", "program"];
+const LAYER_ORDER: AccountLayer[] = ["L1", "L2", "L3", "L4", "L5"];
 
-/** 账户类型与架构层级的合法组合：人工可落在 L1/L4/L5，智能体只在 L2，程序在 L3/L4 */
-const KIND_LAYERS: Record<AccountKind, Account["layer"][]> = {
-  human: ["L1", "L4", "L5"],
-  ai: ["L2"],
-  program: ["L3", "L4"],
+const ALL_LAYERS: AccountLayer[] = ["L1", "L2", "L3", "L4", "L5"];
+
+const LAYER_DUTY: Record<AccountLayer, string> = {
+  L1: "需求与交付",
+  L2: "开发与执行",
+  L3: "连接与调用",
+  L4: "验证与审查",
+  L5: "裁决与放行",
 };
 
 export function MembersPane({ onToast }: { onToast: Toast }) {
   const [accounts_, setAccounts] = useState<Account[]>(accounts);
   const [grants, setGrants] = useState<NodeGrant[]>(initialGrants);
   const [audit, setAudit] = useState<GrantAudit[]>(initialAudit);
-  /* 支持 ?pane=members&account=ac-dev 深链直达某账户（一次性读取，仍是面板本地状态） */
   const [selected, setSelected] = useState<string>(() => {
     const q = new URLSearchParams(window.location.search).get("account");
     return q && accounts.some((a) => a.id === q) ? q : accounts[0].id;
   });
   const [creating, setCreating] = useState(false);
   const [draftName, setDraftName] = useState("");
-  const [draftKind, setDraftKind] = useState<AccountKind>("human");
-  const [draftLayer, setDraftLayer] = useState<Account["layer"]>("L1");
+  const [draftLayer, setDraftLayer] = useState<AccountLayer>("L1");
 
   const nodeIndex = useMemo(() => nodeRefs(), []);
   const active = useMemo(
@@ -53,7 +51,6 @@ export function MembersPane({ onToast }: { onToast: Toast }) {
     [accounts_, selected],
   );
 
-  /** 当前账户被授权过的节点（含角色继承），按工作流分组展示 */
   const activeNodes = useMemo(() => {
     const refs = nodeIndex.filter((n) =>
       grants.some((g) => g.accountId === active.id && g.workflowId === n.workflowId && g.nodeId === n.nodeId),
@@ -74,22 +71,10 @@ export function MembersPane({ onToast }: { onToast: Toast }) {
     return rows.reduce((best, g) => (nodePermRank[g.perm] > nodePermRank[best] ? g.perm : best), rows[0].perm);
   };
 
-  /** 点击单元格：在 无 → view → run →(approve→)manage 阶梯上升降级，非法格拒绝 */
   const cycle = (n: NodeRef) => {
     const cur = grantOf(n);
     const ladder: (NodePerm | null)[] = ["view", "run", "approve", "manage"];
     const next = cur === null ? "view" : cur === "manage" ? null : ladder[ladder.indexOf(cur) + 1];
-
-    if (next !== null) {
-      const reason = permDenyReason(active.kind, next);
-      if (reason) {
-        onToast({ tone: "warn", title: "该权限不可授予此账户", body: reason });
-        return;
-      }
-      if (next === "approve" && (n.gate || n.approval) === undefined && cur === "run") {
-        // 无门禁/检查点的普通节点：run 已是顶格，点 manage 前确认语义
-      }
-    }
 
     setGrants((prev) => {
       const same = (g: NodeGrant) =>
@@ -129,11 +114,10 @@ export function MembersPane({ onToast }: { onToast: Toast }) {
         id,
         name,
         handle: `${name.toLowerCase().replace(/\s+/g, ".")}@agentflow.dev`,
-        kind: draftKind,
         layer: draftLayer,
         duty: "自定义账户，尚未填写职责说明。",
-        glyph: draftKind === "ai" ? "Sparkle" : draftKind === "program" ? "Cpu" : "Agent",
-        tint: draftKind === "ai" ? "cyan" : draftKind === "program" ? "sage" : "accent",
+        glyph: "Agent",
+        tint: "accent",
         state: "active",
         builtin: false,
       },
@@ -141,22 +125,19 @@ export function MembersPane({ onToast }: { onToast: Toast }) {
     setSelected(id);
     setCreating(false);
     setDraftName("");
-    onToast({ tone: "ok", title: "已创建账户", body: `${name} · ${accountKindLabel[draftKind]}` });
+    onToast({ tone: "ok", title: "已创建账户", body: `${name} · ${accountLayerLabel[draftLayer]}` });
   };
 
   return (
     <div className="split">
       {/* ------------ 左列：账户列表 ------------ */}
       <div className="split__list">
-        {KIND_ORDER.map((kind) => {
-          const rows = accounts_.filter((a) => a.kind === kind);
+        {LAYER_ORDER.map((layer) => {
+          const rows = accounts_.filter((a) => a.layer === layer);
           if (!rows.length) return null;
           return (
-            <section key={kind}>
-              <SectionLabel
-                text={accountKindLabel[kind]}
-                hint={kind === "human" ? "承担裁决与编排责任" : kind === "ai" ? "只可执行，不可裁决" : "机器裁决者"}
-              />
+            <section key={layer}>
+              <SectionLabel text={layer} hint={LAYER_DUTY[layer]} />
               <div className="memberList">
                 {rows.map((a, i) => (
                   <button
@@ -210,30 +191,9 @@ export function MembersPane({ onToast }: { onToast: Toast }) {
               />
             </div>
             <div className="form__row">
-              <label>类型</label>
-              <div className="permKinds">
-                {KIND_ORDER.map((k) => (
-                  <button
-                    type="button"
-                    key={k}
-                    className="permKind"
-                    data-on={draftKind === k ? "true" : undefined}
-                    onClick={() => {
-                      setDraftKind(k);
-                      if (!KIND_LAYERS[k].includes(draftLayer)) {
-                        setDraftLayer(KIND_LAYERS[k][0]);
-                      }
-                    }}
-                  >
-                    {accountKindLabel[k]}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="form__row">
               <label>架构落位</label>
               <div className="permKinds">
-                {KIND_LAYERS[draftKind].map((l) => (
+                {ALL_LAYERS.map((l) => (
                   <button
                     type="button"
                     key={l}
@@ -268,8 +228,6 @@ export function MembersPane({ onToast }: { onToast: Toast }) {
             <p>
               <span className="mono">{active.handle}</span>
               <i>·</i>
-              {accountKindLabel[active.kind]}
-              <i>·</i>
               {accountLayerLabel[active.layer]}
               <i>·</i>
               {accountStateLabel[active.state]}
@@ -285,7 +243,7 @@ export function MembersPane({ onToast }: { onToast: Toast }) {
               {nodePermLabel[p]}
             </span>
           ))}
-          <span className="permLegend__hint">点击调整 · 高级含低级 · 虚格为不可授组合</span>
+          <span className="permLegend__hint">点击调整 · 高级含低级</span>
         </div>
 
         {activeNodes.length === 0 ? (
@@ -310,10 +268,8 @@ export function MembersPane({ onToast }: { onToast: Toast }) {
                       </div>
                       <div className="permRow__cells">
                         {PERMS.map((p) => {
-                          const legal = permAllowed(active.kind, p);
                           const on = cur === p;
                           const lower = cur !== null && nodePermRank[p] < nodePermRank[cur];
-                          const reason = permDenyReason(active.kind, p);
                           return (
                             <button
                               key={p}
@@ -322,8 +278,6 @@ export function MembersPane({ onToast }: { onToast: Toast }) {
                               data-below={lower && !on ? "true" : undefined}
                               data-below-perm={lower && !on ? p : undefined}
                               data-perm={on ? p : undefined}
-                              data-illegal={legal ? undefined : "true"}
-                              title={reason ?? undefined}
                               aria-label={`${n.nodeName} ${nodePermLabel[p]}`}
                               onClick={() => cycle(n)}
                             >
@@ -393,8 +347,6 @@ export function MembersPane({ onToast }: { onToast: Toast }) {
   );
 }
 
-/* 与 Settings.tsx 的 SectionLabel 同构（该组件未导出，跨文件复制需契约同意；
-   这里保持相同标记结构以确保视觉一致，若后续导出则改为 import） */
 function SectionLabel({ text, hint }: { text: string; hint?: string }) {
   return (
     <div className="secLabel">

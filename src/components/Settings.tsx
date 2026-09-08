@@ -178,7 +178,7 @@ export function SettingsOverlay({
             </button>
           </header>
 
-          <div className="sheet__body" key={pane}>
+          <div className="sheet__body" data-pane={pane} key={pane}>
             {pane === "arch" && (
               <ArchPane onToast={onToast} runtime={runtime} onJump={onJump} />
             )}

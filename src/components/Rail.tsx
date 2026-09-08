@@ -27,7 +27,7 @@ export function Rail({
   onPane,
   accounts = defaultAccounts,
   currentAccountId,
-  onSwitchAccount,
+  onLogout,
 }: {
   theme: Theme;
   onToggleTheme: () => void;
@@ -37,7 +37,7 @@ export function Rail({
   onPane: (p: SettingsPane) => void;
   accounts?: Account[];
   currentAccountId: string;
-  onSwitchAccount: (id: string) => void;
+  onLogout: () => void;
 }) {
   const current = accountById(currentAccountId, accounts) ?? accounts[0];
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -51,10 +51,6 @@ export function Rail({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [switcherOpen]);
 
-  const activeAccounts = accounts.filter((a) => a.state === "active");
-  const humanList = activeAccounts.filter((a) => a.kind === "human");
-  const aiList = activeAccounts.filter((a) => a.kind === "ai");
-  const programList = activeAccounts.filter((a) => a.kind === "program");
   return (
     <aside className="rail">
       <button className="rail__mark" onClick={onNew} title="AgentFlow">
@@ -106,93 +102,28 @@ export function Rail({
               <div className="rail__scrim" onClick={() => setSwitcherOpen(false)} />
               <div className="accountSwitcher">
                 <div className="accountSwitcher__head">
-                  <b>切换账户</b>
-                  <i>当前：{current.name}</i>
+                  <span className="accountSwitcher__glyph" data-tint={current.tint}>
+                    {(() => {
+                      const G = Icon[current.glyph];
+                      return <G size={16} />;
+                    })()}
+                  </span>
+                  <div className="accountSwitcher__headText">
+                    <b>{current.name}</b>
+                    <i className="mono">{current.handle}</i>
+                  </div>
+                  <span className="accountSwitcher__layer">{current.layer}</span>
                 </div>
-                {humanList.length > 0 && (
-                  <div className="accountSwitcher__group">
-                    <span className="accountSwitcher__label">人工</span>
-                    {humanList.map((a) => (
-                      <button
-                        key={a.id}
-                        className="accountSwitcher__item"
-                        data-active={a.id === currentAccountId ? "true" : undefined}
-                        onClick={() => {
-                          onSwitchAccount(a.id);
-                          setSwitcherOpen(false);
-                        }}
-                      >
-                        <span className="accountSwitcher__glyph" data-tint={a.tint}>
-                          {(() => {
-                            const G = Icon[a.glyph];
-                            return <G size={14} />;
-                          })()}
-                        </span>
-                        <span className="accountSwitcher__text">
-                          <b>{a.name}</b>
-                          <i className="mono">{a.handle}</i>
-                        </span>
-                        <span className="accountSwitcher__layer">{a.layer}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {aiList.length > 0 && (
-                  <div className="accountSwitcher__group">
-                    <span className="accountSwitcher__label">智能体</span>
-                    {aiList.map((a) => (
-                      <button
-                        key={a.id}
-                        className="accountSwitcher__item"
-                        data-active={a.id === currentAccountId ? "true" : undefined}
-                        onClick={() => {
-                          onSwitchAccount(a.id);
-                          setSwitcherOpen(false);
-                        }}
-                      >
-                        <span className="accountSwitcher__glyph" data-tint={a.tint}>
-                          {(() => {
-                            const G = Icon[a.glyph];
-                            return <G size={14} />;
-                          })()}
-                        </span>
-                        <span className="accountSwitcher__text">
-                          <b>{a.name}</b>
-                          <i className="mono">{a.handle}</i>
-                        </span>
-                        <span className="accountSwitcher__layer">{a.layer}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {programList.length > 0 && (
-                  <div className="accountSwitcher__group">
-                    <span className="accountSwitcher__label">确定性程序</span>
-                    {programList.map((a) => (
-                      <button
-                        key={a.id}
-                        className="accountSwitcher__item"
-                        data-active={a.id === currentAccountId ? "true" : undefined}
-                        onClick={() => {
-                          onSwitchAccount(a.id);
-                          setSwitcherOpen(false);
-                        }}
-                      >
-                        <span className="accountSwitcher__glyph" data-tint={a.tint}>
-                          {(() => {
-                            const G = Icon[a.glyph];
-                            return <G size={14} />;
-                          })()}
-                        </span>
-                        <span className="accountSwitcher__text">
-                          <b>{a.name}</b>
-                          <i className="mono">{a.handle}</i>
-                        </span>
-                        <span className="accountSwitcher__layer">{a.layer}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <button
+                  className="accountSwitcher__foot accountSwitcher__foot--logout"
+                  onClick={() => {
+                    onLogout();
+                    setSwitcherOpen(false);
+                  }}
+                >
+                  <Icon.X size={12} />
+                  退出登录
+                </button>
                 <button
                   className="accountSwitcher__foot"
                   onClick={() => {

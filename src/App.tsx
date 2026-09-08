@@ -19,9 +19,11 @@ import { Toasts, type Toast } from "./components/Toasts";
 import { Welcome } from "./components/Welcome";
 import { SettingsOverlay, type ArchJump, type SettingsPane } from "./components/Settings";
 import { NewTaskDialog } from "./components/NewTask";
+import { Login } from "./components/Login";
 import { WorkflowStrip, NodeConversation } from "./components/Workflow";
 import { defaultModel, modelOptions } from "./data/settings";
-import { accounts, initialGrants, accountById, type NodeGrant } from "./data/accounts";
+import { accounts, initialGrants, accountById, accountLayerLabel, type NodeGrant } from "./data/accounts";
+import { getLoginSetup, postApprovalEvents } from "./data/loginSetup";
 import {
   buildOrchestratorPlan,
   runOf,
@@ -43,7 +45,7 @@ let toastSeq = 0;
 
 export default function App() {
   const [theme, setTheme] = useState<Theme>("lumen");
-  const [activeId, setActiveId] = useState<string>("s-1");
+  const [activeId, setActiveId] = useState<string>("");
   /* 会话列表为运行时状态：新建任务会追加，删除会移除，不再只读自静态数据 */
   const [sessionList, setSessionList] = useState<Session[]>(sessions);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -60,17 +62,18 @@ export default function App() {
   });
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   /* 初始编排取首条会话自己的编排，而不是写死第一套模板 */
-  const [workflow, setWorkflow] = useState<Workflow>(() => wfOf(sessions[0]?.workflow));
+  const [workflow, setWorkflow] = useState<Workflow>(() => wfOf(sessions[0]?.workflow ?? "wf-legacy"));
   const [wfStep, setWfStep] = useState(1);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>("ask");
   const [model, setModel] = useState(defaultModel);
   const [mode, setMode] = useState<"session" | "welcome">("session");
-  const [currentAccountId, setCurrentAccountId] = useState<string>("ac-yz");
+  const [currentAccountId, setCurrentAccountId] = useState<string>("");
   const [grants, _setGrants] = useState<NodeGrant[]>(initialGrants);
+  const loggedIn = currentAccountId !== "";
 
   /* --- streamed event window --------------------------------------------- */
-  const [visible, setVisible] = useState(() => conversationOf(sessions[0]?.workflow).length);
+  const [visible, setVisible] = useState(() => conversationOf(sessions[0]?.workflow ?? "wf-legacy").length);
   const [streaming, setStreaming] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<string | null>(null);
   const [extra, setExtra] = useState<AgentEvent[]>([]);
@@ -187,14 +190,58 @@ export default function App() {
       const acc = accountById(id, accounts);
       if (!acc) return;
       setCurrentAccountId(id);
+
+      /* 登录即进入运行态：按账户找到对应的工作流现场 */
+      const setup = getLoginSetup(id);
+      timers.current.forEach(clearTimeout);
+      timers.current = [];
+      stepTimers.current.forEach(clearTimeout);
+      stepTimers.current = [];
+
+      setWorkflow(setup.workflow);
+      setWfStep(setup.wfStep);
+      setMode("session");
+      setVisible(0);
+      setExtra(setup.events);
+      setPendingApproval(setup.pendingApprovalId);
+      setStreaming(false);
+      setPlanEvent(null);
+      setPlanPending(false);
+      planPendingRef.current = false;
+      setFocusNode(null);
+
+      /* 登录只保留该账户的任务会话，清除所有其他会话 */
+      const sid = `s-login-${id}`;
+      setSessionList([
+        {
+          id: sid,
+          title: setup.sessionTitle,
+          repo: "demo-app",
+          branch: `feat/${id}`,
+          state: setup.pendingApprovalId ? "review" : "running",
+          time: "刚刚",
+          bucket: "今天",
+          diff: { added: 0, removed: 0, files: 0 },
+          turns: 1,
+          workflow: setup.workflow.id,
+        },
+      ]);
+      setActiveId(sid);
+
       push({
         tone: "info",
-        title: `已切换为 ${acc.name}`,
-        body: `${acc.kind === "human" ? "人工" : acc.kind === "ai" ? "智能体" : "程序"}账户 · ${acc.layer}`,
+        title: `已登录为 ${acc.name}`,
+        body: `${acc.layer} · ${accountLayerLabel[acc.layer]} · 工作流推进到「${setup.currentNodeName}」`,
       });
     },
     [push],
   );
+
+  const logout = useCallback(() => {
+    setCurrentAccountId("");
+    setSettingsPane(null);
+    setPaletteOpen(false);
+  }, []);
 
   /* --- keyboard ----------------------------------------------------------- */
   useEffect(() => {
@@ -462,6 +509,10 @@ export default function App() {
   const resolveApproval = useCallback(
     (id: string, ok: boolean) => {
       setPendingApproval(null);
+
+      /* 节点级审批：id 以 node-approval- 开头 */
+      const isNodeApproval = id.startsWith("node-approval-");
+
       setExtra((prev) =>
         prev.map((e) =>
           e.id === id && e.kind === "approval"
@@ -469,18 +520,79 @@ export default function App() {
             : e,
         ),
       );
+
       if (!ok) {
-        push({ tone: "warn", title: "已拒绝命令", body: "代理将跳过该步骤继续。" });
-        setExtra((prev) => [
-          ...prev,
-          {
-            id: `${id}-skip`,
-            kind: "text",
-            body: "好的，我跳过命令执行。改动已经落盘，你可以稍后自行运行测试；需要我把验证步骤写进 `AGENTS.md` 吗？",
-          },
-        ]);
+        if (isNodeApproval) {
+          push({ tone: "warn", title: "已拒绝", body: "节点未通过审批，需返工。" });
+          setExtra((prev) => [
+            ...prev,
+            {
+              id: `${id}-reject`,
+              kind: "text",
+              body: "节点未通过审批，已触发定向返工。返工只重跑目标节点及其下游，已闭环证据不重复采集。",
+            },
+          ]);
+        } else {
+          push({ tone: "warn", title: "已拒绝命令", body: "代理将跳过该步骤继续。" });
+          setExtra((prev) => [
+            ...prev,
+            {
+              id: `${id}-skip`,
+              kind: "text",
+              body: "好的，我跳过命令执行。改动已经落盘，你可以稍后自行运行测试；需要我把验证步骤写进 `AGENTS.md` 吗？",
+            },
+          ]);
+        }
         return;
       }
+
+      if (isNodeApproval) {
+        /* 节点审批通过：推进 wfStep，推入后续事件 */
+        const nodeId = id.replace("node-approval-", "");
+        const nodeIndex = workflow.nodes.findIndex((n) => n.id === nodeId);
+        if (nodeIndex < 0) return;
+
+        push({
+          tone: "ok",
+          title: `「${workflow.nodes[nodeIndex].name}」已通过审批`,
+          body: `推进到下一节点${workflow.nodes[nodeIndex + 1] ? `「${workflow.nodes[nodeIndex + 1].name}」` : "（已完成）"}`,
+        });
+
+        /* 标记 checkpoint 为已判定 */
+        setExtra((prev) =>
+          prev.map((e) =>
+            e.kind === "checkpoint" && e.node === workflow.nodes[nodeIndex].name
+              ? { ...e, decided: "同意", decidedBy: accountById(currentAccountId, accounts)?.handle ?? "me" }
+              : e,
+          ),
+        );
+
+        /* 推进到下一节点 */
+        const nextIndex = nodeIndex + 1;
+        setWfStep(nextIndex);
+        setStreaming(true);
+
+        const tail = postApprovalEvents(workflow, nodeIndex, currentAccountId);
+        let delay = 600;
+        tail.forEach((ev, i) => {
+          const t = window.setTimeout(() => {
+            setExtra((prev) => [...prev, ev]);
+            /* 如果后续事件中有新的审批，设置 pendingApproval 并停止 streaming */
+            if (ev.kind === "approval") {
+              setPendingApproval(ev.id);
+              setStreaming(false);
+            }
+            if (i === tail.length - 1) {
+              setStreaming(false);
+            }
+          }, delay);
+          timers.current.push(t);
+          delay += 800;
+        });
+        return;
+      }
+
+      /* 原有 shell 命令审批逻辑 */
       push({ tone: "ok", title: "已批准", body: "在沙箱中执行命令…" });
       setStreaming(true);
       setInspectorTab("terminal");
@@ -523,7 +635,7 @@ export default function App() {
         delay += 900;
       });
     },
-    [push],
+    [push, workflow, currentAccountId],
   );
 
   const stop = useCallback(() => {
@@ -632,10 +744,14 @@ export default function App() {
   return (
     <div
       className="shell"
-      data-sidebar={sidebarOpen ? "open" : "closed"}
-      data-inspector={inspectorOpen ? "open" : "closed"}
+      data-sidebar={loggedIn ? (sidebarOpen ? "open" : "closed") : undefined}
+      data-inspector={loggedIn ? (inspectorOpen ? "open" : "closed") : undefined}
     >
       <div className="shell__glow" aria-hidden />
+      {!loggedIn ? (
+        <Login onLogin={switchAccount} />
+      ) : (
+        <div style={{ display: "contents" }}>
       <Rail
         theme={theme}
         onToggleTheme={toggleTheme}
@@ -645,7 +761,7 @@ export default function App() {
         onPane={(p) => setSettingsPane((cur) => (cur === p ? null : p))}
         accounts={accounts}
         currentAccountId={currentAccountId}
-        onSwitchAccount={switchAccount}
+        onLogout={logout}
       />
       <Sidebar
         sessions={sessionList}
@@ -764,6 +880,8 @@ export default function App() {
         />
       )}
       <Toasts items={toasts} />
+        </div>
+      )}
     </div>
   );
 }

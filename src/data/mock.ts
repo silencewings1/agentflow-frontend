@@ -18,44 +18,7 @@ export interface Session {
   workflow: string;
 }
 
-export const sessions: Session[] = [
-  {
-    id: "s-1",
-    title: "实现用户认证模块",
-    repo: "demo-app",
-    branch: "feat/auth",
-    state: "review",
-    time: "2 分钟前",
-    bucket: "今天",
-    diff: { added: 148, removed: 62, files: 5 },
-    turns: 7,
-    workflow: "wf-feature",
-  },
-  {
-    id: "s-2",
-    title: "修复登录超时未释放连接",
-    repo: "demo-app",
-    branch: "fix/conn-leak",
-    state: "running",
-    time: "刚刚",
-    bucket: "今天",
-    diff: { added: 12, removed: 8, files: 2 },
-    turns: 4,
-    workflow: "wf-bugfix",
-  },
-  {
-    id: "s-3",
-    title: "审核认证模块安全合规",
-    repo: "demo-app",
-    branch: "review/auth-audit",
-    state: "done",
-    time: "上午 10:24",
-    bucket: "今天",
-    diff: { added: 5, removed: 0, files: 1 },
-    turns: 3,
-    workflow: "wf-review",
-  },
-];
+export const sessions: Session[] = [];
 
 /* ---------------------------------- events --------------------------------- */
 

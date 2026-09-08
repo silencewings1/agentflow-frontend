@@ -3,6 +3,7 @@
 @import "./styles/settings.css";
 @import "./styles/workflow.css";
 @import "./styles/trust.css";
+@import "./styles/login.css";
 
 /* ============================================================
    AGENTFLOW — Shell layout, rail, sidebar, topbar
@@ -23,6 +24,10 @@
 
 .shell[data-inspector="closed"] {
   grid-template-columns: var(--rail) var(--sidebar) minmax(0, 1fr) 0px;
+}
+
+.shell[data-inspector="closed"] .inspector {
+  display: none;
 }
 
 .shell[data-sidebar="closed"][data-inspector="closed"] {
