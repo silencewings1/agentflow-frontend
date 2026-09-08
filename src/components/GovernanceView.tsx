@@ -107,6 +107,27 @@ function statusLabel(value: string | undefined): string {
   return value ? (taskLabels[value] ?? value) : "未声明";
 }
 
+const compilerCheckLabels: Record<string, string> = {
+  "schema-and-digest": "契约与摘要",
+  "template-and-governance": "模板与治理流程",
+  "capability-registry": "能力目录",
+  "path-command-allowlist": "路径与命令范围",
+  "permission-and-concurrency": "权限与并发",
+  budget: "预算限制",
+  "criterion-coverage": "完成判定覆盖",
+  "fail-target-closure": "失败回退目标",
+  "repository-baseline": "仓库基线",
+  "graph-termination": "流程图可终止性",
+};
+
+function compilerCheckReason(check: CompilationReportDto["checks"][number]): string {
+  if (check.checkId === "criterion-coverage" && check.outcome === "fail") {
+    return "存在必填完成判定没有绑定到当前 standard-code-change 模板。请使用平台标准判定，或先创建与该业务判定匹配的模板版本。";
+  }
+  if (check.reason === "") return check.outcome === "pass" ? "检查通过。" : "检查未通过。";
+  return check.reason;
+}
+
 function StatusPill({ value, tone }: { value: string | undefined; tone?: string }) {
   return <span className="govPill" data-tone={tone ?? value ?? "unknown"}>{statusLabel(value)}</span>;
 }
@@ -351,7 +372,7 @@ export function GovernanceView({
         </Section>
 
         <Section title="CompilationReport" kicker="确定性 Compiler">
-          {compilationReport ? <div className="govCard"><div className="govCard__title"><strong>{compilationReport.reportId}</strong><StatusPill value={compilationReport.outcome} tone={compilationReport.outcome === "pass" ? "ok" : "fail"} /></div><div className="govFacts"><Fact label="digest" value={shortDigest(compilationReport.reportDigest)} mono /><Fact label="created" value={dateLabel(compilationReport.createdAt)} /></div><ul className="govChecks">{compilationReport.checks.map((check) => <li key={check.checkId} data-outcome={check.outcome}><span>{check.checkId}</span><strong>{check.outcome}</strong><p>{check.reason}</p></li>)}</ul></div> : <p className="govEmpty">尚未产生 CompilationReport。</p>}
+          {compilationReport ? <div className="govCard"><div className="govCard__title"><strong>编译检查报告</strong><StatusPill value={compilationReport.outcome === "pass" ? "通过" : "拒绝"} tone={compilationReport.outcome === "pass" ? "ok" : "fail"} /></div><div className="govFacts"><Fact label="报告编号" value={compilationReport.reportId} mono /><Fact label="摘要" value={shortDigest(compilationReport.reportDigest)} mono /><Fact label="创建时间" value={dateLabel(compilationReport.createdAt)} /></div><ul className="govChecks">{compilationReport.checks.map((check) => <li key={check.checkId} data-outcome={check.outcome}><span>{compilerCheckLabels[check.checkId] ?? check.checkId}</span><strong>{check.outcome === "pass" ? "通过" : "失败"}</strong><p>{compilerCheckReason(check)}</p><small>{check.actual} · 期望：{check.expected}</small></li>)}</ul></div> : <p className="govEmpty">尚未产生编译检查报告。</p>}
         </Section>
 
         <Section title="Execution Plan 与 PlanDecision" kicker="人工责任边界">
