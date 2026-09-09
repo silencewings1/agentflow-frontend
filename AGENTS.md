@@ -432,7 +432,7 @@ border-color: color-mix(in oklab, var(--accent) 30%, var(--line));
 
 1. **每完成一个任务先提交代码。** 这是硬性要求。顺序固定：类型检查 → `npm run build` → `git add -A` → `git commit`。
 2. **提交信息按设计主张组织，而不是按文件组织。** 正文分条说明「实现了什么设计思想、通过什么载体」，让意图留在历史里。参考 `6401061`。
-3. 仓库当前只有本地 `master`，无远端，不要擅自添加 remote 或 push。
+3. 远端为 `origin` = `https://github.com/silencewings1/agentflow-frontend.git`；当前开发分支是 `codex/phase1.7-w7`，默认分支是 `master`。该远端实际只接受 SSH：配置里的 HTTPS 地址没有凭据，直接 `git push origin` 会报 `could not read Username`，需用 `git push git@github.com:silencewings1/agentflow-frontend.git <branch>`（或把 remote 改成 SSH 地址）。推送用当前分支，不擅自改 remote 或强推覆盖远端已有提交。
 4. 改动数据层时，同步检查所有消费方的类型（如给 `tint` 联合加成员前，先确认 CSS 是否已有对应映射；反之写 CSS 前先读联合的真实成员 —— 曾出现 CSS 写了 `plum` 但类型里没有的问题）。
 5. 用批量脚本改 CSS 时注意 `--` 前缀会被 perl 之类解析为运算符，优先用精确的查找替换而不是正则脚本。
 
