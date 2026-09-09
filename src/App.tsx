@@ -5,7 +5,7 @@ import {
   type Session,
   type Theme,
 } from "./data/mock";
-import { afApi, AfApiError, structuredToEvents, toUiBootstrap, toWorkflowDto } from "./api";
+import { afApi, AfApiError, normalizePlanPayload, structuredToEvents, toUiBootstrap, toWorkflowDto } from "./api";
 import { realInspectorBundle } from "./api/inspectorMapper";
 import { buildStageCards } from "./api/stageMapper";
 import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, ModelProvidersDto, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
@@ -1619,11 +1619,38 @@ export default function App() {
     Number.isFinite(lastActivityMs) &&
     nowMs - lastActivityMs > RUN_STALL_THRESHOLD_MS;
 
+  /* 必需验收项无法裁决时，任务永远不会走到 completed（完成守卫按 criterion
+     逐条判定）。此前这种状态只在「治理事实」里可见，动作条不给任何提示，
+     用户会反复点「批准并继续」却看不出为什么没进展。 */
+  const blockingCriteria = useMemo(() => {
+    const bindings = normalizePlanPayload(governance.plan?.payload)?.criterionBindings ?? [];
+    if (bindings.length === 0) return [];
+    const outcomeById = new Map(governance.assessments.map((assessment) => [assessment.criterionId, assessment]));
+    return bindings
+      .filter((binding) => binding.required !== false)
+      .flatMap((binding) => {
+        const criterionId = binding.criterionId;
+        if (criterionId === undefined) return [];
+        const assessment = outcomeById.get(criterionId);
+        if (assessment === undefined) return [];
+        /* pending / pending-human 是「尚未裁决」，不是失败：任务可能仍在推进，
+           此时提示会误导。只有已裁决为 fail/unavailable 才真正卡住收尾。 */
+        if (assessment.outcome !== "fail" && assessment.outcome !== "unavailable") return [];
+        return [{ criterionId, outcome: assessment.outcome, reason: assessment.reason }];
+      });
+  }, [governance.assessments, governance.plan]);
+
   /* 动作条右侧的后果说明：说清「为什么现在不能点 / 该点哪个」 */
   const govHint = (() => {
     if (taskRuntime?.status === "completed") return "任务已完成；交付物、门禁与证据已归档，可在「治理事实」中复核。";
     if (taskRuntime?.status === "cancelled") return "任务已取消；历史事实与审计轨迹保留，可归档或恢复显示。";
     if (taskRuntime?.status === "failed") return "任务已失败；失败原因与已通过的门禁结论保留在「治理事实」中。";
+    /* 验收项无法裁决优先于其他提示：这是任务无法收尾的真正原因。 */
+    if (blockingCriteria.length > 0 && !["completed", "cancelled"].includes(String(taskRuntime?.status))) {
+      const first = blockingCriteria[0]!;
+      const label = first.outcome === "unavailable" ? "无法裁决" : "未通过";
+      return `必需验收项「${first.criterionId}」${label}（${first.reason}）；任务不会进入已完成，请检查该项的验证器与证据。`;
+    }
     /* 人工检查点的提示必须说清「现在该点哪个按钮」，而不是笼统让人去澄清。
        远端写入是两步：先生成操作、再确认写入，最后才批准节点继续。 */
     if (awaitingNode) {
@@ -1643,7 +1670,8 @@ export default function App() {
     if (runActive) return "运行请求已提交，后台正在执行；请等待节点状态刷新后再操作。";
     return "";
   })();
-  const govHintTone = controlBlocked || runStalled || governance.compilationReport?.outcome === "rejected" ? "warn" : "info";
+  /* 验收项无法裁决是「任务卡住」的信号，用警示语气，不能混在普通信息里。 */
+  const govHintTone = blockingCriteria.length > 0 || controlBlocked || runStalled || governance.compilationReport?.outcome === "rejected" ? "warn" : "info";
 
   return (
     <div
