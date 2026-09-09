@@ -16,6 +16,41 @@ const gateGlyph: Record<GateState, "Check" | "Dot" | "X"> = {
   todo: "Dot",
 };
 
+/**
+ * 按节点聚合门禁记录，每个节点只保留最新一次结论。
+ *
+ * 门禁事实按 attempt 追加，同一节点返工/澄清重跑会有多条；界面要表达的是
+ * 「这道门禁现在过没过」，因此按 nodeId 收敛到最新一条。保持首次出现顺序，
+ * 让 pip 与工作流节点顺序一致。
+ *
+ * 优先用 rawGates（带 createdAt，可判新旧）；退回投影后的 gates 时按出现顺序
+ * 取最后一条（投影顺序即追加顺序）。
+ */
+function aggregateGatesByNode(
+  projected: TaskDetailDto["gates"],
+  raw: TaskDetailDto["rawGates"],
+): Array<{ gateId: string; nodeId: string; outcome: TaskDetailDto["gates"][number]["outcome"] }> {
+  const source: Array<{ gateId: string; nodeId: string; outcome: TaskDetailDto["gates"][number]["outcome"]; at: number }> =
+    raw && raw.length > 0
+      ? raw.map((gate) => ({ gateId: gate.gateId, nodeId: gate.nodeId, outcome: gate.outcome, at: Date.parse(gate.createdAt) || 0 }))
+      : projected.map((gate, index) => ({ gateId: gate.gateId, nodeId: gate.nodeId, outcome: gate.outcome, at: index }));
+
+  const latest = new Map<string, (typeof source)[number]>();
+  for (const gate of source) {
+    const current = latest.get(gate.nodeId);
+    if (current === undefined || gate.at >= current.at) latest.set(gate.nodeId, gate);
+  }
+  const ordered: Array<{ gateId: string; nodeId: string; outcome: (typeof source)[number]["outcome"] }> = [];
+  const seen = new Set<string>();
+  for (const gate of source) {
+    if (seen.has(gate.nodeId)) continue;
+    seen.add(gate.nodeId);
+    const winner = latest.get(gate.nodeId);
+    if (winner !== undefined) ordered.push({ gateId: winner.gateId, nodeId: winner.nodeId, outcome: winner.outcome });
+  }
+  return ordered;
+}
+
 export function TopBar({
   session,
   streaming,
@@ -42,9 +77,17 @@ export function TopBar({
   apiMode: "http" | "fixture";
   runtime: TaskDetailDto | null;
 }) {
-  /* 门禁进度：已通过节点数决定“这条任务走到哪一步可以被信任” */
+  /* 门禁轨按「门禁定义」聚合，而不是按 attempt 逐条展开。
+     runtime.gates 是按 attempt 记录的事实：同一节点返工或澄清后重跑会留下多条
+     记录（如 requirements 先 fail 再 pass）。逐条展开会把已修复的历史失败当成
+     当前状态，让已完成任务显示成受阻，并凭空多出 pip。这里按 nodeId 取最新结论。 */
   const gates: Array<{ id: string; index: string; name: string; state: GateState }> = runtime
-    ? runtime.gates.map((gate, index) => ({ id: gate.gateId, index: String(index + 1), name: gate.gateId, state: gate.outcome === "pass" ? "passed" : "blocked" }))
+    ? aggregateGatesByNode(runtime.gates, runtime.rawGates).map((gate, index) => ({
+        id: gate.gateId,
+        index: String(index + 1),
+        name: gate.nodeId,
+        state: gate.outcome === "pass" ? "passed" : gate.outcome === "fail" ? "blocked" : "todo",
+      }))
     : qualityGates;
   const passed = gates.filter((g) => g.state === "passed").length;
   const current = gates.find((g) => g.state === "active" || g.state === "blocked");

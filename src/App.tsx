@@ -191,7 +191,8 @@ const taskStatusLabels: Record<string, string> = {
   ready: "已就绪",
   queued: "排队中",
   running: "执行中",
-  yielded: "已让出",
+  yielded: "等待人工",
+  claimed: "执行中",
   blocked_unavailable: "能力不可用",
   needs_reconcile: "等待对账",
   compiler_rejected: "编译拒绝",
@@ -1533,6 +1534,9 @@ export default function App() {
      → PlanDecision → RunIntent。没有可做的动作时返回 null，而不是给一个假按钮。 */
   const primaryAction = useMemo((): { label: string; disabled: boolean; onClick: () => void } | null => {
     const disabled = govBusy !== null || runActive;
+    /* 终态任务没有「下一步治理动作」：留着禁用按钮只会让人以为漏点了什么。
+       返回 null，让动作条只保留状态与「治理事实」入口。 */
+    if (["completed", "cancelled", "failed"].includes(String(taskRuntime?.status))) return null;
     if (!governance.workSpec) return null;
     if (!governance.proposal) {
       return { label: govBusy === "proposal" ? "正在生成方案…" : "生成执行方案", disabled, onClick: () => void requestProposal() };
@@ -1581,13 +1585,15 @@ export default function App() {
 
   /* 动作条右侧的后果说明：说清「为什么现在不能点 / 该点哪个」 */
   const govHint = (() => {
+    if (taskRuntime?.status === "completed") return "任务已完成；交付物、门禁与证据已归档，可在「治理事实」中复核。";
+    if (taskRuntime?.status === "cancelled") return "任务已取消；历史事实与审计轨迹保留，可归档或恢复显示。";
+    if (taskRuntime?.status === "failed") return "任务已失败；失败原因与已通过的门禁结论保留在「治理事实」中。";
     if (!governance.workSpec) return "先完成任务契约（WorkSpec）冻结，服务端才会生成规划事实。";
     if (governance.compilationReport?.outcome === "rejected") return "Compiler 已拒绝当前 revision；请创建新 revision 修正 WorkSpec 后重新请求 Proposal。";
     if (controlBlocked) return `当前任务处于${taskStatusLabel(taskRuntime?.status)}，请先完成澄清、能力恢复或对账，暂不能开始执行。`;
     if (runStalled) return `超过 ${Math.round(RUN_STALL_THRESHOLD_MS / 1000)} 秒没有推进，可能在等待外部系统或已停滞。`;
     if (awaitingHuman) return "已停在人工检查点，等待你确认后继续推进。";
     if (runActive) return "运行请求已提交，后台正在执行；请等待节点状态刷新后再操作。";
-    if (governance.planDecision?.decision === "approved" && !primaryAction) return "计划已批准；任务可能已完成或已取消。";
     return "";
   })();
   const govHintTone = controlBlocked || runStalled || governance.compilationReport?.outcome === "rejected" ? "warn" : "info";
@@ -1662,9 +1668,6 @@ export default function App() {
             <div className="govBar">
               <div className="govBar__status">
                 <span className="govPill" data-tone={taskStatusTone(govStatus)}>{taskStatusLabel(govStatus)}</span>
-                {governance.runIntent && (
-                  <span className="govPill" data-tone="mode">run · {governance.runIntent.status}</span>
-                )}
                 {runActive && (
                   <span className="govBar__liveness" data-stalled={runStalled} data-waiting={awaitingHuman}>
                     {awaitingHuman ? "等待人工确认 · " : ""}最后活动 {lastActivityLabel}

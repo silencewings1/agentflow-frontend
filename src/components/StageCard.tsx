@@ -97,10 +97,10 @@ function outcomeTone(outcome: string): string {
 /* 不可用原因是后端枚举，这里给出中文说明 + 后果。未知原因也如实呈现，不吞掉。 */
 function unavailableReasonLabel(reason: TraceUnavailableReason | null): string {
   switch (reason) {
-    case "session-id-missing": return "该 attempt 未记录会话 ID";
-    case "session-log-not-found": return "未找到对应的 DSH 会话日志";
-    case "session-query-unavailable": return "当前服务未提供会话查询能力";
-    case "session-read-failed": return "会话日志读取失败";
+    case "session-id-missing": return "该节点尚未记录执行会话";
+    case "session-log-not-found": return "未找到该节点的执行记录";
+    case "session-query-unavailable": return "当前服务未提供执行记录查询能力";
+    case "session-read-failed": return "执行记录读取失败";
     default: return "原因未声明";
   }
 }
@@ -272,7 +272,7 @@ function TraceSection({ traceView }: { traceView: StageTraceView | undefined }) 
         <div className="stage__traceBody">
           <p className="stage__traceMeta mono">
             {toolCalls} 次工具调用 · {assistantTexts} 段模型输出
-            {trace.capturedThroughSeq === null ? "" : ` · 已读至 seq ${trace.capturedThroughSeq}`}
+            {trace.capturedThroughSeq === null ? "" : ` · 已同步至第 ${trace.capturedThroughSeq} 条`}
           </p>
           <ol className="stage__traceList">
             {events.map((event, index) => (
@@ -526,8 +526,10 @@ export function StageCard({
             <h4 className="kicker stage__label">证据引用</h4>
             <div className="stage__evidence">
               {evidenceRefs.map((ref, i) => (
-                <span className="evRef mono" key={safeText(ref) + "-" + String(i)}>
-                  {safeText(ref)}
+                /* 摘要只展示前 12 位：完整 sha256 在卡片里是噪音，需要核对时
+                   可到右侧证据链面板查看原值。 */
+                <span className="evRef mono" key={safeText(ref) + "-" + String(i)} title={safeText(ref)}>
+                  {shortDigest(safeText(ref))}
                 </span>
               ))}
             </div>

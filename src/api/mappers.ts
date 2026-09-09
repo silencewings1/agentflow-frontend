@@ -15,6 +15,7 @@ import type {
   TrajectoryEventDto,
   WorkflowDefinitionDto,
 } from "./types";
+import { nodeDisplayName } from "./nodeLabels.ts";
 
 const profileRole: Record<string, WfNode["role"]> = {
   "requirements-analyst": "requirement",
@@ -49,7 +50,7 @@ function toWorkflow(dto: WorkflowDefinitionDto): Workflow {
     const lane = lanes.get(col) ?? 0;
     lanes.set(col, lane + 1);
     const approval = node.kind === "approval" || dto.edges.some((edge) => edge.kind === "approve" && edge.to === node.nodeId);
-    return { id: node.nodeId, name: node.nodeId, role, col, lane, desc: node.outputSchemaVersion, gate: node.gatePolicy?.gateId, approval, kind: node.kind, agentProfileRef: node.agentProfileRef, skillRef: node.skillRef, outputSchemaVersion: node.outputSchemaVersion };
+    return { id: node.nodeId, name: nodeDisplayName(node.nodeId), role, col, lane, desc: node.outputSchemaVersion, gate: node.gatePolicy?.gateId, approval, kind: node.kind, agentProfileRef: node.agentProfileRef, skillRef: node.skillRef, outputSchemaVersion: node.outputSchemaVersion };
   });
   const edges: WfEdge[] = dto.edges.map((edge) => ({ id: edge.edgeId, from: edge.from, to: edge.to, kind: edge.kind, label: edge.label }));
   const presentation = dto.presentation;

@@ -11,6 +11,7 @@ import type {
   NodeRuntimeDto,
   TaskDetailDto,
 } from "./types";
+import { nodeDisplayName } from "./nodeLabels.ts";
 import type {
   StageCardModel,
   StageDiffFile,
@@ -543,7 +544,7 @@ export function buildStageCards(detail: TaskDetailDto | null, assessments: Crite
     const card: StageCardModel = {
       nodeId: node.nodeId,
       index,
-      name: node.nodeId,
+      name: nodeDisplayName(node.nodeId),
       role: ROLE_BY_KIND[kind],
       kind,
       schemaVersion,
