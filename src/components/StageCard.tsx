@@ -9,7 +9,7 @@
 import { useState } from "react";
 import { Icon } from "./Icons";
 import type { StageCardModel, StageStatus } from "../api/stageModel";
-import type { AttemptTraceDto, TraceEventDto, TraceUnavailableReason } from "../api/types";
+import type { AttemptTraceDto, SkillOutputDto, SkillOutputUnavailableReason, TraceEventDto, TraceUnavailableReason } from "../api/types";
 
 /** 执行诊断的受控展示态；由 App.tsx 持有并下传（组件内不存跨组件状态）。 */
 export interface StageTraceView {
@@ -18,6 +18,13 @@ export interface StageTraceView {
   error: { code: string; message: string } | null;
   /** 当前节点是否正在运行并被实时跟随（决定文案与是否提示「不再刷新」）。 */
   live: boolean;
+}
+
+/** Skill 逐条用例的受控展示态；与 StageTraceView 同构，由 App.tsx 持有。 */
+export interface StageSkillOutputView {
+  status: "idle" | "loading" | "ready" | "error";
+  output: SkillOutputDto | null;
+  error: { code: string; message: string } | null;
 }
 
 /* 只接受标量文本：结构化数据里可能混入对象/数组，直接渲染会得到 [object Object] */
@@ -103,6 +110,105 @@ function unavailableReasonLabel(reason: TraceUnavailableReason | null): string {
     case "session-read-failed": return "执行记录读取失败";
     default: return "原因未声明";
   }
+}
+
+/* 逐条用例不可用原因：与后端枚举一一对应，说明「为什么看不到」以及后果。 */
+function skillOutputReasonLabel(reason: SkillOutputUnavailableReason | null): string {
+  switch (reason) {
+    case "skill-ref-missing": return "该节点不是 Skill 执行节点";
+    case "evidence-ref-missing": return "该节点未记录证据引用";
+    case "evidence-not-found": return "证据内容已不可读取";
+    case "evidence-read-failed": return "证据内容读取失败";
+    case "output-unparseable": return "该次输出中没有可识别的用例";
+    default: return "原因未声明";
+  }
+}
+
+function caseStatusLabel(status: "pass" | "fail" | "skipped"): string {
+  switch (status) {
+    case "pass": return "通过";
+    case "fail": return "失败";
+    case "skipped": return "跳过";
+  }
+}
+
+/* 单条用例耗时：null 表示测试框架未上报，不补 0（0ms 与「未知」含义不同）。 */
+function caseDuration(value: number | null): string {
+  if (value === null) return "";
+  if (value >= 1000) return `${(value / 1000).toFixed(2)} s`;
+  return `${value < 1 ? value.toFixed(3) : value.toFixed(1)} ms`;
+}
+
+/* 逐条用例段：只在卡片展开时渲染。默认展开——这正是本功能要暴露的过程事实，
+   与「执行过程」的诊断轨迹不同，它是可逐条核验的测试结论。 */
+function SkillCasesSection({ view }: { view: StageSkillOutputView | undefined }) {
+  if (view === undefined) return null;
+
+  const { status, output, error } = view;
+  const cases = output?.cases ?? [];
+  const summary = output?.summary ?? null;
+  const available = output !== null && output.available;
+
+  const meta = (() => {
+    if (status === "loading" && output === null) return "正在读取…";
+    if (status === "error") return "读取失败";
+    if (output === null) return "暂无数据";
+    if (!output.available) return "不可用";
+    return `${cases.length} 条用例`;
+  })();
+
+  const honestState = status === "loading" && output === null
+    ? { tone: "loading", text: "正在读取逐条用例…", sub: "" }
+    : status === "error"
+      ? { tone: "error", text: `逐条用例读取失败 · ${error?.code ?? "AF_NETWORK_ERROR"}`, sub: `${error?.message ?? "无法连接 AF API"}；这是诊断通道的问题，不影响节点事实与门禁结论。` }
+      : output !== null && !output.available
+        ? { tone: "unavailable", text: `逐条用例不可用 · ${skillOutputReasonLabel(output.unavailableReason)}`, sub: "无法展示该次执行的逐条测试；节点的状态与门禁结论仍以上方事实为准。" }
+        : null;
+
+  return (
+    <section className="stage__section stage__cases" data-state={status}>
+      <div className="stage__traceHead">
+        <h4 className="kicker stage__label">测试用例</h4>
+        <span className="govPill stage__traceKind" data-tone="mode">诊断</span>
+        {summary !== null && available && (
+          <span className="stage__casesSummary mono">
+            {summary.pass !== null && <><span className="stage__traceUsageLabel">通过</span><span className="stage__traceUsageValue">{summary.pass}</span></>}
+            {summary.fail !== null && <><span className="stage__traceUsageLabel">失败</span><span className="stage__traceUsageValue">{summary.fail}</span></>}
+            {summary.skipped !== null && <><span className="stage__traceUsageLabel">跳过</span><span className="stage__traceUsageValue">{summary.skipped}</span></>}
+            {summary.durationMs !== null && <><span className="stage__traceUsageLabel">耗时</span><span className="stage__traceUsageValue">{caseDuration(summary.durationMs)}</span></>}
+          </span>
+        )}
+        {output?.truncated === true && (
+          <span className="govPill stage__traceTruncated" data-tone="warn">截断</span>
+        )}
+        <span className="stage__traceMeta mono">{meta}</span>
+      </div>
+
+      {honestState !== null && (
+        <div className="stage__traceState" data-tone={honestState.tone}>
+          <p>{honestState.text}</p>
+          {honestState.sub.length > 0 && <p className="stage__traceStateSub">{honestState.sub}</p>}
+        </div>
+      )}
+
+      {available && cases.length > 0 && (
+        <ol className="stage__caseList">
+          {cases.map((item, index) => (
+            <li className="stage__caseItem" data-status={item.status} key={`${item.name}-${String(index)}`}>
+              <span className="stage__caseMark" aria-hidden>{item.status === "pass" ? "✔" : item.status === "fail" ? "✖" : "﹣"}</span>
+              <span className="stage__caseName">{item.name}</span>
+              <span className="govPill stage__casePill" data-tone={item.status === "pass" ? "pass" : item.status === "fail" ? "fail" : "neutral"}>{caseStatusLabel(item.status)}</span>
+              {item.durationMs !== null && <span className="mono stage__caseMs">{caseDuration(item.durationMs)}</span>}
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {available && cases.length === 0 && (
+        <p className="stage__traceHint">该次输出没有逐条用例；汇总数字仍以上方为准。</p>
+      )}
+    </section>
+  );
 }
 
 /* 诊断事件的语义标签与语气；颜色只是辅助，文字必须自解释 */
@@ -290,12 +396,15 @@ export function StageCard({
   open,
   onToggle,
   trace,
+  skillOutput,
 }: {
   card: StageCardModel;
   open: boolean;
   onToggle: () => void;
   /** 执行诊断展示态（App.tsx 持有）；省略时整段不渲染。 */
   trace?: StageTraceView;
+  /** Skill 逐条用例展示态（App.tsx 持有）；省略时整段不渲染。 */
+  skillOutput?: StageSkillOutputView;
 }) {
   const facts = listOf(card.facts);
   const lists = listOf(card.lists);
@@ -348,6 +457,7 @@ export function StageCard({
 
       <div className="stage__body">
         <TraceSection traceView={trace} />
+        <SkillCasesSection view={skillOutput} />
 
         {summary.length > 0 && (
           <section className="stage__section">

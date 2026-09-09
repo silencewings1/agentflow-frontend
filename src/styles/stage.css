@@ -845,3 +845,85 @@
     grid-column: 1 / -1;
   }
 }
+
+/* ------------------------- Skill 逐条用例 -------------------------------- */
+/* 逐条用例是可核验的过程事实：等宽名 + 结论 pill + 耗时，一行一条，
+   窄视口下名称换行而不是整行横向滚动。 */
+
+.stage__casesSummary {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.stage__caseList {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.stage__caseItem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 0;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--line-strong);
+  border-radius: var(--r-xs);
+  background: var(--bg);
+}
+
+.stage__caseItem[data-status="pass"] {
+  border-left-color: var(--sage);
+}
+
+.stage__caseItem[data-status="fail"] {
+  border-left-color: var(--rose);
+  background: color-mix(in oklab, var(--rose) 6%, var(--surface-1));
+}
+
+.stage__caseItem[data-status="skipped"] {
+  border-left-color: var(--line-strong);
+  opacity: 0.75;
+}
+
+.stage__caseMark {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.stage__caseItem[data-status="pass"] .stage__caseMark {
+  color: var(--sage);
+}
+
+.stage__caseItem[data-status="fail"] .stage__caseMark {
+  color: var(--rose);
+}
+
+.stage__caseName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: var(--text-1);
+}
+
+.stage__casePill {
+  flex: none;
+}
+
+.stage__caseMs {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-3);
+}

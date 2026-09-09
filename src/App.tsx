@@ -8,8 +8,8 @@ import {
 import { afApi, AfApiError, normalizePlanPayload, structuredToEvents, toUiBootstrap, toWorkflowDto } from "./api";
 import { realInspectorBundle } from "./api/inspectorMapper";
 import { buildStageCards } from "./api/stageMapper";
-import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, ModelProvidersDto, NodeReviewFeedbackDto, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
-import type { StageTraceView } from "./components/StageCard";
+import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, ModelProvidersDto, NodeReviewFeedbackDto, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, SkillOutputDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
+import type { StageSkillOutputView, StageTraceView } from "./components/StageCard";
 import { conversationOf } from "./data/streams";
 import { inspectorOf } from "./data/inspector";
 import { Rail } from "./components/Rail";
@@ -237,6 +237,10 @@ const TERMINAL_TASK_STATES = new Set<TaskDetailDto["status"]>(["completed", "fai
 /* 单个节点的执行诊断展示态。attemptId 用于识别「卡片换了 attempt」需重新拉取。 */
 type TraceEntry = { attemptId: string; status: "loading" | "ready" | "error"; trace: AttemptTraceDto | null; error: { code: string; message: string } | null };
 
+/* 单个节点的 Skill 逐条用例展示态。与执行诊断同属只读通道，独立存放，
+   避免一条通道失败牵连另一条的展示。 */
+type SkillOutputEntry = { attemptId: string; status: "loading" | "ready" | "error"; output: SkillOutputDto | null; error: { code: string; message: string } | null };
+
 /* 运行活性：把 lastAdvanceAt 换算成中文相对时间。
    页面每 2 秒轮询一次并重渲染，这个值随轮询自然刷新，不需要额外定时器；
    缺失或不可解析时返回「未知」，绝不猜一个时间出来。 */
@@ -323,6 +327,8 @@ export default function App() {
   /* 执行诊断：按 nodeId 存放展示态。它是只读诊断通道，与治理状态严格分开；
      轮询只作用于当前运行中的节点，且任何定时器都不写任务事实。 */
   const [traces, setTraces] = useState<Record<string, TraceEntry>>({});
+  /* Skill 逐条用例：与执行诊断并列的只读展示态，按 nodeId 存放。 */
+  const [skillOutputs, setSkillOutputs] = useState<Record<string, SkillOutputEntry>>({});
   /* planPending 的同步镜像：acceptPlan 内紧接着要调 runTurn，
      而此时 setPlanPending(false) 尚未生效，闭包里读到的仍是旧值，
      会导致确认动作被误判为「又一轮修改意见」。用 ref 做同步判据。 */
@@ -338,6 +344,8 @@ export default function App() {
   const traceTimers = useRef<number[]>([]);
   /* 已按需拉取过的 task:node:attempt 组合；展开卡片只拉一次，去重防止重复请求 */
   const traceRequestedRef = useRef<Set<string>>(new Set());
+  /* Skill 逐条用例同样按需拉取一次；与 trace 分开去重，互不干扰。 */
+  const skillOutputRequestedRef = useRef<Set<string>>(new Set());
   const currentActiveRef = useRef("");
   const preferredActiveRef = useRef<string | null>(null);
 
@@ -488,6 +496,8 @@ export default function App() {
     /* 诊断态属于单条任务：切换任务必须清空，避免把上一条任务的轨迹带到新卡片上 */
     setTraces({});
     traceRequestedRef.current = new Set();
+    setSkillOutputs({});
+    skillOutputRequestedRef.current = new Set();
     void fetchTaskRuntime(activeId, controller.signal);
     void fetchGovernance(activeId, controller.signal);
     const interval = window.setInterval(() => {
@@ -580,6 +590,21 @@ export default function App() {
     }
   }, []);
 
+  /* --- Skill 逐条用例：只读拉取，绝不写任务状态 --------------------------
+     与执行诊断并列的第二条诊断通道。技能节点的 stdout 用例只在展开时按需拉取，
+     不参与 2 秒任务轮询，也不写任何治理事实。 */
+  const fetchSkillOutput = useCallback(async (taskId: string, nodeId: string, attemptId: string, signal?: AbortSignal) => {
+    try {
+      const output = await afApi.getSkillOutput(taskId, attemptId, signal);
+      if (signal?.aborted) return;
+      setSkillOutputs((prev) => ({ ...prev, [nodeId]: { attemptId, status: "ready", output, error: null } }));
+    } catch (error: unknown) {
+      if (signal?.aborted) return;
+      const failure = apiFailure(error, "无法读取逐条用例");
+      setSkillOutputs((prev) => ({ ...prev, [nodeId]: { attemptId, status: "error", output: null, error: { code: failure.code, message: failure.message } } }));
+    }
+  }, []);
+
   /* 当前唯一运行中的卡片：只有它会被轮询跟随。终态任务或没有 running 节点时为空，
      轮询随之停止——诊断通道的节奏必须跟着控制面，而不是自己空转。 */
   const runningCard = useMemo(
@@ -630,12 +655,34 @@ export default function App() {
     }
   }, [fetchTrace, openStages, runningNodeId, runningTaskId, stageCards]);
 
+  /* 逐条用例同样按需拉取一次：只对技能节点、只在展开时、只拉一次。
+     运行中的技能节点不在这里拉——它还没结束，stdout 尚不完整；
+     等它进入终态后用户展开卡片即可看到完整用例。 */
+  useEffect(() => {
+    if (!runningTaskId) return;
+    for (const card of stageCards) {
+      const attemptId = card.attemptId;
+      if (attemptId === undefined || card.kind !== "skill" || !openStages.has(card.nodeId)) continue;
+      const key = `${runningTaskId}:${card.nodeId}:${attemptId}`;
+      if (skillOutputRequestedRef.current.has(key)) continue;
+      skillOutputRequestedRef.current.add(key);
+      void fetchSkillOutput(runningTaskId, card.nodeId, attemptId);
+    }
+  }, [fetchSkillOutput, openStages, runningTaskId, stageCards]);
+
   /* 传给卡片的诊断视图：live 仅当该节点正是当前被轮询跟随的运行节点 */
   const traceOf = useCallback((nodeId: string): StageTraceView | undefined => {
     const entry = traces[nodeId];
     if (entry === undefined) return undefined;
     return { status: entry.status, trace: entry.trace, error: entry.error, live: runningNodeId === nodeId };
   }, [runningNodeId, traces]);
+
+  /* 传给卡片的逐条用例视图：无 live 概念，读取一次即定稿 */
+  const skillOutputOf = useCallback((nodeId: string): StageSkillOutputView | undefined => {
+    const entry = skillOutputs[nodeId];
+    if (entry === undefined) return undefined;
+    return { status: entry.status, output: entry.output, error: entry.error };
+  }, [skillOutputs]);
 
   /* 检查面板实际渲染的现场：http 模式是真实归一化结果，fixture 才是演示数据。
      两者必须用同一份，否则文件树与 diff 会各说各话。 */
@@ -1828,6 +1875,7 @@ export default function App() {
                 openIds={openStages}
                 onToggle={toggleStage}
                 traceOf={traceOf}
+                skillOutputOf={skillOutputOf}
                 factsOpen={factsOpen}
                 onToggleFacts={() => setFactsOpen((v) => !v)}
                 controlsOpen={controlsOpen}

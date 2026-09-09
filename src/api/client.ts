@@ -11,6 +11,7 @@ import type {
   AfTrajectoryDto,
   ApprovalQueryDto,
   AttemptTraceDto,
+  SkillOutputDto,
   ClarificationDecisionDto,
   CompilePlanInput,
   CompilePlanResultDto,
@@ -44,7 +45,7 @@ import type {
   WorkflowValidation,
   WorkflowVersion,
 } from "./types";
-import { normalizeAttemptTrace } from "./types";
+import { normalizeAttemptTrace, normalizeSkillOutput } from "./types";
 
 const FIXTURE_TIME = "2026-09-02T08:00:00.000Z";
 const FIXTURE_DIGEST = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
@@ -493,6 +494,11 @@ function fixtureClient(): AfApiClient {
     async getAttemptTrace(taskId, attemptId) {
       return { schemaVersion: 1, kind: "diagnostic", taskId, attemptId, nodeId: "", sessionId: null, available: false, unavailableReason: "session-log-not-found", capturedThroughSeq: null, truncated: false, usage: null, events: [] };
     },
+    /* fixture 没有真实 Skill 证据 store，不得伪造逐条用例；
+       显式声明不可用，让界面呈现与真实模式一致的降级态。 */
+    async getSkillOutput(taskId, attemptId) {
+      return { schemaVersion: 1, kind: "diagnostic", taskId, attemptId, nodeId: "", skillId: null, status: null, exitCode: null, startedAt: null, finishedAt: null, available: false, unavailableReason: "evidence-not-found", summary: null, cases: [], truncated: false };
+    },
     async listWorkSpecs(taskId) { return [ensureWorkSpec(taskId)]; },
     async getWorkSpec(taskId) { return ensureWorkSpec(taskId); },
     async saveWorkSpec(taskId, input) {
@@ -664,6 +670,12 @@ class HttpAfApiClient implements AfApiClient {
     return this.request<AttemptTraceDto>(`/tasks/${encodeURIComponent(taskId)}/attempts/${encodeURIComponent(attemptId)}/trace${query}`, undefined, signal).then(normalizeAttemptTrace).then((trace) => {
       if (trace === null) throw new AfApiError({ code: "AF_RESPONSE_INVALID", message: "AF API 返回的执行诊断不是可解析的 AttemptTrace", retryable: false });
       return trace;
+    });
+  }
+  getSkillOutput(taskId: string, attemptId: string, signal?: AbortSignal) {
+    return this.request<SkillOutputDto>(`/tasks/${encodeURIComponent(taskId)}/attempts/${encodeURIComponent(attemptId)}/skill-output`, undefined, signal).then(normalizeSkillOutput).then((output) => {
+      if (output === null) throw new AfApiError({ code: "AF_RESPONSE_INVALID", message: "AF API 返回的逐条用例不是可解析的 SkillOutput", retryable: false });
+      return output;
     });
   }
   listWorkSpecs(taskId: string, signal?: AbortSignal) { return this.request<WorkSpecDto[]>(`/tasks/${encodeURIComponent(taskId)}/work-specs`, undefined, signal); }

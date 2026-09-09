@@ -1098,6 +1098,130 @@ export function normalizeAttemptTrace(value: unknown): AttemptTraceDto | null {
   };
 }
 
+/* -------------------------------------------------------------------------
+ * Skill 逐条用例只读诊断（SkillOutputDto）
+ *
+ * 与执行诊断同属只读通道：`kind: 'diagnostic'`，不参与状态机、门禁、CAS/revision。
+ * 内容来自 Skill stdout，服务端已剥离工作区前缀并脱敏；前端只做形态校验，
+ * 拿不到就诚实降级，绝不补造用例。后端权威定义见
+ * packages/af/af-api/src/dto/skill-output.ts。
+ * ------------------------------------------------------------------------- */
+export type SkillOutputUnavailableReason =
+  | "skill-ref-missing"
+  | "evidence-ref-missing"
+  | "evidence-not-found"
+  | "evidence-read-failed"
+  | "output-unparseable";
+
+export interface SkillTestCaseDto {
+  name: string;
+  status: "pass" | "fail" | "skipped";
+  durationMs: number | null;
+}
+
+export interface SkillTestSummaryDto {
+  tests: number | null;
+  pass: number | null;
+  fail: number | null;
+  skipped: number | null;
+  durationMs: number | null;
+}
+
+export interface SkillOutputDto {
+  schemaVersion: 1;
+  /** 显式声明：诊断通道，非治理事实。 */
+  kind: "diagnostic";
+  taskId: string;
+  attemptId: string;
+  nodeId: string;
+  skillId: string | null;
+  status: string | null;
+  exitCode: number | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  available: boolean;
+  unavailableReason: SkillOutputUnavailableReason | null;
+  summary: SkillTestSummaryDto | null;
+  cases: SkillTestCaseDto[];
+  truncated: boolean;
+}
+
+const SKILL_OUTPUT_UNAVAILABLE_REASONS: readonly SkillOutputUnavailableReason[] = [
+  "skill-ref-missing",
+  "evidence-ref-missing",
+  "evidence-not-found",
+  "evidence-read-failed",
+  "output-unparseable",
+];
+
+function isSkillOutputUnavailableReason(value: unknown): value is SkillOutputUnavailableReason {
+  return typeof value === "string" && (SKILL_OUTPUT_UNAVAILABLE_REASONS as readonly string[]).includes(value);
+}
+
+function asSkillNullableCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function asSkillSummary(value: unknown): SkillTestSummaryDto | null {
+  const record = asPayloadRecord(value);
+  if (!record) return null;
+  return {
+    tests: asSkillNullableCount(record.tests),
+    pass: asSkillNullableCount(record.pass),
+    fail: asSkillNullableCount(record.fail),
+    skipped: asSkillNullableCount(record.skipped),
+    durationMs: asSkillNullableCount(record.durationMs),
+  };
+}
+
+/* 只接受三种已知状态；名称缺失或状态未知的条目被丢弃，不猜测语义 */
+function asSkillCase(value: unknown): SkillTestCaseDto | null {
+  const record = asPayloadRecord(value);
+  if (!record) return null;
+  const name = asTraceText(record.name);
+  if (name.length === 0) return null;
+  const status = record.status;
+  if (status !== "pass" && status !== "fail" && status !== "skipped") return null;
+  return { name, status, durationMs: asSkillNullableCount(record.durationMs) };
+}
+
+/**
+ * 归一化 SkillOutputDto；非对象、schemaVersion/kind 不符时返回 null。
+ * 不可用时 cases 恒为空，缺 reason 时退化为 `evidence-read-failed`。
+ */
+export function normalizeSkillOutput(value: unknown): SkillOutputDto | null {
+  const record = asPayloadRecord(value);
+  if (!record) return null;
+  if (record.schemaVersion !== 1 || record.kind !== "diagnostic") return null;
+  const available = record.available === true;
+  const unavailableReason: SkillOutputUnavailableReason | null = available
+    ? null
+    : (isSkillOutputUnavailableReason(record.unavailableReason) ? record.unavailableReason : "evidence-read-failed");
+  const skillId = typeof record.skillId === "string" ? record.skillId : null;
+  const status = typeof record.status === "string" ? record.status : null;
+  const startedAt = typeof record.startedAt === "string" ? record.startedAt : null;
+  const finishedAt = typeof record.finishedAt === "string" ? record.finishedAt : null;
+  return {
+    schemaVersion: 1,
+    kind: "diagnostic",
+    taskId: asTraceText(record.taskId),
+    attemptId: asTraceText(record.attemptId),
+    nodeId: asTraceText(record.nodeId),
+    skillId,
+    status,
+    exitCode: asSkillNullableCount(record.exitCode),
+    startedAt,
+    finishedAt,
+    available,
+    unavailableReason,
+    summary: available ? asSkillSummary(record.summary) : null,
+    cases: available && Array.isArray(record.cases)
+      ? record.cases.map(asSkillCase).filter((item): item is SkillTestCaseDto => item !== null)
+      : [],
+    truncated: record.truncated === true,
+  };
+}
+
 export interface ApproveResultDto { taskId: string; nodeId: string; state: TaskSummaryDto["state"]; revision: number; }
 export interface EvidenceMaterializationDto { evidenceMatrix: EvidenceMatrixDto; trustedDelivery: TrustedDeliveryDto; }
 
@@ -1122,6 +1246,8 @@ export interface AfApiClient {
   getTaskPatch(taskId: string, signal?: AbortSignal): Promise<TaskPatchDto>;
   /** 单个 attempt 的模型执行诊断轨迹（只读诊断，非治理事实）。 */
   getAttemptTrace(taskId: string, attemptId: string, window?: number, signal?: AbortSignal): Promise<AttemptTraceDto>;
+  /** 单个 Skill attempt 的逐条用例（只读诊断，非治理事实）。 */
+  getSkillOutput(taskId: string, attemptId: string, signal?: AbortSignal): Promise<SkillOutputDto>;
   listWorkSpecs(taskId: string, signal?: AbortSignal): Promise<WorkSpecDto[]>;
   getWorkSpec(taskId: string, revision?: number, signal?: AbortSignal): Promise<WorkSpecDto>;
   saveWorkSpec(taskId: string, input: WorkSpecDraftInput, signal?: AbortSignal): Promise<WorkSpecDto>;
