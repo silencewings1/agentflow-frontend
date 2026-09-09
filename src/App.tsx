@@ -1530,13 +1530,49 @@ export default function App() {
         ? "run"
         : null;
 
+  /* 停在人工检查点时，主按钮必须是「继续推进这件事」的那一个动作。
+     这些动作此前只存在于默认折叠的「控制面事实」里，用户根本找不到入口。 */
+  const awaitingNode = useMemo(
+    () => taskRuntime?.nodes.find((node) => node.status === "awaiting_approval") ?? null,
+    [taskRuntime],
+  );
+  const awaitingPreparedOperation = useMemo(() => {
+    const prepared = taskRuntime?.preparedDelivery;
+    if (!prepared) return null;
+    return taskRuntime?.gitOperations.find((operation) =>
+      operation.sourceRevision === prepared.sourceRevision &&
+      operation.changeSet.digest === prepared.changeSet.digest &&
+      operation.targetBranch === prepared.targetBranch,
+    ) ?? null;
+  }, [taskRuntime]);
+
   /* 下一步动作只出一个主按钮：顺序即治理链路 WorkSpec → Proposal → Compiler
-     → PlanDecision → RunIntent。没有可做的动作时返回 null，而不是给一个假按钮。 */
+     → PlanDecision → RunIntent → 人工检查点。没有可做的动作时返回 null。 */
   const primaryAction = useMemo((): { label: string; disabled: boolean; onClick: () => void } | null => {
     const disabled = govBusy !== null || runActive;
     /* 终态任务没有「下一步治理动作」：留着禁用按钮只会让人以为漏点了什么。
        返回 null，让动作条只保留状态与「治理事实」入口。 */
     if (["completed", "cancelled", "failed"].includes(String(taskRuntime?.status))) return null;
+    /* 人工检查点优先于运行推进：此时 RunIntent 已 yield，再点「开始执行任务」
+       既不会前进也说不清下一步该做什么。 */
+    if (awaitingNode) {
+      const isGitNode = awaitingNode.kind === "git";
+      if (isGitNode && taskRuntime?.preparedDelivery && awaitingPreparedOperation === null) {
+        return { label: planningOperation ? "正在准备远端写入…" : "准备远端写入操作", disabled: planningOperation, onClick: () => void planGitOperation() };
+      }
+      if (isGitNode && awaitingPreparedOperation && awaitingPreparedOperation.status !== "committed") {
+        return {
+          label: confirmingOperationId === awaitingPreparedOperation.operationId ? "确认中…" : "确认 MCP 功能分支写入",
+          disabled: confirmingOperationId === awaitingPreparedOperation.operationId,
+          onClick: () => void confirmGitOperation(awaitingPreparedOperation.operationId),
+        };
+      }
+      return {
+        label: approvingNodeId === awaitingNode.nodeId ? "批准并继续中…" : "批准并继续",
+        disabled: approvingNodeId === awaitingNode.nodeId,
+        onClick: () => void approveAndContinueTask(awaitingNode.nodeId),
+      };
+    }
     if (!governance.workSpec) return null;
     if (!governance.proposal) {
       return { label: govBusy === "proposal" ? "正在生成方案…" : "生成执行方案", disabled, onClick: () => void requestProposal() };
@@ -1556,7 +1592,7 @@ export default function App() {
       };
     }
     return null;
-  }, [compilePlan, controlBlocked, decidePlan, govBusy, governance.compilationReport, governance.plan, governance.planDecision, governance.proposal, governance.workSpec, requestProposal, runActive, startLiveTask, taskRuntime?.status]);
+  }, [approveAndContinueTask, approvingNodeId, awaitingNode, awaitingPreparedOperation, compilePlan, confirmGitOperation, confirmingOperationId, controlBlocked, decidePlan, govBusy, governance.compilationReport, governance.plan, governance.planDecision, governance.proposal, governance.workSpec, planGitOperation, planningOperation, requestProposal, runActive, startLiveTask, taskRuntime?.preparedDelivery, taskRuntime?.status]);
 
   /* 折叠事实被展开时，动作条的「治理事实」入口滚到它，一次点击到位 */
   const openFacts = useCallback(() => {
@@ -1588,11 +1624,22 @@ export default function App() {
     if (taskRuntime?.status === "completed") return "任务已完成；交付物、门禁与证据已归档，可在「治理事实」中复核。";
     if (taskRuntime?.status === "cancelled") return "任务已取消；历史事实与审计轨迹保留，可归档或恢复显示。";
     if (taskRuntime?.status === "failed") return "任务已失败；失败原因与已通过的门禁结论保留在「治理事实」中。";
+    /* 人工检查点的提示必须说清「现在该点哪个按钮」，而不是笼统让人去澄清。
+       远端写入是两步：先生成操作、再确认写入，最后才批准节点继续。 */
+    if (awaitingNode) {
+      const isGitNode = awaitingNode.kind === "git";
+      if (isGitNode && taskRuntime?.preparedDelivery && awaitingPreparedOperation === null) {
+        return "已停在交付检查点：先点右侧按钮生成远端写入操作，确认写入内容后再批准。";
+      }
+      if (isGitNode && awaitingPreparedOperation && awaitingPreparedOperation.status !== "committed") {
+        return "远端写入操作已生成，等待你确认；确认后远端才会真正创建功能分支。";
+      }
+      return `已停在人工检查点（${awaitingNode.nodeId}），确认无误后点右侧按钮继续推进。`;
+    }
     if (!governance.workSpec) return "先完成任务契约（WorkSpec）冻结，服务端才会生成规划事实。";
     if (governance.compilationReport?.outcome === "rejected") return "Compiler 已拒绝当前 revision；请创建新 revision 修正 WorkSpec 后重新请求 Proposal。";
     if (controlBlocked) return `当前任务处于${taskStatusLabel(taskRuntime?.status)}，请先完成澄清、能力恢复或对账，暂不能开始执行。`;
     if (runStalled) return `超过 ${Math.round(RUN_STALL_THRESHOLD_MS / 1000)} 秒没有推进，可能在等待外部系统或已停滞。`;
-    if (awaitingHuman) return "已停在人工检查点，等待你确认后继续推进。";
     if (runActive) return "运行请求已提交，后台正在执行；请等待节点状态刷新后再操作。";
     return "";
   })();
