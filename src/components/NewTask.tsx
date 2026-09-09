@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Icon } from "./Icons";
 import { WorkflowPicker } from "./Workflow";
 import { validateWorkflowGraph, workflowTemplates, type Workflow } from "../data/workflows";
+import { defaultTargetBranch } from "../data/branchNaming";
 import type { AgentEvent } from "../data/mock";
 import type { AgentProfileSummaryDto, ScmProviderDto, SkillSummaryDto, WorkflowValidation } from "../api";
 
@@ -33,6 +34,7 @@ export function NewTaskDialog({
   skills = [],
   scmProviders,
   onValidateWorkflow,
+  existingBranches = [],
 }: {
   onClose: () => void;
   onStart: (prompt: string, wf: Workflow, contract: AgentEvent, scm: NewTaskScmDraft) => Promise<void>;
@@ -42,6 +44,8 @@ export function NewTaskDialog({
   skills?: SkillSummaryDto[];
   scmProviders: ScmProviderDto[];
   onValidateWorkflow: (workflow: Workflow) => Promise<WorkflowValidation>;
+  /** 已知目标分支（含历史任务），用于默认分支名避开重名。 */
+  existingBranches?: string[];
 }) {
   /* 任务目标留空由用户填写：预填演示任务会让无关条目混进冻结后的 WorkSpec */
   const [prompt, setPrompt] = useState("");
@@ -50,7 +54,9 @@ export function NewTaskDialog({
   const provider = scmProviders.find((item) => item.mcpServerRef === serverRef);
   const [repositoryRef, setRepositoryRef] = useState(repositoryDefaultFor(initialProvider));
   const [baseBranch, setBaseBranch] = useState("main");
-  const [targetBranch, setTargetBranch] = useState("feat/agentflow-task");
+  /* 默认分支名在挂载时算一次：用户改动后不再被 props 变化覆盖。
+     useState 的惰性初始化正好保证「只生成一次」。 */
+  const [targetBranch, setTargetBranch] = useState(() => defaultTargetBranch(existingBranches));
   const [wf, setWf] = useState<Workflow>(workflows[0] ?? workflowTemplates[0]!);
   const [serverValidation, setServerValidation] = useState<WorkflowValidation | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -211,6 +217,7 @@ export function NewTaskDialog({
                 <label>
                   <span>目标功能分支</span>
                   <input value={targetBranch} onChange={(event) => setTargetBranch(event.target.value)} data-invalid={forbiddenTargetBranch || undefined} />
+                  <small>默认按「dev-用户-日期-序号」生成，可直接改写；不能是 main / master。</small>
                 </label>
                 <label className="scmForm__wide">
                   <span>凭据引用</span>

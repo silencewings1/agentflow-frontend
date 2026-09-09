@@ -1823,6 +1823,7 @@ export default function App() {
           skills={skillCatalog}
           scmProviders={scmProviders}
           onValidateWorkflow={validateWorkflow}
+          existingBranches={sessionList.map((session) => session.branch)}
         />
       )}
       <Toasts items={toasts} />
