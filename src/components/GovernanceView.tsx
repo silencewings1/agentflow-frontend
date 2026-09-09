@@ -6,6 +6,7 @@ import type {
   AttemptDetailDto,
   CriterionBinding,
   ClarificationAnswerDto,
+  NodeReviewFeedbackDto,
   CompilationReportDto,
   EvidenceMatrixDto,
   GateRef,
@@ -65,6 +66,12 @@ export interface GovernanceViewProps {
   onPlanDecision?: (decision: "approved" | "rejected") => void;
   onRun?: () => void;
   onAnswerRequirements?: (input: { sourceAttemptId: string; answers: ClarificationAnswerDto[]; reason: string }) => void;
+  /** 人工审阅：提意见或放行某个闸门节点。 */
+  onReviewNode?: (input: { reviewNodeId: string; targetNodeId: string; sourceAttemptId: string; decision: "revise" | "approve"; comment: string }) => void;
+  reviewFeedbacks?: NodeReviewFeedbackDto[];
+  reviewSubmitting?: boolean;
+  /** 等待人工审阅的闸门节点（App 从 taskRuntime.nodes 派生）。 */
+  reviewGates?: Array<{ nodeId: string }>;
   busyAction?: string | null;
 }
 
@@ -188,6 +195,92 @@ function RequirementsQuestionCard({ attempts, onAnswer, busy, apiMode, taskStatu
     const inferred = !blocking && (item.blocking === true || item.resolutionStatus === "inferred" || item.resolutionStatus === "assumed");
     return <article key={`${String(item.id ?? "question")}-${index}`} data-tone={blocking ? "warn" : "info"}><span className="govQuestions__badge">{blocking ? "需要确认" : inferred ? "可自动推断" : "说明"}</span><p>{question || "未提供问题文本"}</p>{blocking ? <textarea value={answers[index] ?? ""} onChange={(event) => setAnswers((current) => ({ ...current, [index]: event.target.value }))} placeholder="填写确认结果，例如：允许写入 feature/demo 分支" rows={2} /> : null}<small>{blocking ? "回答后会生成新的 WorkSpec revision；旧 attempt 保留为审计证据。" : "平台将按当前 WorkSpec 默认策略处理，不影响继续执行。"}</small></article>;
   })}{blockingQuestions.length > 0 && <div className="govQuestions__actions">{apiMode === "fixture" ? <p className="govHint govHint--warn">当前是 FIXTURE · TEST DOUBLE；回答不会写入治理事实，请切换到 HTTP AF API 后提交。</p> : <><label><span>本次确认说明</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="说明你确认了哪些边界，以及为什么" rows={2} /></label><button className="btn btn--accent btn--sm" disabled={!onAnswer || busy || !reason.trim() || blockingQuestions.some(({ index }) => !(answers[index] ?? "").trim())} onClick={() => onAnswer?.({ sourceAttemptId: attempt!.attemptId, answers: blockingQuestions.map(({ raw, index }) => { const item = raw as Record<string, unknown>; return { ...(typeof item.id === "string" ? { questionId: item.id } : {}), question: String(item.question ?? ""), answer: (answers[index] ?? "").trim(), ...(typeof item.category === "string" && ["external-write", "authorization", "acceptance-conflict", "scope", "security"].includes(item.category) ? { category: item.category as ClarificationAnswerDto["category"] } : {}) }; }), reason: reason.trim() })}>{busy ? "提交并创建新 revision…" : "回答并重新规划"}</button></>}</div>}</div>;
+}
+
+
+/**
+ * 人工审阅面板：闸门节点等待审批时，人对该节点产出提意见或放行。
+ *
+ * 与澄清卡片的区别：澄清是回答 AI 的提问、结果生成新 WorkSpec revision；
+ * 这里是人对产出表达意见、结果重跑该节点。两者可以先后发生。
+ */
+function NodeReviewCard({
+  gates, attempts, onReview, busy, apiMode, feedbacks,
+}: {
+  /** 等待人工审阅的闸门节点（由 App 从 taskRuntime.nodes 派生）。 */
+  gates: Array<{ nodeId: string }>;
+  attempts: AttemptDetailDto[];
+  onReview?: GovernanceViewProps["onReviewNode"];
+  busy?: boolean;
+  apiMode: "http" | "fixture";
+  feedbacks: NodeReviewFeedbackDto[];
+}) {
+  const [comments, setComments] = useState<Record<string, string>>({});
+  if (gates.length === 0) return null;
+  return (
+    <div className="govQuestions">
+      {gates.map((gate) => {
+        const history = feedbacks.filter((item) => item.reviewNodeId === gate.nodeId);
+        const targetNodeId = history[0]?.targetNodeId ?? gate.nodeId.replace(/-review$/, "");
+        const target = [...attempts].reverse().find((item) => item.nodeId === targetNodeId);
+        const sourceAttemptId = target?.attemptId ?? history[history.length - 1]?.sourceAttemptId ?? "";
+        const round = history.filter((item) => item.decision === "revise").length + 1;
+        const comment = comments[gate.nodeId] ?? "";
+        return (
+          <div key={gate.nodeId}>
+            <div className="govQuestions__head">
+              <strong>人工审阅 · {targetNodeId}</strong>
+              <span>审查产出后可直接提意见让它重跑，或确认通过推进流程。提意见不设次数上限。</span>
+            </div>
+            {history.length > 0 && (
+              <ol className="govReviewHistory">
+                {history.map((item) => (
+                  <li key={item.feedbackId} data-decision={item.decision}>
+                    <span className="mono">第 {item.round} 轮</span>
+                    <span className="govReviewHistory__decision">{item.decision === "revise" ? "要求修改" : "通过"}</span>
+                    {item.comment.length > 0 && <p>{item.comment}</p>}
+                  </li>
+                ))}
+              </ol>
+            )}
+            <article data-tone="warn">
+              <span className="govQuestions__badge">第 {round} 轮</span>
+              <p>{`待审阅：${targetNodeId}${target ? `（attempt ${target.attemptId}）` : ""}`}</p>
+              <textarea
+                value={comment}
+                onChange={(event) => setComments((current) => ({ ...current, [gate.nodeId]: event.target.value }))}
+                placeholder="写下你的修改意见，例如：回滚方案要覆盖数据迁移失败的情况"
+                rows={3}
+              />
+              <small>提意见会重跑 {targetNodeId} 及其下游；历史产出与尝试保留为审计证据。</small>
+            </article>
+            <div className="govQuestions__actions">
+              {apiMode === "fixture" ? (
+                <p className="govHint govHint--warn">当前是 FIXTURE · TEST DOUBLE；审阅不会写入治理事实，请切换到 HTTP AF API 后提交。</p>
+              ) : (
+                <>
+                  <button
+                    className="btn btn--outline btn--sm"
+                    disabled={!onReview || busy || comment.trim().length === 0 || sourceAttemptId.length === 0}
+                    onClick={() => onReview?.({ reviewNodeId: gate.nodeId, targetNodeId, sourceAttemptId, decision: "revise", comment: comment.trim() })}
+                  >
+                    {busy ? "提交中…" : "提交修改意见并重跑"}
+                  </button>
+                  <button
+                    className="btn btn--accent btn--sm"
+                    disabled={!onReview || busy || sourceAttemptId.length === 0}
+                    onClick={() => onReview?.({ reviewNodeId: gate.nodeId, targetNodeId, sourceAttemptId, decision: "approve", comment: "" })}
+                  >
+                    确认通过并推进
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function Section({ title, kicker, children, empty }: { title: string; kicker?: string; children: ReactNode; empty?: boolean }) {
@@ -461,6 +554,10 @@ export function GovernanceView({
   onPlanDecision,
   onRun,
   onAnswerRequirements,
+  onReviewNode,
+  reviewFeedbacks = [],
+  reviewSubmitting,
+  reviewGates = [],
   busyAction,
 }: GovernanceViewProps) {
   const effectiveRunMode = runMode ?? runIntent?.runMode;
@@ -506,6 +603,8 @@ export function GovernanceView({
 
       <RequirementsGateHint gates={gates} taskStatus={taskStatus ?? currentStatus} />
       <RequirementsQuestionCard attempts={attempts} onAnswer={onAnswerRequirements} busy={busyAction === "clarification"} apiMode={apiMode} taskStatus={taskStatus ?? currentStatus} />
+
+      <NodeReviewCard gates={reviewGates} attempts={attempts} onReview={onReviewNode} busy={reviewSubmitting === true} apiMode={apiMode} feedbacks={reviewFeedbacks} />
 
       <div className="govGrid">
         <Section title="WorkSpec" kicker="唯一入口">

@@ -23,6 +23,8 @@ import type {
   GitOperationDto,
   ModelProvidersDto,
   ModelProviderInfoDto,
+  NodeReviewFeedbackDto,
+  NodeReviewInput,
   PlanDecisionDto,
   PlanDecisionInput,
   PlanDto,
@@ -503,6 +505,11 @@ function fixtureClient(): AfApiClient {
     async applyRequirementsClarification() {
       throw new AfApiError({ code: "AF_CLARIFICATION_UNSUPPORTED", message: "fixture/test-double 不支持持久化需求澄清；请切换到 HTTP AF API。", retryable: false });
     },
+    /* fixture 没有真实闸门与多轮往返，显式声明不可用，绝不伪造审阅事实。 */
+    async reviewNode() {
+      throw new AfApiError({ code: "AF_REVIEW_UNSUPPORTED", message: "fixture/test-double 不支持人工审阅；请切换到 HTTP AF API。", retryable: false });
+    },
+    async listNodeReviewFeedbacks() { return []; },
     async requestSupervisor(taskId, kind, input) {
       taskOrThrow(taskId);
       if (kind === "initial-plan") ensureWorkSpec(taskId);
@@ -663,6 +670,8 @@ class HttpAfApiClient implements AfApiClient {
   getWorkSpec(taskId: string, revision?: number, signal?: AbortSignal) { return this.request<WorkSpecDto>(`/tasks/${encodeURIComponent(taskId)}/work-specs${revision === undefined ? "" : `/${revision}`}`, undefined, signal); }
   saveWorkSpec(taskId: string, input: WorkSpecDraftInput, signal?: AbortSignal) { return this.request<WorkSpecDto>(`/tasks/${encodeURIComponent(taskId)}/work-specs`, { method: "POST", body: JSON.stringify(input) }, signal); }
   applyRequirementsClarification(taskId: string, input: RequirementsClarificationInput, signal?: AbortSignal) { return this.request<ClarificationDecisionDto>(`/tasks/${encodeURIComponent(taskId)}/clarifications`, { method: "POST", body: JSON.stringify(input) }, signal); }
+  reviewNode(taskId: string, reviewNodeId: string, input: NodeReviewInput, signal?: AbortSignal) { return this.request<NodeReviewFeedbackDto>(`/tasks/${encodeURIComponent(taskId)}/nodes/${encodeURIComponent(reviewNodeId)}/review`, { method: "POST", body: JSON.stringify(input) }, signal); }
+  listNodeReviewFeedbacks(taskId: string, reviewNodeId?: string, signal?: AbortSignal) { return this.request<NodeReviewFeedbackDto[]>(reviewNodeId === undefined ? `/tasks/${encodeURIComponent(taskId)}/reviews` : `/tasks/${encodeURIComponent(taskId)}/nodes/${encodeURIComponent(reviewNodeId)}/reviews`, undefined, signal); }
   requestSupervisor(taskId: string, kind: "intake" | "initial-plan" | "context-brief" | "rework-advice" | "final-summary", input: Record<string, unknown>, signal?: AbortSignal) {
     // Initial-plan facts and digests are assembled by the AF API; never trust
     // browser-supplied inputSnapshot/catalog identities for this operation.

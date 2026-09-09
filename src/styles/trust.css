@@ -2498,3 +2498,13 @@
 @media (max-width: 900px) { .govGrid { grid-template-columns: minmax(0, 1fr); } .govView__head { display: grid; } .govView__badges { justify-content: flex-start; } }
 @media (max-width: 760px) { .govPreflight__groups { grid-template-columns: minmax(0, 1fr); } .govPreflight__groups section > p { min-height: 0; } .govSlots { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 560px) { .govForm__columns, .govReadOnly__grid, .govDelivery__digests { grid-template-columns: minmax(0, 1fr); } .govForm__actions { align-items: stretch; flex-direction: column; } .govStatusRail { overflow: auto; flex-wrap: nowrap; } }
+
+/* 人工审阅往返历史：每轮意见按时间顺序排列，用形态区分「要求修改 / 通过」，
+   不依赖颜色。 */
+.govReviewHistory { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
+.govReviewHistory li { display: grid; grid-template-columns: auto auto 1fr; gap: 4px 8px; align-items: baseline; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-xs); background: var(--surface-1); }
+.govReviewHistory li[data-decision="revise"] { border-left: 2px solid var(--gold); }
+.govReviewHistory li[data-decision="approve"] { border-left: 2px solid var(--sage); }
+.govReviewHistory li .mono { color: var(--text-3); font-size: 10px; }
+.govReviewHistory__decision { font-size: 11px; color: var(--text-2); }
+.govReviewHistory li p { grid-column: 1 / -1; margin: 0; color: var(--text-2); font-size: 11px; }

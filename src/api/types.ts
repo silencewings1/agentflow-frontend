@@ -286,6 +286,35 @@ export interface ClarificationDecisionDto {
   actor: string;
   createdAt: string;
 }
+
+/** 人工审阅反馈：人对某节点产出的意见（revise）或放行（approve）。 */
+export interface NodeReviewFeedbackDto {
+  schemaVersion: 1;
+  factType: "NodeReviewFeedback";
+  feedbackId: string;
+  taskId: string;
+  /** 闸门节点，如 requirements-review。 */
+  reviewNodeId: string;
+  /** 被审阅节点，如 requirements。 */
+  targetNodeId: string;
+  sourceAttemptId: string;
+  /** 该 targetNode 的第几轮审阅，服务端推导。 */
+  round: number;
+  decision: "revise" | "approve";
+  comment: string;
+  actor: string;
+  createdAt: string;
+}
+
+export interface NodeReviewInput {
+  schemaVersion: 1;
+  expectedRevision: number;
+  feedbackId: string;
+  decision: "revise" | "approve";
+  comment?: string;
+  sourceAttemptId: string;
+  targetNodeId?: string;
+}
 export type WorkSpecDraftInput = Omit<WorkSpecDto, "schemaVersion" | "workSpecId" | "workSpecRevision" | "taskId" | "workSpecDigest" | "createdAt" | "createdBy" | "payload" | "artifactRef"> & { schemaVersion?: 1; payload?: unknown; artifactRef?: WorkSpecArtifactRefDto | null; };
 
 /** Phase 1.7 Supervisor proposal and deterministic compilation facts. */
@@ -1097,6 +1126,9 @@ export interface AfApiClient {
   getWorkSpec(taskId: string, revision?: number, signal?: AbortSignal): Promise<WorkSpecDto>;
   saveWorkSpec(taskId: string, input: WorkSpecDraftInput, signal?: AbortSignal): Promise<WorkSpecDto>;
   applyRequirementsClarification(taskId: string, input: RequirementsClarificationInput, signal?: AbortSignal): Promise<ClarificationDecisionDto>;
+  /** 人工审阅一个闸门节点：提交修改意见或放行。 */
+  reviewNode(taskId: string, reviewNodeId: string, input: NodeReviewInput, signal?: AbortSignal): Promise<NodeReviewFeedbackDto>;
+  listNodeReviewFeedbacks(taskId: string, reviewNodeId?: string, signal?: AbortSignal): Promise<NodeReviewFeedbackDto[]>;
   requestSupervisor(taskId: string, kind: "intake" | "initial-plan" | "context-brief" | "rework-advice" | "final-summary", input: Record<string, unknown>, signal?: AbortSignal): Promise<{ supervisor: unknown; proposal?: ProposalDto | null; persistenceError?: AfErrorPayload | null }>;
   listProposals(taskId: string, signal?: AbortSignal): Promise<ProposalDto[]>;
   getProposal(taskId: string, proposalId: string, signal?: AbortSignal): Promise<ProposalDto>;

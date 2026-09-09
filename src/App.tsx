@@ -8,7 +8,7 @@ import {
 import { afApi, AfApiError, normalizePlanPayload, structuredToEvents, toUiBootstrap, toWorkflowDto } from "./api";
 import { realInspectorBundle } from "./api/inspectorMapper";
 import { buildStageCards } from "./api/stageMapper";
-import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, ModelProvidersDto, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
+import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, ModelProvidersDto, NodeReviewFeedbackDto, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
 import type { StageTraceView } from "./components/StageCard";
 import { conversationOf } from "./data/streams";
 import { inspectorOf } from "./data/inspector";
@@ -49,6 +49,8 @@ type GovernanceSnapshot = {
   evidenceMatrix: EvidenceMatrixDto | null;
   approvals: ApprovalQueryDto | null;
   trustedDelivery: TrustedDeliveryDto | null;
+  /** 人工审阅反馈（append-only，按轮次升序）。 */
+  reviewFeedbacks: NodeReviewFeedbackDto[];
   runMode?: RunMode;
   faultInjection?: FaultInjectionDto;
 };
@@ -284,13 +286,14 @@ export default function App() {
   const [patch, setPatch] = useState<TaskPatchDto | null>(null);
   const [runtimeLoad, setRuntimeLoad] = useState<RuntimeLoadState>({ status: "idle" });
   const [governanceLoad, setGovernanceLoad] = useState<GovernanceLoadState>({ status: "idle" });
-  const [governance, setGovernance] = useState<GovernanceSnapshot>({ workSpec: null, proposal: null, compilationReport: null, plan: null, planDecision: null, runIntent: null, assessments: [], evidenceMatrix: null, approvals: null, trustedDelivery: null });
+  const [governance, setGovernance] = useState<GovernanceSnapshot>({ workSpec: null, proposal: null, compilationReport: null, plan: null, planDecision: null, runIntent: null, assessments: [], evidenceMatrix: null, approvals: null, trustedDelivery: null, reviewFeedbacks: [] });
   const [workSpecDraft, setWorkSpecDraft] = useState<WorkSpecDraftInput | undefined>(undefined);
   const [workSpecRevisionEditing, setWorkSpecRevisionEditing] = useState(false);
   const [startingTaskId, setStartingTaskId] = useState<string | null>(null);
   const [approvingNodeId, setApprovingNodeId] = useState<string | null>(null);
   const [planningOperation, setPlanningOperation] = useState(false);
   const [clarificationSubmitting, setClarificationSubmitting] = useState(false);
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [confirmingOperationId, setConfirmingOperationId] = useState<string | null>(null);
   const [wfStep, setWfStep] = useState(1);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -433,7 +436,7 @@ export default function App() {
       // turn an unavailable API into an apparently empty task, which breaks
       // the trusted-display contract. Only facts that are legitimately not
       // generated yet use an explicit empty/null fallback.
-      const [workSpecs, proposals, reports, plans, decisions, runs, assessments, evidenceMatrix, approvals, trustedDelivery] = await Promise.all([
+      const [workSpecs, proposals, reports, plans, decisions, runs, assessments, evidenceMatrix, approvals, trustedDelivery, reviewFeedbacks] = await Promise.all([
         afApi.listWorkSpecs(taskId, signal),
         afApi.listProposals(taskId, signal),
         afApi.listCompilationReports(taskId, signal),
@@ -444,6 +447,7 @@ export default function App() {
         optional(() => afApi.getEvidenceMatrix(taskId, signal), null),
         optional(() => afApi.getApprovals(taskId, signal), null),
         optional(() => afApi.getTrustedDelivery(taskId, signal), null),
+        optional(() => afApi.listNodeReviewFeedbacks(taskId, undefined, signal), []),
       ]);
       const latest = <T,>(items: T[]): T | null => items.length ? items[items.length - 1]! : null;
       const currentWorkSpec = latest(workSpecs);
@@ -462,6 +466,7 @@ export default function App() {
         evidenceMatrix,
         approvals,
         trustedDelivery,
+        reviewFeedbacks,
       });
       setGovernanceLoad({ status: "ready" });
     } catch (error: unknown) {
@@ -1475,6 +1480,51 @@ export default function App() {
     }
   }, [activeId, fetchGovernance, fetchTaskRuntime, governance.workSpec, push, taskRuntime?.revision]);
 
+  /**
+   * 人工审阅一个闸门节点：提修改意见（revise）或放行（approve）。
+   *
+   * revise 后目标节点及下游会被重置，需要再触发一次 continue 才会重跑——
+   * 这一点在提示文案里说明，避免用户以为点了没反应。
+   */
+  const reviewNode = useCallback(async (input: { reviewNodeId: string; targetNodeId: string; sourceAttemptId: string; decision: "revise" | "approve"; comment: string }) => {
+    if (!activeId) return;
+    if (afApi.mode === "fixture") {
+      push({ tone: "warn", title: "Fixture 模式不支持人工审阅", body: "意见未写入治理事实；请切换到 HTTP AF API 后重试。" });
+      return;
+    }
+    const expectedRevision = taskRuntime?.revision;
+    if (expectedRevision === undefined) {
+      push({ tone: "warn", title: "无法提交审阅", body: "当前任务 revision 尚未加载完成，请刷新后重试。" });
+      return;
+    }
+    setReviewSubmitting(true);
+    try {
+      setGovernanceLoad({ status: "loading" });
+      await afApi.reviewNode(activeId, input.reviewNodeId, {
+        schemaVersion: 1,
+        expectedRevision,
+        feedbackId: `${activeId}:review:${input.reviewNodeId}:${Date.now()}`,
+        decision: input.decision,
+        ...(input.decision === "revise" ? { comment: input.comment } : {}),
+        sourceAttemptId: input.sourceAttemptId,
+        targetNodeId: input.targetNodeId,
+      });
+      /* 两种决定都需要显式唤醒 runner：revise 后目标节点被重置，approve 后闸门
+         变为 ready，但都不会自己触发推进。不唤醒的话任务会停在原地不动。 */
+      await afApi.continueTask(activeId, undefined, taskRuntime?.runMode ?? "real", taskRuntime?.faultInjection).catch(() => {});
+      await Promise.all([fetchGovernance(activeId), fetchTaskRuntime(activeId)]);
+      push(input.decision === "revise"
+        ? { tone: "ok", title: "意见已留痕，节点将按意见重跑", body: "历史产出与尝试保留为审计证据。" }
+        : { tone: "ok", title: "已放行", body: `${input.targetNodeId} 的产出已通过人工审阅，流程继续推进。` });
+    } catch (error: unknown) {
+      const failure = apiFailure(error, "无法提交人工审阅");
+      setGovernanceLoad({ status: "error", ...failure });
+      push({ tone: "warn", title: "审阅提交失败", body: `${failure.code} · ${failure.message}` });
+    } finally {
+      setReviewSubmitting(false);
+    }
+  }, [activeId, fetchGovernance, fetchTaskRuntime, push, taskRuntime]);
+
   const requestProposal = useCallback(async () => {
     if (!activeId || !governance.workSpec) return;
     try {
@@ -1532,6 +1582,15 @@ export default function App() {
 
   /* 停在人工检查点时，主按钮必须是「继续推进这件事」的那一个动作。
      这些动作此前只存在于默认折叠的「控制面事实」里，用户根本找不到入口。 */
+  /* 等待人工审阅的闸门节点：只有 kind=approval 且状态为 awaiting_approval 的才
+     是审阅闸门（远端写入闸门也符合该状态，但它由 govBar 的写入流程处理，
+     这里通过「节点名以 -review 结尾」区分，避免两套入口互相干扰）。 */
+  const reviewGates = useMemo(
+    () => (taskRuntime?.nodes ?? [])
+      .filter((node) => node.status === "awaiting_approval" && node.kind === "approval" && node.nodeId.endsWith("-review"))
+      .map((node) => ({ nodeId: node.nodeId })),
+    [taskRuntime],
+  );
   const awaitingNode = useMemo(
     () => taskRuntime?.nodes.find((node) => node.status === "awaiting_approval") ?? null,
     [taskRuntime],
@@ -1802,6 +1861,10 @@ export default function App() {
                     onPlanDecision={(decision) => void decidePlan(decision)}
                     onRun={() => void startLiveTask()}
                     onAnswerRequirements={(input) => void answerRequirements(input)}
+                    onReviewNode={(input) => void reviewNode(input)}
+                    reviewFeedbacks={governance.reviewFeedbacks}
+                    reviewSubmitting={reviewSubmitting}
+                    reviewGates={reviewGates}
                     busyAction={govBusy}
                   />
                 ) : null}
@@ -1893,7 +1956,9 @@ export default function App() {
           onClose={() => setNewTaskOpen(false)}
           onStart={startTask}
           onToast={push}
-          workflows={workflowCatalog}
+          /* 决策 4：新建任务只允许 v3（含人工审阅闸门）。历史任务仍按各自
+             锁定的版本在会话里展示，所以这里只过滤「新建」用的列表。 */
+          workflows={workflowCatalog.filter((item) => item.id !== "standard-code-change" || (item.workflowVersion ?? 1) >= 3)}
           profiles={agentProfiles}
           skills={skillCatalog}
           scmProviders={scmProviders}
