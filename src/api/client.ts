@@ -72,7 +72,7 @@ function fixtureTaskSummary(task: import("../data/mock").Session): TaskSummaryDt
     workflowId: task.workflow,
     workflowVersion: 1,
     nodeSpecDigest: FIXTURE_DIGEST,
-    executorMode: "demo-deterministic",
+    executorMode: "fresh-spawn",
     runMode: "fixture/test-double",
     createdAt: FIXTURE_TIME,
     updatedAt: FIXTURE_TIME,
@@ -151,7 +151,7 @@ function standardCodeChangeWorkflow(): WorkflowDefinitionDto {
 function fixtureBootstrap(tasks: TaskSummaryDto[] = sessions.map(fixtureTaskSummary)): AfBootstrapDto {
   return {
     contractVersion: "1.0",
-    executorMode: "demo-deterministic",
+    executorMode: "fresh-spawn",
     runMode: "fixture/test-double",
     tasks,
     workflows: [standardCodeChangeWorkflow(), ...workflowTemplates.map(toWorkflowDto)],
@@ -219,7 +219,7 @@ function fixtureDetail(task: TaskSummaryDto, bootstrap: AfBootstrapDto): TaskDet
     nodeId: node.nodeId,
     kind: node.kind,
     status: (terminal || index < activeIndex ? "accepted" : index === activeIndex ? failed ? "rejected" : review && node.kind === "git" ? "awaiting_approval" : "running" : "pending") as TaskDetailDto["nodes"][number]["status"],
-    ...(index <= activeIndex ? { attemptId: `${task.taskId}.${node.nodeId}.r1`, inputDigest: FIXTURE_DIGEST, executorMode: "demo-deterministic" as const } : {}),
+    ...(index <= activeIndex ? { attemptId: `${task.taskId}.${node.nodeId}.r1`, inputDigest: FIXTURE_DIGEST, executorMode: "fresh-spawn" as const } : {}),
     ...(node.agentProfileRef ? { agentProfileRef: node.agentProfileRef, provider: "fixture", model: "fixture-deterministic" } : {}),
     ...(node.skillRef ? { skillRef: node.skillRef } : {}),
     evidenceRefs: index <= activeIndex ? [`evidence://fixture/${task.taskId}/${node.nodeId}`] : [],
@@ -253,7 +253,7 @@ function fixtureDetail(task: TaskSummaryDto, bootstrap: AfBootstrapDto): TaskDet
     taskId: task.taskId,
     title: task.title,
     status: task.state,
-    executorMode: "demo-deterministic",
+    executorMode: "fresh-spawn",
     runMode: "fixture/test-double",
     repositoryRef: task.repositoryRef,
     baseBranch: "main",
@@ -444,7 +444,7 @@ function fixtureClient(): AfApiClient {
     },
     async createTask(input) {
       const taskId = `fixture-${Date.now()}`;
-      tasks.unshift({ taskId, title: input.title, repositoryRef: input.repositoryRef, baseBranch: input.baseBranch, targetBranch: input.targetBranch, provider: input.provider ?? "github", mcpServerRef: input.mcpServerRef ?? "github-official", state: "created", blockedReason: null, workflowId: input.workflowId, workflowVersion: input.workflowVersion, nodeSpecDigest: FIXTURE_DIGEST, executorMode: "demo-deterministic", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), revision: 1 });
+      tasks.unshift({ taskId, title: input.title, repositoryRef: input.repositoryRef, baseBranch: input.baseBranch, targetBranch: input.targetBranch, provider: input.provider ?? "github", mcpServerRef: input.mcpServerRef ?? "github-official", state: "created", blockedReason: null, workflowId: input.workflowId, workflowVersion: input.workflowVersion, nodeSpecDigest: FIXTURE_DIGEST, executorMode: "fresh-spawn", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), revision: 1 });
       return { taskId };
     },
     async startTask(taskId) {

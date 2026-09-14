@@ -281,7 +281,7 @@ export default function App() {
   const [agentProfiles, setAgentProfiles] = useState<AgentProfileSummaryDto[]>([]);
   const [skillCatalog, setSkillCatalog] = useState<SkillSummaryDto[]>([]);
   const [scmProviders, setScmProviders] = useState<ScmProviderDto[]>([]);
-  const [executorMode, setExecutorMode] = useState<ExecutorMode>("demo-deterministic");
+  const [executorMode, setExecutorMode] = useState<ExecutorMode>("fresh-spawn");
   const [apiLoad, setApiLoad] = useState<ApiLoadState>({ status: "loading" });
   const [taskRuntime, setTaskRuntime] = useState<TaskDetailDto | null>(null);
   const [trajectory, setTrajectory] = useState<TrajectoryEventDto[]>([]);

@@ -1,4 +1,4 @@
-export type ExecutorMode = "fresh-spawn" | "demo-deterministic";
+export type ExecutorMode = "fresh-spawn" | "fresh-spawn";
 export type RunMode = "real" | "rehearsal-real" | "fault-injection" | "fixture/test-double";
 export interface FaultInjectionDto { kind: string; label?: string; appliedAt?: string; }
 export type TaskState = "created" | "draft" | "planning" | "awaiting_plan_approval" | "ready" | "queued" | "running" | "blocked_unavailable" | "needs_reconcile" | "compiler_rejected" | "stale" | "awaiting_human" | "completed" | "failed" | "cancelled";
