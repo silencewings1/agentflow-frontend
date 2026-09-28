@@ -10,9 +10,12 @@ export default defineConfig({
     port: 5176,
     strictPort: true,
     host: true,
-    // 开发时把 AF API 请求转发给正式 W9 后端（dsh web 3080），避免浏览器 CORS。
+    // 开发时把 AF API 请求转发给后端，避免浏览器 CORS。
+    // 默认指向正式 W9 后端（dsh web 3080），与既有行为一致；
+    // 需要指向其它后端时设置 AF_BACKEND_URL，例如隔离形态的 http://127.0.0.1:5090
+    // （scripts/start-af-isolated.sh 会自动注入该变量）。
     proxy: {
-      '/api/af': 'http://127.0.0.1:3080',
+      '/api/af': process.env.AF_BACKEND_URL ?? 'http://127.0.0.1:3080',
     },
   },
   preview: {
