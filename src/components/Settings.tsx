@@ -3,23 +3,11 @@ import { Icon, type IconName } from "./Icons";
 import {
   archLayers,
   callSteps,
-  cloudEnvStateLabel,
-  cloudEnvs,
-  connKindLabel,
-  connPolicies,
-  connStateLabel,
-  connections,
-  envVars,
   evidenceChain,
-  permTierLabel,
   permTiers,
   qualityGates,
-  replaySteps,
   reworkRoutes,
-  sandboxLimits,
-  sandboxToggles,
   type ArchLayer,
-  type Connection,
 } from "../data/settings";
 import {
   AfApiError,
@@ -29,6 +17,8 @@ import {
   type ModelProviderInputDto,
   type ModelProvidersDto,
   type ModelProviderTestResultDto,
+  type ConnectionLayerDto,
+  type EnvironmentDto,
 } from "../api";
 
 export type SettingsPane = "arch" | "agents" | "models" | "connect" | "env";
@@ -45,6 +35,8 @@ export interface ArchRuntime {
   eventCount: number;
   streaming: boolean;
   awaitingApproval: boolean;
+  /** 服务端实际执行器模式；缺省表示尚未读到任务事实。 */
+  executorMode?: string;
 }
 
 const PANES: { id: SettingsPane; label: string; glyph: IconName; desc: string }[] = [
@@ -76,7 +68,7 @@ const PANES: { id: SettingsPane; label: string; glyph: IconName; desc: string }[
     id: "env",
     label: "环境配置",
     glyph: "Cloud",
-    desc: "云环境规格与沙箱运行策略、资源上限、环境变量。",
+    desc: "执行环境事实：执行器模式、工作目录隔离策略、命令超时与工具策略面。",
   },
 ];
 
@@ -94,6 +86,11 @@ export function SettingsOverlay({
   onSaveModelProvider,
   onDeleteModelProvider,
   onTestModelProvider,
+  connectionLayer,
+  connectionLayerError,
+  environment,
+  environmentError,
+  onRefreshPosture,
 }: {
   pane: SettingsPane;
   onPane: (p: SettingsPane) => void;
@@ -109,6 +106,11 @@ export function SettingsOverlay({
   onSaveModelProvider: (input: ModelProviderInputDto, mode: "create" | "update") => Promise<void>;
   onDeleteModelProvider: (id: string) => Promise<void>;
   onTestModelProvider: (id: string, modelId: string) => Promise<ModelProviderTestResultDto>;
+  connectionLayer: ConnectionLayerDto | null;
+  connectionLayerError: string | null;
+  environment: EnvironmentDto | null;
+  environmentError: string | null;
+  onRefreshPosture: () => Promise<void>;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -166,7 +168,7 @@ export function SettingsOverlay({
 
           <div className="sheet__body" key={pane}>
             {pane === "arch" && (
-              <ArchPane onToast={onToast} runtime={runtime} onJump={onJump} profileCount={agentProfiles.length} />
+              <ArchPane onToast={onToast} runtime={runtime} onJump={onJump} profileCount={agentProfiles.length} link={connectionLayer} />
             )}
             {pane === "agents" && <AgentsPane onToast={onToast} profiles={agentProfiles} />}
             {pane === "models" && (
@@ -180,8 +182,12 @@ export function SettingsOverlay({
                 onTest={onTestModelProvider}
               />
             )}
-            {pane === "connect" && <ConnectPane onToast={onToast} />}
-            {pane === "env" && <EnvPane onToast={onToast} />}
+            {pane === "connect" && (
+              <ConnectPane link={connectionLayer} error={connectionLayerError} onRefresh={onRefreshPosture} />
+            )}
+            {pane === "env" && (
+              <EnvPane env={environment} error={environmentError} onRefresh={onRefreshPosture} />
+            )}
           </div>
         </div>
       </section>
@@ -227,11 +233,18 @@ const toneLabel: Record<LayerTone, string> = {
   idle: "未开始",
 };
 
-function deriveLayerLive(runtime: ArchRuntime, profileCount: number): Record<string, LayerLive> {
-  /* L3：受控连接层的裁决记录在回放里 —— 调用次数与被拒次数都是审计事实 */
-  const calls = replaySteps.filter((s) => s.tier !== "—").length;
-  const denied = replaySteps.filter((s) => s.result === "denied").length;
-  const pausedConn = connections.filter((c) => c.state !== "linked").length;
+function deriveLayerLive(
+  runtime: ArchRuntime,
+  profileCount: number,
+  link: ConnectionLayerDto | null,
+): Record<string, LayerLive> {
+  /* L3：受控连接层。这里只陈述**服务端事实**——登记了几个连接、几个档案被禁止
+     直写外部。此前用演示回放步数拼出「本次运行 N 次受控调用」，那是把 fixture
+     当成了运行时读数；af-api 没有调用遥测，故不再这样表述。 */
+  const connectionCount = link?.scmConnections.length ?? 0;
+  const availableConnections = link?.scmConnections.filter((c) => c.available).length ?? 0;
+  const directWriteProfiles = link?.profilesAllowingExternalWrite ?? 0;
+  const uncontrolled = directWriteProfiles > 0;
 
   /* L4：门禁由确定性程序裁决，证据链决定结论能否被核验 */
   const blocking = qualityGates.find((g) => g.state === "blocked");
@@ -242,9 +255,10 @@ function deriveLayerLive(runtime: ArchRuntime, profileCount: number): Record<str
   const evRequired = evidenceChain.filter((e) => e.required).length;
 
   /* L5：人工检查层只认「谁在等谁」 */
-  const waiting = replaySteps.filter((s) => s.result === "wait").length;
+  /* L5：人工检查层只认「谁在等谁」。这里不再用演示回放的步数充数——
+     待决策数由任务事实（awaitingApproval）给出，界面不编造审计计数。 */
+  const waiting = runtime.awaitingApproval ? 1 : 0;
   const approvalEv = evidenceChain.find((e) => e.kind === "approval");
-  const env = cloudEnvs.find((e) => e.active);
 
   return {
     "l-biz": {
@@ -252,7 +266,7 @@ function deriveLayerLive(runtime: ArchRuntime, profileCount: number): Record<str
       headline: `「${runtime.workflowName}」推进至第 ${Math.min(runtime.wfStep + 1, runtime.wfTotal)} / ${runtime.wfTotal} 个节点`,
       metrics: [
         { label: "当前节点", value: runtime.currentNode || "—" },
-        { label: "运行环境", value: env ? env.name : "未指派" },
+        { label: "执行器", value: runtime.executorMode ?? "未声明" },
       ],
       jump: "workflow",
       jumpLabel: "查看编排进度",
@@ -271,14 +285,15 @@ function deriveLayerLive(runtime: ArchRuntime, profileCount: number): Record<str
       jumpLabel: "查看智能体职责",
     },
     "l-conn": {
-      tone: denied > 0 ? "rose" : pausedConn > 0 ? "gold" : "sage",
-      headline:
-        denied > 0
-          ? `本次运行 ${calls} 次受控调用 · ${denied} 次被拒绝`
-          : `本次运行 ${calls} 次受控调用 · 全部通过校验`,
+      tone: uncontrolled ? "gold" : connectionCount === 0 ? "gold" : "sage",
+      headline: uncontrolled
+        ? `模板态 · ${connectionCount} 个已登记连接，但存在可直接写外部的档案`
+        : connectionCount === 0
+          ? "模板态 · 服务端未登记任何外部连接，Git 写入无可用通道"
+          : `模板态 · ${availableConnections}/${connectionCount} 个外部连接可用`,
       metrics: [
-        { label: "高风险调用", value: `${replaySteps.filter((s) => s.tier === "highrisk").length} 次` },
-        { label: "非正常连接", value: `${pausedConn} 个` },
+        { label: "已登记连接", value: `${connectionCount} 个` },
+        { label: "权限上限档案", value: `${profileCount} 份` },
       ],
       jump: "replay",
       jumpLabel: "按步查证调用",
@@ -320,16 +335,18 @@ function ArchPane({
   runtime,
   onJump,
   profileCount,
+  link,
 }: {
   onToast: Toast;
   runtime: ArchRuntime;
   onJump: (target: ArchJump) => void;
   /* 服务端登记的档案数：架构图的「调度池规模」必须是可核验的事实 */
   profileCount: number;
+  link: ConnectionLayerDto | null;
 }) {
   const [active, setActive] = useState<string>(archLayers[1].id);
   const layer = archLayers.find((l) => l.id === active) ?? archLayers[0];
-  const live = useMemo(() => deriveLayerLive(runtime, profileCount), [runtime, profileCount]);
+  const live = useMemo(() => deriveLayerLive(runtime, profileCount, link), [runtime, profileCount, link]);
   const focusLive = live[layer.id];
   /* 当前最需要处理的层：优先阻断，其次待人工 */
   const attention =
@@ -1043,387 +1060,287 @@ function ModelsPane({
 
 /* ============================== 连接层 ================================= */
 
-function ConnectPane({ onToast }: { onToast: Toast }) {
-  const [list, setList] = useState<Connection[]>(connections);
-  const [policies, setPolicies] = useState(connPolicies);
-  const [filter, setFilter] = useState<"all" | Connection["kind"]>("all");
-  const [adding, setAdding] = useState(false);
-  const [draftKind, setDraftKind] = useState<Connection["kind"]>("mcp");
-  const [draftName, setDraftName] = useState("");
-  const [draftEndpoint, setDraftEndpoint] = useState("");
+/* 允许面与禁止面分开呈现：禁止面用 data-tone="deny" 标出，
+   避免读者把「没列出」误解成「被允许」。 */
+function PolicyTags({ items, tone }: { items: string[]; tone: "allow" | "deny" }) {
+  if (items.length === 0) return <span className="paneNote">无</span>;
+  return (
+    <span className="tagPick tagPick--static">
+      {items.map((item) => (
+        <span key={item} className="tag tag--xs" data-tone={tone}>
+          <span className="mono">{item}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
 
-  const shown = filter === "all" ? list : list.filter((c) => c.kind === filter);
-  const linked = list.filter((c) => c.state === "linked").length;
-  const calls = list.reduce((s, c) => s + c.calls24h, 0);
-  const denied = list.reduce((s, c) => s + c.denied, 0);
+/* 受控连接层：只呈现服务端事实（登记连接、权限上限、命令白名单）。
+   设计口径（七步链路、三级权限）是机制描述，直接呈现；
+   而调用次数/拦截次数/P95 这类遥测**没有事实源**，因此不再出现在界面上 ——
+   宁可少一个数字，也不给一个读起来像实时读数的编造值。 */
+function ConnectPane({
+  link,
+  error,
+  onRefresh,
+}: {
+  link: ConnectionLayerDto | null;
+  error: string | null;
+  onRefresh: () => Promise<void>;
+}) {
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <div className="stack">
-      <p className="panelDemoNote">
-        设计口径与示例数据 · 非运行时遥测：AF API 没有连接层端点，下列数字是设计期样本；
-        真实受控调用事实目前只落在任务轨迹（如 dag.operation.planned）。
-      </p>
-
-      <div className="statRow">
-        <Stat label="受控连接" value={`${linked}/${list.length}`} hint="示例口径 · 非实时" />
-        <Stat label="24h 外部调用" value={calls.toLocaleString()} hint="设计期示例 · 无遥测端点" />
-        <Stat label="权限拦截" value={String(denied)} hint="设计期示例 · 非实时" tone="warn" />
-      </div>
-
-      <SectionLabel text="一次受控调用" hint="七个固定步骤" />
-      <ol className="callFlow">
-        {callSteps.map((s, i) => {
-          const G = Icon[s.glyph];
-          return (
-            <li key={s.id} className="callStep" style={{ ["--i" as string]: i }}>
-              <span className="callStep__n mono">{i + 1}</span>
-              <span className="callStep__glyph">
-                <G size={13} />
-              </span>
-              <strong>{s.name}</strong>
-              <em>{s.note}</em>
-            </li>
-          );
-        })}
-      </ol>
-
-      <SectionLabel text="权限分级" hint="按操作影响划分" />
-      <div className="tierGrid">
-        {permTiers.map((t, i) => (
-          <div className="tier" key={t.id} data-tier={t.id} style={{ ["--i" as string]: i }}>
-            <div className="tier__top">
-              <strong>{t.name}</strong>
-              <span className="tier__gate">{t.gate}</span>
-            </div>
-            <p>{t.rule}</p>
-            <div className="tagPick tagPick--static">
-              {t.examples.map((e) => (
-                <span key={e} className="tag tag--xs">
-                  {e}
-                </span>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
       <div className="barRow">
-        <div className="segment">
-          {(["all", "platform", "mcp", "internal"] as const).map((k) => (
-            <button key={k} data-on={filter === k} onClick={() => setFilter(k)}>
-              {k === "all" ? "全部" : connKindLabel[k]}
-            </button>
-          ))}
-        </div>
-        <button className="btn btn--accent btn--sm" onClick={() => setAdding((v) => !v)}>
-          <Icon.Plus size={14} />
-          接入连接
+        <span className="paneNote">服务端目录的只读投影：策略随 profile 与 skill 一并冻结。</span>
+        <button className="btn btn--outline btn--sm" disabled={refreshing} onClick={() => void refresh()}>
+          <Icon.Clock size={13} />
+          {refreshing ? "正在回读…" : "回读连接事实"}
         </button>
       </div>
 
-      {adding && (
-        <form
-          className="form form--inline"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const name = draftName.trim() || "未命名连接";
-            setList((prev) => [
-              ...prev,
-              {
-                id: `c-${Date.now()}`,
-                name,
-                kind: draftKind,
-                state: "linked",
-                endpoint: draftEndpoint.trim() || "stdio://local",
-                transport: draftKind === "mcp" ? "stdio" : "REST · OAuth2",
-                scopes: ["repo.read"],
-                tier: "readonly",
-                calls24h: 0,
-                p95: 0,
-                denied: 0,
-              },
-            ]);
-            setAdding(false);
-            setDraftName("");
-            setDraftEndpoint("");
-            onToast({ tone: "ok", title: "连接已登记", body: `${name} · 默认只读权限` });
-          }}
-        >
-          <div className="form__row">
-            <label>类型</label>
-            <div className="segment">
-              {(["mcp", "internal", "platform"] as const).map((k) => (
-                <button key={k} type="button" data-on={draftKind === k} onClick={() => setDraftKind(k)}>
-                  {connKindLabel[k]}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="form__row">
-            <label>名称</label>
-            <input value={draftName} onChange={(e) => setDraftName(e.target.value)} placeholder="例如：payments-mcp" autoFocus />
-          </div>
-          <div className="form__row">
-            <label>端点</label>
-            <input
-              className="mono"
-              value={draftEndpoint}
-              onChange={(e) => setDraftEndpoint(e.target.value)}
-              placeholder={draftKind === "mcp" ? "stdio:// 或 https://" : "https://svc.corp/api"}
-            />
-          </div>
-          <div className="form__actions">
-            <button type="button" className="btn btn--outline btn--sm" onClick={() => setAdding(false)}>
-              取消
-            </button>
-            <button type="submit" className="btn btn--accent btn--sm">
-              <Icon.Check size={14} />
-              登记并连接
-            </button>
-          </div>
-        </form>
+      {/* 读取失败与「服务端确实没登记连接」是两种不同事实，必须分开呈现 */}
+      {error !== null && (
+        <p className="connErr">
+          连接事实读取失败：{error}
+        </p>
       )}
 
-      <div className="connList">
-        {shown.map((c, i) => (
-          <article className="conn" key={c.id} style={{ ["--i" as string]: i }}>
-            <span className="conn__glyph" data-kind={c.kind}>
-              {c.kind === "mcp" ? <Icon.Plug size={16} /> : c.kind === "internal" ? <Icon.Cube size={16} /> : <Icon.Layers size={16} />}
-            </span>
-
-            <div className="conn__id">
-              <div className="conn__name">
-                <strong>{c.name}</strong>
-                <span className="pill" data-state={c.state === "linked" ? "done" : c.state === "degraded" ? "review" : undefined}>
-                  {c.state === "linked" && <i className="pulse" />}
-                  {connStateLabel[c.state]}
-                </span>
-              </div>
-              <span className="conn__ep mono">{c.endpoint}</span>
-              <div className="conn__scopes">
-                {c.scopes.map((s) => (
-                  <span key={s} className="tag tag--xs">
-                    <span className="mono">{s}</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            <div className="conn__stats">
-              <div>
-                <span className="conn__k">传输</span>
-                <span className="conn__v">{c.transport}</span>
-              </div>
-              <div>
-                <span className="conn__k">24h</span>
-                <span className="conn__v mono">{c.calls24h.toLocaleString()}</span>
-              </div>
-              <div>
-                <span className="conn__k">P95</span>
-                <span className="conn__v mono">{c.p95 ? `${c.p95}ms` : "—"}</span>
-              </div>
-            </div>
-
-            <div className="conn__guard">
-              <span className="conn__k">最高权限</span>
-              <span className="conn__badge" data-guard={c.tier}>
-                <Icon.Shield size={12} />
-                {permTierLabel[c.tier]}
-              </span>
-              <span className="conn__deny mono">拦截 {c.denied}</span>
-            </div>
-
-            <div className="conn__act">
-              <button className="iconBtn iconBtn--sm" aria-label="配置" onClick={() => onToast({ tone: "ok", title: "打开配置", body: `${c.name} · 演示动作` })}>
-                <Icon.Sliders size={14} />
-              </button>
-              <button
-                className="switch"
-                data-on={c.state !== "paused"}
-                aria-label="启停"
-                onClick={() => {
-                  setList((prev) =>
-                    prev.map((x) => (x.id === c.id ? { ...x, state: x.state === "paused" ? "linked" : "paused" } : x)),
-                  );
-                  onToast({
-                    tone: c.state === "paused" ? "ok" : "warn",
-                    title: c.state === "paused" ? "已恢复连接" : "已暂停连接",
-                    body: c.name,
-                  });
-                }}
-              >
-                <i />
-              </button>
-            </div>
-          </article>
-        ))}
-      </div>
-
-      <SectionLabel text="受控策略" hint="作用于全部外部调用" />
-      <div className="policyGrid">
-        {policies.map((p, i) => (
-          <div className="policy" key={p.id} style={{ ["--i" as string]: i }}>
-            <div className="policy__text">
-              <strong>{p.title}</strong>
-              <p>{p.body}</p>
-            </div>
-            <button
-              className="switch"
-              data-on={p.on}
-              aria-label={p.title}
-              onClick={() => setPolicies((prev) => prev.map((x) => (x.id === p.id ? { ...x, on: !x.on } : x)))}
-            >
-              <i />
-            </button>
+      {link === null ? (
+        <p className="paneNote">正在读取服务端连接事实…</p>
+      ) : (
+        <>
+          <div className="statRow">
+            <Stat label="已登记连接" value={String(link.scmConnections.length)} hint="服务端 scmProviders" />
+            <Stat label="权限上限档案" value={String(link.toolPermissions.length)} hint="按 profile 冻结的工具策略" />
+            <Stat
+              label="允许外部写入"
+              value={String(link.profilesAllowingExternalWrite)}
+              hint={link.profilesAllowingExternalWrite === 0 ? "没有档案可直写外部系统" : "存在直写档案"}
+              tone={link.profilesAllowingExternalWrite === 0 ? undefined : "warn"}
+            />
           </div>
-        ))}
-      </div>
+
+          <SectionLabel text="已登记连接" hint="SCM / MCP 目录" />
+          {link.scmConnections.length === 0 ? (
+            <p className="paneNote">
+              服务端尚未登记任何 SCM/MCP 连接，因此 Git 写入这一步没有可用通道。
+              这是控制面里确实没有连接，不是界面缺数据。
+            </p>
+          ) : (
+            <div className="connList">
+              {link.scmConnections.map((conn, i) => (
+                <article className="conn" key={`${conn.provider}-${conn.mcpServerRef}`} style={{ ["--i" as string]: i }}>
+                  <span className="conn__glyph" data-kind="mcp">
+                    <Icon.Plug size={16} />
+                  </span>
+                  <div className="conn__id">
+                    <div className="conn__name">
+                      <strong>{conn.provider}</strong>
+                      <span className="pill" data-state={conn.available ? "done" : "review"}>
+                        {conn.available ? "可用" : "不可用"}
+                      </span>
+                    </div>
+                    <span className="conn__ep mono">{conn.mcpServerRef}</span>
+                    <div className="conn__scopes">
+                      <span className="conn__k">凭据引用</span>
+                      <span className="mono">{conn.credentialRef}</span>
+                    </div>
+                  </div>
+                  <div className="conn__guard">
+                    <span className="conn__k">工具</span>
+                    <PolicyTags items={conn.tools} tone="allow" />
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+
+          <SectionLabel text="权限上限（按档案）" hint="身份与分级授权的真实依据" />
+          <div className="permList">
+            {link.toolPermissions.map((perm, i) => (
+              <article className="permRow" key={`${perm.profileId}@${perm.profileVersion}`} style={{ ["--i" as string]: i }}>
+                <header>
+                  <strong>{perm.name}</strong>
+                  <span className="mono">{perm.profileId}@{perm.profileVersion}</span>
+                  {perm.independent && <span className="pill" data-state="review">独立审查</span>}
+                </header>
+                <div className="permRow__line">
+                  <span className="conn__k">允许</span>
+                  <PolicyTags items={perm.allow} tone="allow" />
+                </div>
+                <div className="permRow__line">
+                  <span className="conn__k">禁止</span>
+                  <PolicyTags items={perm.deny} tone="deny" />
+                </div>
+              </article>
+            ))}
+          </div>
+
+          <SectionLabel text="受控命令面" hint="上下文与参数校验的真实白名单" />
+          <div className="permList">
+            {link.controlledCommands.map((cmd, i) => (
+              <article className="permRow" key={`${cmd.skillId}@${cmd.skillVersion}`} style={{ ["--i" as string]: i }}>
+                <header>
+                  <strong>{cmd.name}</strong>
+                  <span className="mono">{cmd.skillId}</span>
+                  <span className="conn__k">{Math.round(cmd.timeoutMs / 1000)}s 上限</span>
+                </header>
+                <PolicyTags items={cmd.allowedCommands} tone="allow" />
+              </article>
+            ))}
+          </div>
+
+          <SectionLabel text="一次受控调用" hint="七个固定步骤" />
+          <ol className="callFlow">
+            {callSteps.map((step, i) => {
+              const G = Icon[step.glyph];
+              return (
+                <li key={step.id} className="callStep" style={{ ["--i" as string]: i }}>
+                  <span className="callStep__n mono">{i + 1}</span>
+                  <span className="callStep__glyph">
+                    <G size={13} />
+                  </span>
+                  <strong>{step.name}</strong>
+                  <em>{step.note}</em>
+                </li>
+              );
+            })}
+          </ol>
+
+          <SectionLabel text="权限分级" hint="按操作影响划分" />
+          <div className="tierGrid">
+            {permTiers.map((tier, i) => (
+              <div className="tier" key={tier.id} data-tier={tier.id} style={{ ["--i" as string]: i }}>
+                <div className="tier__top">
+                  <strong>{tier.name}</strong>
+                  <span className="tier__gate">{tier.gate}</span>
+                </div>
+                <p>{tier.rule}</p>
+                <div className="tagPick tagPick--static">
+                  {tier.examples.map((example) => (
+                    <span key={example} className="tag tag--xs">
+                      {example}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <p className="paneNote">
+            前三段（连接、权限上限、命令面）是服务端事实。AF API 没有连接层写端点，
+            所以界面不提供本地增删——本地改动不会进入真实编排。
+          </p>
+        </>
+      )}
     </div>
   );
 }
 
 /* ============================= 环境配置 ================================ */
 
-function EnvPane({ onToast }: { onToast: Toast }) {
-  const [tab, setTab] = useState<"cloud" | "sandbox">("cloud");
-  const [activeEnv, setActiveEnv] = useState(cloudEnvs.find((e) => e.active)!.id);
-  const [toggles, setToggles] = useState(sandboxToggles);
-  const [reveal, setReveal] = useState<string | null>(null);
+/* 执行环境事实：来自冻结的 profile 与 skill 清单，不是运行时资源读数。
+   原先面板显示的磁盘占用、运行时长、上下文百分比没有任何事实源，已移除。 */
+function EnvPane({
+  env,
+  error,
+  onRefresh,
+}: {
+  env: EnvironmentDto | null;
+  error: string | null;
+  onRefresh: () => Promise<void>;
+}) {
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <div className="stack">
-      <p className="panelDemoNote">
-        设计口径与示例数据 · 非运行时事实：AF API 没有环境端点，下列内容为设计期样本；
-        任务真实使用的执行器只有 executorMode 一项（见「治理事实」）。
-      </p>
-
-      <div className="segment segment--lg">
-        <button data-on={tab === "cloud"} onClick={() => setTab("cloud")}>
-          <Icon.Cloud size={14} />
-          云环境配置
-        </button>
-        <button data-on={tab === "sandbox"} onClick={() => setTab("sandbox")}>
-          <Icon.Cube size={14} />
-          沙箱配置
+      <div className="barRow">
+        <span className="paneNote">执行环境事实来自冻结的 profile 与 skill 清单。</span>
+        <button className="btn btn--outline btn--sm" disabled={refreshing} onClick={() => void refresh()}>
+          <Icon.Clock size={13} />
+          {refreshing ? "正在回读…" : "回读环境事实"}
         </button>
       </div>
 
-      {tab === "cloud" ? (
-        <>
-          <div className="envGrid">
-            {cloudEnvs.map((e, i) => (
-              <button
-                key={e.id}
-                className="envCard"
-                data-active={activeEnv === e.id}
-                style={{ ["--i" as string]: i }}
-                onClick={() => {
-                  setActiveEnv(e.id);
-                  onToast({ tone: "ok", title: "已切换云环境", body: `${e.name} · ${e.region}` });
-                }}
-              >
-                <div className="envCard__top">
-                  <span className="envCard__radio" data-on={activeEnv === e.id} />
-                  <strong>{e.name}</strong>
-                  <span className="pill" data-state={e.state === "ready" ? "done" : e.state === "warming" ? "running" : undefined}>
-                    {cloudEnvStateLabel[e.state]}
-                  </span>
-                </div>
-                <dl className="kv kv--tight">
-                  <div>
-                    <dt>区域</dt>
-                    <dd className="mono">{e.region}</dd>
-                  </div>
-                  <div>
-                    <dt>规格</dt>
-                    <dd>{e.spec}</dd>
-                  </div>
-                  <div>
-                    <dt>镜像</dt>
-                    <dd className="mono">{e.image}</dd>
-                  </div>
-                  <div>
-                    <dt>网络</dt>
-                    <dd>{e.network}</dd>
-                  </div>
-                  <div>
-                    <dt>数据</dt>
-                    <dd>{e.dataTier}</dd>
-                  </div>
-                </dl>
-              </button>
-            ))}
-          </div>
+      {error !== null && (
+        <p className="connErr">
+          环境事实读取失败：{error}
+        </p>
+      )}
 
-          <SectionLabel text="环境变量" hint="注入到所有任务容器" />
-          <div className="varList">
-            {envVars.map((v) => (
-              <div className="var" key={v.key}>
-                <span className="mono var__k">{v.key}</span>
-                <span className="mono var__v">{v.secret && reveal !== v.key ? "••••••••••••" : v.value}</span>
-                {v.secret && (
-                  <button className="iconBtn iconBtn--sm" aria-label="显示" onClick={() => setReveal((r) => (r === v.key ? null : v.key))}>
-                    <Icon.Key size={13} />
-                  </button>
-                )}
-                <button className="iconBtn iconBtn--sm" aria-label="删除" onClick={() => onToast({ tone: "warn", title: "演示动作", body: `未真正删除 ${v.key}` })}>
-                  <Icon.Trash size={13} />
-                </button>
-              </div>
-            ))}
-            <button className="var var--new" onClick={() => onToast({ tone: "ok", title: "新增变量", body: "演示动作" })}>
-              <Icon.Plus size={14} />
-              添加变量
-            </button>
-          </div>
-        </>
+      {env === null ? (
+        <p className="paneNote">正在读取服务端环境事实…</p>
       ) : (
         <>
-          <div className="policyGrid">
-            {toggles.map((t, i) => (
-              <div className="policy" key={t.id} style={{ ["--i" as string]: i }}>
-                <div className="policy__text">
-                  <strong>
-                    {t.title}
-                    {t.locked && <span className="lockTag">强制</span>}
-                  </strong>
-                  <p>{t.body}</p>
-                </div>
-                <button
-                  className="switch"
-                  data-on={t.on}
-                  data-locked={t.locked || undefined}
-                  aria-label={t.title}
-                  onClick={() => {
-                    if (t.locked)
-                      return onToast({ tone: "warn", title: "该项为强制策略", body: "由安全边界要求，不可关闭。" });
-                    setToggles((prev) => prev.map((x) => (x.id === t.id ? { ...x, on: !x.on } : x)));
-                    if (t.id === "s-root" && !t.on)
-                      onToast({ tone: "warn", title: "已开启特权模式", body: "容器逃逸风险上升，建议仅临时使用。" });
-                  }}
-                >
-                  <i />
-                </button>
-              </div>
+          <div className="statRow">
+            <Stat label="执行器" value={env.executorMode} hint="服务端唯一合法模式" />
+            <Stat label="策略覆盖档案" value={String(env.profileCount)} hint="受工具策略约束的 profile 数" />
+            <Stat label="写证据的 skill" value={String(env.skillsWritingEvidence)} hint="执行结果会进证据链" />
+          </div>
+
+          <SectionLabel text="工作目录隔离" hint="skill 的取路径策略" />
+          <div className="permList">
+            {env.workingDirectoryPolicies.map((policy, i) => (
+              <article className="permRow" key={policy} style={{ ["--i" as string]: i }}>
+                <header>
+                  <strong>路径策略</strong>
+                </header>
+                <code className="mono permRow__raw">{policy}</code>
+                <p className="paneNote">
+                  要求命令只在工作区内已存在的目录执行，并禁止经符号链接跳出工作区。
+                </p>
+              </article>
             ))}
           </div>
 
-          <SectionLabel text="资源与失败上限" hint="超出即中断或转人工" />
-          <div className="limitGrid">
-            {sandboxLimits.map((l, i) => (
-              <div className="limit" key={l.label} style={{ ["--i" as string]: i }}>
-                <span className="limit__k">{l.label}</span>
-                <span className="limit__v mono">{l.value}</span>
-              </div>
+          <SectionLabel text="命令超时" hint="每个 skill 的硬上限" />
+          <div className="permList">
+            {env.commandTimeouts.map((item, i) => (
+              <article className="permRow" key={item.skillId} style={{ ["--i" as string]: i }}>
+                <header>
+                  <strong className="mono">{item.skillId}</strong>
+                  <span className="conn__k">{Math.round(item.timeoutMs / 1000)}s</span>
+                </header>
+              </article>
             ))}
           </div>
 
-          <div className="noteCard">
-            <Icon.Shield size={16} />
-            <p>
-              沙箱内所有出网请求都会回到<strong>连接层</strong>做白名单校验；关闭网络访问后，智能体仅能读写工作区与执行白名单命令。
-            </p>
+          <SectionLabel text="工具策略面" hint="全部档案的并集" />
+          <div className="permList">
+            <article className="permRow">
+              <div className="permRow__line">
+                <span className="conn__k">至少一个档案允许</span>
+                <PolicyTags items={env.toolPolicySurface.allow} tone="allow" />
+              </div>
+              <div className="permRow__line">
+                <span className="conn__k">至少一个档案禁止</span>
+                <PolicyTags items={env.toolPolicySurface.deny} tone="deny" />
+              </div>
+            </article>
           </div>
+
+          <p className="paneNote">
+            两个面都列出是为了避免误读：同一项能力可能被一个档案允许、被另一个档案禁止，
+            单个节点的实际权限取它自己那份策略，而不是这份并集。
+          </p>
         </>
       )}
     </div>

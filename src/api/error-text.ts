@@ -36,6 +36,7 @@ export const KNOWN_BACKEND_CODES = [
   "AF_SCM_BASE_REVISION_CONFLICT",
   "AF_MCP_UNAVAILABLE",
   "AF_MCP_PROTOCOL_ERROR",
+  "AF_MODEL_PROVIDER_NOT_FOUND",
   "AF_ROUTE_NOT_FOUND",
   "AF_WORKSPEC_INVALID",
   "AF_WORKSPEC_FROZEN",
@@ -122,6 +123,7 @@ export const ERROR_CODE_TEXT: Record<string, string> = {
   AF_CREDENTIAL_REF_INVALID: "凭据引用无效或未配置，请在「连接层」检查凭据设置。",
   AF_MCP_UNAVAILABLE: "外部 Git 服务（MCP）当前不可用，请稍后重试。",
   AF_MCP_PROTOCOL_ERROR: "与外部 Git 服务通信出错，请稍后重试。",
+  AF_MODEL_PROVIDER_NOT_FOUND: "找不到该模型供应商，可能已被删除或重命名。",
   AF_CAPABILITY_UNREGISTERED: "该能力未注册，无法使用。",
 
   // —— 监督与内部 ——

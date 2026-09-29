@@ -81,6 +81,48 @@ export interface ScmProviderDto {
   errorMessage?: string;
 }
 
+/* —— 受控连接层与执行环境的运行时事实（§4.7 / §4.10）——
+   只承载服务端可核验的事实（登记连接、权限上限、命令白名单、超时、隔离策略）。
+   不承载任何遥测：af-api 没有该事实源，界面不得显示看似实时的编造读数。 */
+
+export interface ToolPermissionDto {
+  profileId: string;
+  profileVersion: string;
+  name: string;
+  allow: string[];
+  deny: string[];
+  independent: boolean;
+}
+
+export interface ControlledCommandDto {
+  skillId: string;
+  skillVersion: string;
+  name: string;
+  allowedCommands: string[];
+  workingDirectoryPolicy: string;
+  timeoutMs: number;
+  writesEvidence: true;
+}
+
+export interface ConnectionLayerDto {
+  contractVersion: string;
+  scmConnections: ScmProviderDto[];
+  toolPermissions: ToolPermissionDto[];
+  controlledCommands: ControlledCommandDto[];
+  /** 允许 external.write 的 profile 数；设计上应为 0，界面据此核对隔离是否仍成立。 */
+  profilesAllowingExternalWrite: number;
+}
+
+export interface EnvironmentDto {
+  contractVersion: string;
+  executorMode: string;
+  workingDirectoryPolicies: string[];
+  commandTimeouts: Array<{ skillId: string; timeoutMs: number }>;
+  toolPolicySurface: { allow: string[]; deny: string[] };
+  skillsWritingEvidence: number;
+  profileCount: number;
+}
+
 /* ---------------------------------------------------------------------------
  * 模型供应商目录（GET /model-providers）
  *
@@ -1249,6 +1291,10 @@ export interface AfApiClient {
   bootstrap(signal?: AbortSignal): Promise<AfBootstrapDto>;
   /** 只读模型供应商目录：模型路由由服务端决定，前端不提供逐任务覆盖。 */
   listModelProviders(signal?: AbortSignal): Promise<ModelProvidersDto>;
+  /** 受控连接层事实：登记连接、权限上限、受控命令白名单。 */
+  getConnectionLayer(signal?: AbortSignal): Promise<ConnectionLayerDto>;
+  /** 执行环境事实：执行器模式、目录隔离策略、命令超时、工具策略面。 */
+  getEnvironment(signal?: AbortSignal): Promise<EnvironmentDto>;
   listTasks(signal?: AbortSignal): Promise<TaskSummaryDto[]>;
   getTask(taskId: string, signal?: AbortSignal): Promise<TaskDetailDto>;
   validateWorkflow(workflow: WorkflowDefinitionDto, signal?: AbortSignal): Promise<WorkflowValidation>;

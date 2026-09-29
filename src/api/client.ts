@@ -23,6 +23,8 @@ import type {
   CreateTaskInput,
   GitOperationDto,
   ModelProvidersDto,
+  ConnectionLayerDto,
+  EnvironmentDto,
   ModelProviderInfoDto,
   ModelProviderInputDto,
   ModelProviderTestResultDto,
@@ -625,6 +627,54 @@ function fixtureClient(): AfApiClient {
     async getApprovals(taskId) { taskOrThrow(taskId); return { taskId, nodeApprovals: [], gitOperationConfirmations: [] }; },
     /* fixture 没有真实供应商注册表：返回与演示配置一致的只读投影，
        默认模型取演示选型，避免演示态下凭空显示一个真实模型。 */
+    /* fixture 下这两个视图同样由内置目录投影而来，保证演示态与真实态形状一致；
+       但 fixture 从不编造遥测，因此字段就是真实可得的那些。 */
+    async getConnectionLayer() {
+      const bootstrap = currentBootstrap();
+      const profiles = bootstrap.agentProfiles;
+      return {
+        contractVersion: "1.0",
+        scmConnections: bootstrap.scmProviders,
+        toolPermissions: profiles.map((profile) => ({
+          profileId: profile.profileId,
+          profileVersion: profile.profileVersion,
+          name: profile.name,
+          allow: [...profile.toolPolicy.allow].sort((a, b) => a.localeCompare(b, "en")),
+          deny: [...profile.toolPolicy.deny].sort((a, b) => a.localeCompare(b, "en")),
+          independent: profile.independent,
+        })),
+        controlledCommands: bootstrap.skills.map((skill) => ({
+          skillId: skill.skillId,
+          skillVersion: skill.skillVersion,
+          name: skill.name,
+          allowedCommands: [...skill.allowedCommands].sort((a, b) => a.localeCompare(b, "en")),
+          workingDirectoryPolicy: skill.workingDirectoryPolicy,
+          timeoutMs: skill.timeoutMs,
+          writesEvidence: true as const,
+        })),
+        profilesAllowingExternalWrite: profiles.filter((profile) => profile.toolPolicy.allow.includes("external.write")).length,
+      };
+    },
+    async getEnvironment() {
+      const bootstrap = currentBootstrap();
+      const skills = bootstrap.skills;
+      const profiles = bootstrap.agentProfiles;
+      const allow = new Set<string>();
+      const deny = new Set<string>();
+      for (const profile of profiles) {
+        for (const item of profile.toolPolicy.allow) allow.add(item);
+        for (const item of profile.toolPolicy.deny) deny.add(item);
+      }
+      return {
+        contractVersion: "1.0",
+        executorMode: bootstrap.executorMode,
+        workingDirectoryPolicies: [...new Set(skills.map((skill) => skill.workingDirectoryPolicy))].sort((a, b) => a.localeCompare(b, "en")),
+        commandTimeouts: skills.map((skill) => ({ skillId: skill.skillId, timeoutMs: skill.timeoutMs })).sort((a, b) => a.skillId.localeCompare(b.skillId, "en")),
+        toolPolicySurface: { allow: [...allow].sort((a, b) => a.localeCompare(b, "en")), deny: [...deny].sort((a, b) => a.localeCompare(b, "en")) },
+        skillsWritingEvidence: skills.filter((skill) => skill.writesEvidence === true).length,
+        profileCount: profiles.length,
+      };
+    },
     async listModelProviders() {
       const providers: ModelProviderInfoDto[] = fixtureModelProviders.map((provider) => ({
         id: provider.id,
@@ -789,6 +839,11 @@ class HttpAfApiClient implements AfApiClient {
   materializeEvidence(taskId: string, signal?: AbortSignal) { return this.request<EvidenceMaterializationDto>(`/tasks/${encodeURIComponent(taskId)}/evidence/materialize`, { method: "POST", body: "{}" }, signal); }
   getApprovals(taskId: string, signal?: AbortSignal) { return this.request<ApprovalQueryDto>(`/tasks/${encodeURIComponent(taskId)}/approvals`, undefined, signal); }
   listModelProviders(signal?: AbortSignal) { return this.request<ModelProvidersDto>("/model-providers", undefined, signal); }
+  /* 受控连接层与执行环境：服务端投影的只读事实（登记连接、权限上限、命令白名单、
+     超时、目录隔离策略）。没有读端点之外的写端点 —— 策略随 profile/skill 冻结，
+     界面不提供本地增删，避免本地改动被误读成「已生效」。 */
+  getConnectionLayer(signal?: AbortSignal) { return this.request<ConnectionLayerDto>("/connection-layer", undefined, signal); }
+  getEnvironment(signal?: AbortSignal) { return this.request<EnvironmentDto>("/environment", undefined, signal); }
   /* 供应商写入：后端 schema 是 strict，body 必须逐字段对齐 ModelProviderInputDto，
      且 apiKey 仅在非空时提交 —— 传 undefined 表示保留既有凭据，传空串会被 min(1) 拒绝。 */
   createModelProvider(input: ModelProviderInputDto, signal?: AbortSignal) { return this.request<ModelProvidersDto>("/model-providers", { method: "POST", body: JSON.stringify(providerBody(input)) }, signal); }

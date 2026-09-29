@@ -9,7 +9,7 @@ import { afApi, AfApiError, normalizePlanPayload, structuredToEvents, toUiBootst
 import { realInspectorBundle } from "./api/inspectorMapper";
 import { describeError, errorText } from "./api/error-text";
 import { buildStageCards } from "./api/stageMapper";
-import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, ModelProviderInputDto, ModelProvidersDto, NodeReviewFeedbackDto, WorkflowVersion, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, SkillOutputDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
+import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, ModelProviderInputDto, ModelProvidersDto, NodeReviewFeedbackDto, WorkflowVersion, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, ConnectionLayerDto, EnvironmentDto, SkillOutputDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
 import type { StageSkillOutputView, StageTraceView } from "./components/StageCard";
 import { conversationOf } from "./data/streams";
 import { inspectorOf } from "./data/inspector";
@@ -315,6 +315,12 @@ export default function App() {
      否则一次失败会被渲染成「服务端没有供应商」，那是把故障说成了事实。 */
   const [modelProviders, setModelProviders] = useState<ModelProvidersDto | null>(null);
   const [modelProvidersError, setModelProvidersError] = useState<string | null>(null);
+  /* 受控连接层与执行环境：服务端投影的只读事实。读取失败与「服务端确实为空」
+     是两种不同事实，因此错误单独记账，不并进数据里假装成空。 */
+  const [connectionLayer, setConnectionLayer] = useState<ConnectionLayerDto | null>(null);
+  const [connectionLayerError, setConnectionLayerError] = useState<string | null>(null);
+  const [environment, setEnvironment] = useState<EnvironmentDto | null>(null);
+  const [environmentError, setEnvironmentError] = useState<string | null>(null);
   const [mode, setMode] = useState<"session" | "welcome">("welcome");
 
   /* --- streamed event window --------------------------------------------- */
@@ -414,9 +420,32 @@ export default function App() {
     });
   }, []);
 
+  /* 连接层与环境事实同时回读：两者都来自同一批冻结的 profile/skill 投影，
+     并发读取且各自容错，一个失败不拖累另一个面板。 */
+  const reloadPosture = useCallback(async () => {
+    const [link, env] = await Promise.allSettled([afApi.getConnectionLayer(), afApi.getEnvironment()]);
+    if (link.status === "fulfilled") {
+      setConnectionLayer(link.value);
+      setConnectionLayerError(null);
+    } else {
+      setConnectionLayer(null);
+      const e = link.reason;
+      setConnectionLayerError(errorText(e instanceof AfApiError ? e.code : undefined, e instanceof Error ? e.message : undefined));
+    }
+    if (env.status === "fulfilled") {
+      setEnvironment(env.value);
+      setEnvironmentError(null);
+    } else {
+      setEnvironment(null);
+      const e = env.reason;
+      setEnvironmentError(errorText(e instanceof AfApiError ? e.code : undefined, e instanceof Error ? e.message : undefined));
+    }
+  }, []);
+
   useEffect(() => {
     void loadBootstrap();
-  }, [loadBootstrap]);
+    void reloadPosture();
+  }, [loadBootstrap, reloadPosture]);
 
   const fetchTaskRuntime = useCallback(async (taskId: string, signal?: AbortSignal, quiet = false) => {
     if (!taskId) return;
@@ -766,8 +795,9 @@ export default function App() {
       eventCount: events.length,
       streaming,
       awaitingApproval: pendingApproval !== null,
+      executorMode,
     }),
-    [workflow, wfStep, events.length, streaming, pendingApproval, taskRuntime?.currentNodeId],
+    [workflow, wfStep, events.length, streaming, pendingApproval, taskRuntime?.currentNodeId, executorMode],
   );
 
   useEffect(() => {
@@ -2098,6 +2128,11 @@ export default function App() {
           onPane={setSettingsPane}
           onClose={() => setSettingsPane(null)}
           onToast={push}
+          connectionLayer={connectionLayer}
+          connectionLayerError={connectionLayerError}
+          environment={environment}
+          environmentError={environmentError}
+          onRefreshPosture={reloadPosture}
           runtime={archRuntime}
           onJump={archJump}
           modelProviders={modelProviders}

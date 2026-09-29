@@ -1750,3 +1750,78 @@
 .scmForm small { font-size: 9px; line-height: 1.45; color: var(--text-4); }
 .scmUnavailable { grid-column: 1 / -1; margin: 0; padding: 8px 9px; border: 1px solid color-mix(in oklab, var(--gold) 45%, var(--line)); border-radius: var(--r-xs); color: var(--gold); font-size: 10px; }
 @media (max-width: 620px) { .scmForm { grid-template-columns: minmax(0, 1fr); } .scmForm__wide { grid-column: auto; } }
+
+/* ===================== 连接层 / 执行环境的服务端事实 ===================== */
+
+/* 读取失败独立成条：失败本身是要展示的事实，不能被渲染成「服务端没有数据」 */
+.connErr {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in oklab, var(--rose) 42%, var(--line));
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--rose) 8%, transparent);
+  color: color-mix(in oklab, var(--rose) 72%, var(--text));
+  font-size: var(--step--1);
+  line-height: 1.5;
+}
+
+/* 每份档案/每个 skill 一块：发丝分隔网格，不给每个单元格加边框 */
+.permList {
+  display: grid;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+
+.permRow {
+  display: grid;
+  gap: 7px;
+  padding: 9px 11px;
+  background: var(--bg);
+  animation: fadeUp 0.38s var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+
+.permRow header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: var(--step--1);
+}
+
+.permRow header strong { color: var(--text); }
+.permRow header .mono { color: var(--text-4); font-size: var(--step--2); }
+
+/* 允许面与禁止面分行呈现，标签用同一个 --layer 间接层着色 */
+.permRow__line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.permRow__line .conn__k { flex: none; }
+
+.permRow__raw {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--step--2);
+  word-break: break-all;
+}
+
+.permRow .paneNote { margin: 0; font-size: var(--step--2); }
+
+/* 标签语义：允许=实心细边，禁止=线框 + 语义色，形态差异先于颜色差异 */
+.tag[data-tone="allow"] {
+  border-color: color-mix(in oklab, var(--sage) 34%, var(--line));
+  color: color-mix(in oklab, var(--sage) 62%, var(--text));
+}
+
+.tag[data-tone="deny"] {
+  border-style: dashed;
+  border-color: color-mix(in oklab, var(--gold) 40%, var(--line));
+  color: color-mix(in oklab, var(--gold) 66%, var(--text));
+}
