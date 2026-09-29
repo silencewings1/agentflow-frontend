@@ -1253,6 +1253,8 @@ export interface AfApiClient {
   getTask(taskId: string, signal?: AbortSignal): Promise<TaskDetailDto>;
   validateWorkflow(workflow: WorkflowDefinitionDto, signal?: AbortSignal): Promise<WorkflowValidation>;
   saveWorkflow(workflow: WorkflowDefinitionDto, signal?: AbortSignal): Promise<WorkflowVersion>;
+  /** 一份编排的全部冻结版本历史（新→旧）。冻结版本决定历史任务按哪套节点规格重放。 */
+  listWorkflowVersions(workflowId: string, signal?: AbortSignal): Promise<WorkflowVersion[]>;
   createTask(input: CreateTaskInput, signal?: AbortSignal): Promise<{ taskId: string; summary?: TaskSummaryDto; idempotent?: boolean }>;
   startTask(taskId: string, signal?: AbortSignal, runMode?: RunMode, faultInjection?: FaultInjectionDto): Promise<StartResultDto>;
   continueTask(taskId: string, signal?: AbortSignal, runMode?: RunMode, faultInjection?: FaultInjectionDto): Promise<StartResultDto>;

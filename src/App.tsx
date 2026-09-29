@@ -9,7 +9,7 @@ import { afApi, AfApiError, normalizePlanPayload, structuredToEvents, toUiBootst
 import { realInspectorBundle } from "./api/inspectorMapper";
 import { describeError, errorText } from "./api/error-text";
 import { buildStageCards } from "./api/stageMapper";
-import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, ModelProviderInputDto, ModelProvidersDto, NodeReviewFeedbackDto, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, SkillOutputDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
+import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, ModelProviderInputDto, ModelProvidersDto, NodeReviewFeedbackDto, WorkflowVersion, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, SkillOutputDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
 import type { StageSkillOutputView, StageTraceView } from "./components/StageCard";
 import { conversationOf } from "./data/streams";
 import { inspectorOf } from "./data/inspector";
@@ -281,6 +281,8 @@ export default function App() {
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   /* 初始编排取首条会话自己的编排，而不是写死第一套模板 */
   const [workflowCatalog, setWorkflowCatalog] = useState<Workflow[]>(workflowTemplates);
+  /* 编排的冻结版本历史：服务端权威事实，供「查看编排」面板展示历史任务按哪一版重放 */
+  const [workflowVersions, setWorkflowVersions] = useState<WorkflowVersion[]>([]);
   const [workflow, setWorkflow] = useState<Workflow>(() => workflowTemplates[0]!);
   const [agentProfiles, setAgentProfiles] = useState<AgentProfileSummaryDto[]>([]);
   const [skillCatalog, setSkillCatalog] = useState<SkillSummaryDto[]>([]);
@@ -375,6 +377,11 @@ export default function App() {
       setAgentProfiles(ui.agentProfiles);
       setSkillCatalog(ui.skills);
       setScmProviders(ui.scmProviders);
+      /* 版本历史是编排的附属事实：读取失败不影响首屏，保持空数组由面板省略该区块。 */
+      const firstWf = ui.workflows[0];
+      if (firstWf) {
+        void afApi.listWorkflowVersions(firstWf.id).then(setWorkflowVersions).catch(() => setWorkflowVersions([]));
+      }
       /* 模型路由是只读展示项，失败不影响首屏：保持 null 由 Composer 如实降级。
          同时记下错误文案，供设置面板区分「无供应商」与「读取失败」。 */
       void afApi.listModelProviders().then((data) => {
@@ -1887,6 +1894,7 @@ export default function App() {
               onOpen={() => setNewTaskOpen(true)}
               runStates={runStates}
               onNodeSelect={selectNode}
+              versions={workflowVersions}
             />
 
             {/* 治理动作条：动作留主列常驻可见，完整治理事实折叠进瀑布底部。

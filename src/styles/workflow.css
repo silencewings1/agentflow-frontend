@@ -977,6 +977,47 @@
   color: var(--text-4);
 }
 
+/* 冻结版本历史：历史任务按各自锁定的版本重放，因此「有哪些版本、正在用哪一版」
+   是必须能就地核对的事实。当前版本用实心底色 + 加重描边标出，不靠颜色单独表意。 */
+.wfStrip__vers {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--line);
+  display: grid;
+  gap: 7px;
+}
+
+.wfStrip__vers ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.wfStrip__vers li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-size: 9.5px;
+  color: var(--text-3);
+}
+
+.wfStrip__vers li[data-cur="true"] {
+  border-color: var(--accent-line);
+  background: color-mix(in oklab, var(--accent) 8%, transparent);
+  color: var(--text);
+}
+
+.wfStrip__vers em {
+  font-style: normal;
+  color: var(--text-4);
+}
+
 @keyframes wfDagIn {
   from { opacity: 0; transform: translateY(-6px); }
   to   { opacity: 1; transform: none; }

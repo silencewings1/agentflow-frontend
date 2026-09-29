@@ -27,7 +27,7 @@ import {
   type Workflow,
 } from "../data/workflows";
 import { roleLabel, type AgentRole } from "../data/settings";
-import type { AgentProfileSummaryDto, SkillSummaryDto, WorkflowValidation } from "../api";
+import type { AgentProfileSummaryDto, SkillSummaryDto, WorkflowValidation, WorkflowVersion } from "../api";
 
 /* ============================ DAG 画布 ================================= */
 
@@ -172,6 +172,7 @@ export function WorkflowStrip({
   runStates,
   focusNode,
   onNodeSelect,
+  versions,
 }: {
   wf: Workflow;
   activeIndex: number;
@@ -180,6 +181,8 @@ export function WorkflowStrip({
   /** 当前被点开的节点，由 App 持有 —— 会话区要据此切换视图 */
   focusNode?: string | null;
   onNodeSelect?: (id: string | null) => void;
+  /** 该编排在服务端的冻结版本历史（新→旧）；空数组表示未登记或无权限读取 */
+  versions?: WorkflowVersion[];
 }) {
   const [open, setOpen] = useState(false);
   const G = Icon[wf.glyph];
@@ -266,6 +269,24 @@ export function WorkflowStrip({
             <p className="wfStrip__tip">
               点击已完成或进行中的节点，将收起本面板并在下方会话区展开该节点的会话内容。
             </p>
+          )}
+
+          {/* 冻结版本历史：历史任务按各自锁定的版本重放，所以「有哪些版本、
+              当前用哪一版」是可核验的事实，不该只存在于服务端。 */}
+          {versions && versions.length > 0 && (
+            <div className="wfStrip__vers">
+              <span className="kicker">冻结版本</span>
+              <ul>
+                {versions.map((v) => (
+                  <li key={v.workflowVersion} data-cur={v.workflowVersion === wf.workflowVersion}>
+                    <b className="mono">v{v.workflowVersion}</b>
+                    <span className="mono">{v.nodeSpecDigest.slice(7, 19)}…</span>
+                    <em>{v.frozen ? "已冻结" : "草稿"}</em>
+                    {v.frozenAt && <small className="mono">{v.frozenAt.slice(0, 10)}</small>}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
       )}

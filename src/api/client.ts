@@ -463,6 +463,12 @@ function fixtureClient(): AfApiClient {
       if (!validation.valid) throw new AfApiError({ code: "AF_WORKFLOW_INVALID", message: validation.errors[0]?.message ?? "工作流无效", retryable: false, details: { errors: validation.errors } });
       return { workflowId: workflow.workflowId, workflowVersion: workflow.workflowVersion, nodeSpecDigest: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", frozen: true };
     },
+    /* fixture 没有版本冻结机制：只回当前这一版，且不编造历史版本。 */
+    async listWorkflowVersions(workflowId) {
+      const wf = workflowTemplates.find((w) => w.id === workflowId);
+      if (!wf) return [];
+      return [{ workflowId, workflowVersion: wf.workflowVersion ?? 1, nodeSpecDigest: FIXTURE_DIGEST, frozen: true }];
+    },
     async createTask(input) {
       const taskId = `fixture-${Date.now()}`;
       tasks.unshift({ taskId, title: input.title, repositoryRef: input.repositoryRef, baseBranch: input.baseBranch, targetBranch: input.targetBranch, provider: input.provider ?? "github", mcpServerRef: input.mcpServerRef ?? "github-official", state: "created", blockedReason: null, workflowId: input.workflowId, workflowVersion: input.workflowVersion, nodeSpecDigest: FIXTURE_DIGEST, executorMode: "fresh-spawn", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), revision: 1 });
@@ -693,6 +699,7 @@ class HttpAfApiClient implements AfApiClient {
   getTask(taskId: string, signal?: AbortSignal) { return this.request<AfTaskDetailDto>(`/tasks/${encodeURIComponent(taskId)}`, undefined, signal).then(toTaskDetail); }
   validateWorkflow(workflow: import("./types").WorkflowDefinitionDto, signal?: AbortSignal) { return this.request<WorkflowValidation>("/workflows/validate", { method: "POST", body: JSON.stringify({ draft: workflow }) }, signal); }
   saveWorkflow(workflow: import("./types").WorkflowDefinitionDto, signal?: AbortSignal) { return this.request<WorkflowVersion>("/workflows", { method: "POST", body: JSON.stringify({ workflowId: workflow.workflowId, draft: workflow, idempotencyKey: requestKey("workflow-save", workflow) }) }, signal); }
+  listWorkflowVersions(workflowId: string, signal?: AbortSignal) { return this.request<WorkflowVersion[]>(`/workflows/${encodeURIComponent(workflowId)}/versions`, undefined, signal); }
   createTask(input: CreateTaskInput, signal?: AbortSignal) { return this.request<{ taskId: string }>("/tasks", { method: "POST", body: JSON.stringify(input) }, signal); }
   startTask(taskId: string, signal?: AbortSignal, runMode?: import("./types").RunMode, faultInjection?: import("./types").FaultInjectionDto) { return this.request<StartResultDto>(`/tasks/${encodeURIComponent(taskId)}/start`, { method: "POST", body: JSON.stringify({ ...(runMode === undefined ? {} : { runMode }), ...(faultInjection === undefined ? {} : { faultInjection }) }) }, signal); }
   continueTask(taskId: string, signal?: AbortSignal, runMode?: import("./types").RunMode, faultInjection?: import("./types").FaultInjectionDto) { return this.request<StartResultDto>(`/tasks/${encodeURIComponent(taskId)}/continue`, { method: "POST", body: JSON.stringify({ ...(runMode === undefined ? {} : { runMode }), ...(faultInjection === undefined ? {} : { faultInjection }) }) }, signal); }
