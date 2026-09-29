@@ -1196,6 +1196,29 @@ export default function App() {
     [sessionList, showArchived],
   );
 
+  /* 侧栏每一行的增删行数：只对**当前会话**注入，值来自已经拉取的真实补丁。
+     后端 TaskSummary 不含 diff 统计（列表接口给不出，逐任务跑 git diff 会变成
+     N+1 次 Git 操作），所以这里不去为其它行发请求 —— 未取到的一律保持 undefined，
+     由侧栏如实显示「diff —」，而不是编一个数字。 */
+  const sessionsWithDiff = useMemo(() => {
+    if (activeId === null || patch?.available !== true) return visibleSessions;
+    const counted = patch.files.reduce(
+      (acc, file) => {
+        for (const line of file.patch.split("\n")) {
+          if (line.startsWith("+") && !line.startsWith("+++")) acc.added += 1;
+          else if (line.startsWith("-") && !line.startsWith("---")) acc.removed += 1;
+        }
+        return acc;
+      },
+      { added: 0, removed: 0 },
+    );
+    return visibleSessions.map((s) =>
+      s.id === activeId
+        ? { ...s, diff: { added: counted.added, removed: counted.removed, files: patch.files.length } }
+        : s,
+    );
+  }, [visibleSessions, activeId, patch]);
+
   /* 关闭「显示已归档」时，若当前会话正是被隐藏的归档任务，
      同样要让位给仍在列表里的第一条，避免主区与侧栏失去对应关系。 */
   const toggleShowArchived = useCallback(
@@ -1847,7 +1870,7 @@ export default function App() {
         onPane={(p) => setSettingsPane((cur) => (cur === p ? null : p))}
       />
       <Sidebar
-        sessions={visibleSessions}
+        sessions={sessionsWithDiff}
         activeId={activeId}
         showArchived={showArchived}
         onToggleShowArchived={toggleShowArchived}
