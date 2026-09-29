@@ -105,6 +105,25 @@ export interface ModelProvidersDto {
   defaultModel: DefaultModelRefDto | null;
 }
 
+/* 服务端实际支持的协议枚举。与前端设计演示里的 "openai"/"gemini" 三值**不是**同一套，
+   写入时必须按真实枚举提交，否则连接层会在首次调用时拦下。 */
+export type ModelProviderApi = "openai-completions" | "openai-responses" | "anthropic-messages";
+
+/** 供应商写入入参：逐字段对齐后端 modelProviderInputSchema，不得多传字段（schema 是 strict）。 */
+export interface ModelProviderInputDto {
+  /** 小写字母开头，只含小写字母/数字/下划线/连字符 —— 服务端用它做设置命名空间。 */
+  id: string;
+  displayName: string;
+  baseURL: string;
+  api: ModelProviderApi;
+  /** 明文 Key 只在写入时提交一次；服务端落凭据库并回给 apiKeyEnv 变量名，不再回传明文。 */
+  apiKey?: string;
+  models: Array<{ id: string; name?: string; contextWindow?: number }>;
+}
+
+/** 单模型连通性探测结果。ok=true 时带回服务端真实回复，供界面如实展示而非断言。 */
+export interface ModelProviderTestResultDto { ok: true; reply: string; durationMs: number; }
+
 export interface WorkflowNodeDto {
   nodeId: string;
   kind: "ai" | "skill" | "gate" | "git" | "approval";
@@ -1278,6 +1297,14 @@ export interface AfApiClient {
   getApprovals(taskId: string, signal?: AbortSignal): Promise<ApprovalQueryDto>;
   /** 读取服务端登记的模型供应商与默认模型（只读；模型路由由服务端决定）。 */
   listModelProviders(signal?: AbortSignal): Promise<ModelProvidersDto>;
+  /** 登记一个供应商。写入即持久化到服务端设置命名空间，返回更新后的完整目录。 */
+  createModelProvider(input: ModelProviderInputDto, signal?: AbortSignal): Promise<ModelProvidersDto>;
+  /** 覆盖式更新一个供应商；apiKey 缺省表示保留既有凭据。 */
+  updateModelProvider(id: string, input: ModelProviderInputDto, signal?: AbortSignal): Promise<ModelProvidersDto>;
+  /** 删除供应商：端点与凭据一并移除，不可逆。 */
+  deleteModelProvider(id: string, signal?: AbortSignal): Promise<ModelProvidersDto>;
+  /** 对单个模型发起真实连通性探测；失败按服务端错误码如实呈现。 */
+  testModelProvider(id: string, modelId: string, signal?: AbortSignal): Promise<ModelProviderTestResultDto>;
   createPushOperation(taskId: string, input: PushOperationInput, signal?: AbortSignal): Promise<GitOperationDto>;
   confirmPushOperation(operationId: string, signal?: AbortSignal): Promise<GitOperationDto>;
   getPushOperation(operationId: string, signal?: AbortSignal): Promise<GitOperationDto>;

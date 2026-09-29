@@ -24,6 +24,8 @@ import type {
   GitOperationDto,
   ModelProvidersDto,
   ModelProviderInfoDto,
+  ModelProviderInputDto,
+  ModelProviderTestResultDto,
   NodeReviewFeedbackDto,
   NodeReviewInput,
   PlanDecisionDto,
@@ -85,6 +87,25 @@ function requestKey(prefix: string, value: unknown): string {
   let hash = 2166136261;
   for (let index = 0; index < json.length; index += 1) hash = Math.imul(hash ^ json.charCodeAt(index), 16777619);
   return `${prefix}:${(hash >>> 0).toString(16)}`;
+}
+
+/* 供应商写入体：后端 schema 是 strict，多一个字段就整条被拒。
+   apiKey 只在有值时才带上 —— 省略表示「保留服务端既有凭据」，
+   而空串会被 min(1) 判非法，不能用来表达「不改动」。 */
+function providerBody(input: ModelProviderInputDto): Record<string, unknown> {
+  const apiKey = input.apiKey?.trim();
+  return {
+    id: input.id,
+    displayName: input.displayName,
+    baseURL: input.baseURL,
+    api: input.api,
+    ...(apiKey ? { apiKey } : {}),
+    models: input.models.map((model) => ({
+      id: model.id,
+      ...(model.name ? { name: model.name } : {}),
+      ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
+    })),
+  };
 }
 
 const profiles = [
@@ -584,6 +605,21 @@ function fixtureClient(): AfApiClient {
       const first = providers[0];
       return { providers, defaultModel: first ? { provider: first.id, model: first.models[0]?.id ?? fixtureDefaultModel } : null };
     },
+    /* fixture 没有服务端设置命名空间，也没有凭据库：供应商写入在这里无法诚实完成。
+       这里显式拒绝而不是往本地数组里塞一条假记录 —— 后者会让「已保存」变成断言，
+       而界面正是靠服务端回读来证明写入真的发生。 */
+    async createModelProvider() {
+      throw new AfApiError({ code: "AF_UNSUPPORTED_IN_FIXTURE", message: "fixture 模式下没有服务端设置命名空间，无法登记供应商；请配置 VITE_AF_API_BASE_URL 连接真实 AF API。", retryable: false });
+    },
+    async updateModelProvider() {
+      throw new AfApiError({ code: "AF_UNSUPPORTED_IN_FIXTURE", message: "fixture 模式下没有服务端设置命名空间，无法更新供应商；请配置 VITE_AF_API_BASE_URL 连接真实 AF API。", retryable: false });
+    },
+    async deleteModelProvider() {
+      throw new AfApiError({ code: "AF_UNSUPPORTED_IN_FIXTURE", message: "fixture 模式下没有服务端设置命名空间，无法删除供应商；请配置 VITE_AF_API_BASE_URL 连接真实 AF API。", retryable: false });
+    },
+    async testModelProvider() {
+      throw new AfApiError({ code: "AF_UNSUPPORTED_IN_FIXTURE", message: "fixture 模式下没有真实模型通道，无法发起连通性探测；请配置 VITE_AF_API_BASE_URL 连接真实 AF API。", retryable: false });
+    },
     async createPushOperation(taskId, input) {
       const task = tasks.find((item) => item.taskId === taskId);
       if (!task) throw new AfApiError({ code: "AF_TASK_NOT_FOUND", message: "fixture 任务不存在", retryable: false });
@@ -711,6 +747,13 @@ class HttpAfApiClient implements AfApiClient {
   materializeEvidence(taskId: string, signal?: AbortSignal) { return this.request<EvidenceMaterializationDto>(`/tasks/${encodeURIComponent(taskId)}/evidence/materialize`, { method: "POST", body: "{}" }, signal); }
   getApprovals(taskId: string, signal?: AbortSignal) { return this.request<ApprovalQueryDto>(`/tasks/${encodeURIComponent(taskId)}/approvals`, undefined, signal); }
   listModelProviders(signal?: AbortSignal) { return this.request<ModelProvidersDto>("/model-providers", undefined, signal); }
+  /* 供应商写入：后端 schema 是 strict，body 必须逐字段对齐 ModelProviderInputDto，
+     且 apiKey 仅在非空时提交 —— 传 undefined 表示保留既有凭据，传空串会被 min(1) 拒绝。 */
+  createModelProvider(input: ModelProviderInputDto, signal?: AbortSignal) { return this.request<ModelProvidersDto>("/model-providers", { method: "POST", body: JSON.stringify(providerBody(input)) }, signal); }
+  updateModelProvider(id: string, input: ModelProviderInputDto, signal?: AbortSignal) { return this.request<ModelProvidersDto>(`/model-providers/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(providerBody(input)) }, signal); }
+  deleteModelProvider(id: string, signal?: AbortSignal) { return this.request<ModelProvidersDto>(`/model-providers/${encodeURIComponent(id)}`, { method: "DELETE" }, signal); }
+  /* 模型 id 可能含 / 等字符（如 vendor/model），必须整体编码。 */
+  testModelProvider(id: string, modelId: string, signal?: AbortSignal) { return this.request<ModelProviderTestResultDto>(`/model-providers/${encodeURIComponent(id)}/models/${encodeURIComponent(modelId)}/test`, { method: "POST", body: "{}" }, signal); }
   createPushOperation(taskId: string, input: PushOperationInput, signal?: AbortSignal) { return this.request<GitOperationDto>(`/tasks/${encodeURIComponent(taskId)}/git-operations`, { method: "POST", body: JSON.stringify(input) }, signal); }
   confirmPushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}/confirm`, { method: "POST", body: JSON.stringify({ idempotencyKey: requestKey("git-confirm", operationId) }) }, signal); }
   getPushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}`, undefined, signal); }

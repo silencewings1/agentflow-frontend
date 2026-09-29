@@ -9,7 +9,7 @@ import { afApi, AfApiError, normalizePlanPayload, structuredToEvents, toUiBootst
 import { realInspectorBundle } from "./api/inspectorMapper";
 import { describeError, errorText } from "./api/error-text";
 import { buildStageCards } from "./api/stageMapper";
-import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, ModelProvidersDto, NodeReviewFeedbackDto, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, SkillOutputDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
+import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, ModelProviderInputDto, ModelProvidersDto, NodeReviewFeedbackDto, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, SkillOutputDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
 import type { StageSkillOutputView, StageTraceView } from "./components/StageCard";
 import { conversationOf } from "./data/streams";
 import { inspectorOf } from "./data/inspector";
@@ -306,8 +306,11 @@ export default function App() {
   const [wfStep, setWfStep] = useState(1);
   const [toasts, setToasts] = useState<Toast[]>([]);
   /* 模型路由由服务端按任务决定；前端只读取并展示默认路由，不提供改写入口。
-     读取失败时保持 null，由 Composer 显示「模型路由未登记」。 */
+     读取失败时保持 null，由 Composer 显示「模型路由未登记」。
+     设置面板需要区分「读取中」与「读取失败」，故额外记录错误文案 ——
+     否则一次失败会被渲染成「服务端没有供应商」，那是把故障说成了事实。 */
   const [modelProviders, setModelProviders] = useState<ModelProvidersDto | null>(null);
+  const [modelProvidersError, setModelProvidersError] = useState<string | null>(null);
   const [mode, setMode] = useState<"session" | "welcome">("welcome");
 
   /* --- streamed event window --------------------------------------------- */
@@ -372,8 +375,15 @@ export default function App() {
       setAgentProfiles(ui.agentProfiles);
       setSkillCatalog(ui.skills);
       setScmProviders(ui.scmProviders);
-      /* 模型路由是只读展示项，失败不影响首屏：保持 null 由 Composer 如实降级。 */
-      void afApi.listModelProviders().then(setModelProviders).catch(() => setModelProviders(null));
+      /* 模型路由是只读展示项，失败不影响首屏：保持 null 由 Composer 如实降级。
+         同时记下错误文案，供设置面板区分「无供应商」与「读取失败」。 */
+      void afApi.listModelProviders().then((data) => {
+        setModelProviders(data);
+        setModelProvidersError(null);
+      }).catch((e: unknown) => {
+        setModelProviders(null);
+        setModelProvidersError(errorText(e instanceof AfApiError ? e.code : undefined, e instanceof Error ? e.message : undefined));
+      });
       setApiLoad({ status: "ready" });
       const requestedId = preferredActiveRef.current ?? currentActiveRef.current;
       const first = ui.tasks.find((task) => task.id === requestedId) ?? ui.tasks[0];
@@ -776,6 +786,37 @@ export default function App() {
   const toggleTheme = useCallback(() => {
     setTheme((t) => (t === "lumen" ? "ink" : "lumen"));
   }, []);
+
+  /* --- 模型供应商写入 -----------------------------------------------------
+     四个写操作都**不做本地乐观更新**：服务端返回的是更新后的完整目录，直接以它
+     覆盖本地状态。这样「保存成功」由服务端回读证明，而不是由本地数组自证。
+     失败向上抛，由面板负责把错误码翻译成中文并提示。 */
+  const reloadModelProviders = useCallback(async () => {
+    try {
+      const data = await afApi.listModelProviders();
+      setModelProviders(data);
+      setModelProvidersError(null);
+    } catch (e: unknown) {
+      setModelProviders(null);
+      setModelProvidersError(errorText(e instanceof AfApiError ? e.code : undefined, e instanceof Error ? e.message : undefined));
+      throw e;
+    }
+  }, []);
+
+  const saveModelProvider = useCallback(async (input: ModelProviderInputDto, mode: "create" | "update") => {
+    const data = mode === "create"
+      ? await afApi.createModelProvider(input)
+      : await afApi.updateModelProvider(input.id, input);
+    setModelProviders(data);
+    setModelProvidersError(null);
+  }, []);
+
+  const deleteModelProvider = useCallback(async (id: string) => {
+    setModelProviders(await afApi.deleteModelProvider(id));
+    setModelProvidersError(null);
+  }, []);
+
+  const testModelProvider = useCallback((id: string, modelId: string) => afApi.testModelProvider(id, modelId), []);
 
   /* --- keyboard ----------------------------------------------------------- */
   useEffect(() => {
@@ -2001,6 +2042,13 @@ export default function App() {
           onToast={push}
           runtime={archRuntime}
           onJump={archJump}
+          modelProviders={modelProviders}
+          modelProvidersError={modelProvidersError}
+          agentProfiles={agentProfiles}
+          onRefreshModelProviders={reloadModelProviders}
+          onSaveModelProvider={saveModelProvider}
+          onDeleteModelProvider={deleteModelProvider}
+          onTestModelProvider={testModelProvider}
         />
       )}
       {newTaskOpen && (

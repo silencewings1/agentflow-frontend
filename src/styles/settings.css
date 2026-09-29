@@ -1108,6 +1108,73 @@
   color: var(--text-4);
 }
 
+/* 写操作条：动作与它的后果说明必须一起看见 —— 「保存」被读成「已生效」
+   是这类界面上最常见的误读，因此按钮右侧常驻一句写入范围说明。 */
+.mpForm__act {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+}
+
+.mpForm__act .mpField__hint {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+/* 面板级说明：用于交代「为什么这里没有某个操作」，与字段级 hint 区分开 */
+.paneNote {
+  margin-top: 2px;
+  font-size: var(--step--1);
+  line-height: 1.6;
+  color: var(--text-3);
+  max-width: 74ch;
+}
+
+/* 智能体档案的职责清单：职责与非职责并列，用形态差异区分边界内外 */
+.dutyList {
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.dutyList li {
+  position: relative;
+  padding-left: 15px;
+  font-size: var(--step--1);
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.dutyList li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.52em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--layer, var(--accent));
+}
+
+/* 职责为实心、非职责为空心虚线：形态差异先于颜色差异 */
+.dutyList li[data-kind="in"] {
+  --layer: var(--sage);
+}
+
+.dutyList li[data-kind="out"] {
+  --layer: var(--gold);
+  color: var(--text-3);
+}
+
+.dutyList li[data-kind="out"]::before {
+  background: transparent;
+  border: 1px solid var(--layer);
+}
+
 /* 窄屏退化为上下两段：优先保住配置项本身，而不是硬挤两栏 */
 @media (max-width: 860px) {
   .mpLayout {

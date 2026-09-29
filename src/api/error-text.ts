@@ -132,6 +132,8 @@ export const ERROR_CODE_TEXT: Record<string, string> = {
   // —— 前端本地错误码（不在后端 errors.ts 内）——
   AF_NETWORK_ERROR: "无法连接 AF API，请确认后端已启动并检查网络。",
   AF_CLIENT_RESPONSE_INVALID: "服务端返回了无法解析的内容，可能是前后端版本不匹配。",
+  AF_UNSUPPORTED_IN_FIXTURE:
+    "演示模式（fixture）没有服务端设置与凭据库，无法真正保存。请配置 VITE_AF_API_BASE_URL 连接真实 AF API 后再操作。",
 };
 
 /**
