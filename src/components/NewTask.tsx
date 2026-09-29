@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "./Icons";
+import { describeValidationIssue } from "../api/error-text";
 import { WorkflowPicker } from "./Workflow";
 import { validateWorkflowGraph, workflowTemplates, type Workflow } from "../data/workflows";
 import { defaultTargetBranch } from "../data/branchNaming";
@@ -99,7 +100,7 @@ export function NewTaskDialog({
     if (!serverResult.valid) {
       setServerValidation(serverResult);
       setWfOpen(true);
-      return onToast({ tone: "warn", title: "DAG 服务端校验未通过", body: serverResult.errors[0]?.message ?? "工作流无效" });
+      return onToast({ tone: "warn", title: "DAG 服务端校验未通过", body: describeValidationIssue(serverResult.errors[0]?.code, serverResult.errors[0]?.message) });
     }
     // 新建任务所用工作流来自 bootstrap/目录（已校验合法）；后端 validate 会对前端重构的 draft
     // 重算 nodeSpecDigest 并误报 WORKFLOW_DIGEST_MISMATCH，故此处不做后端复用校验，直接启动。

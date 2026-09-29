@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Icon } from "./Icons";
+import { describeValidationIssue } from "../api/error-text";
 import {
   addWorkflowEdge,
   NODE_H,
@@ -657,7 +658,7 @@ export function WorkflowPicker({
         <div className="wfValidation" data-valid={issues.length === 0}>
           <strong>{issues.length === 0 ? "DAG 校验通过" : `DAG 有 ${issues.length} 项问题`}</strong>
           {issues.slice(0, 4).map((issue, index) => (
-            <span key={`${issue.code}-${issue.path}-${index}`}><code>{issue.code}</code> · {issue.message}</span>
+            <span key={`${issue.code}-${issue.path}-${index}`}>{describeValidationIssue(issue.code, issue.message)}</span>
           ))}
           {issues.length > 4 && <span>另有 {issues.length - 4} 项，请修正后再保存。</span>}
         </div>

@@ -7,6 +7,7 @@ import {
 } from "./data/mock";
 import { afApi, AfApiError, normalizePlanPayload, structuredToEvents, toUiBootstrap, toWorkflowDto } from "./api";
 import { realInspectorBundle } from "./api/inspectorMapper";
+import { describeError, errorText } from "./api/error-text";
 import { buildStageCards } from "./api/stageMapper";
 import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, ModelProvidersDto, NodeReviewFeedbackDto, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, SkillOutputDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
 import type { StageSkillOutputView, StageTraceView } from "./components/StageCard";
@@ -167,12 +168,15 @@ function workSpecFromContract(prompt: string, contract: AgentEvent, scm: NewTask
 }
 
 function apiFailure(error: unknown, fallbackMessage: string): Omit<Extract<ApiLoadState, { status: "error" }>, "status"> {
+  /* 错误文案统一在这里转成面向用户的中文（见 api/error-text.ts）。
+     后端 message 是工程口径（英文、含步骤名与内部约束），不适合直接展示；
+     未登记的错误码由 describeError 回退，保留原文供报障对照。 */
   if (error instanceof AfApiError) {
-    return { code: error.code, message: error.message, retryable: error.retryable };
+    return { code: error.code, message: errorText(error.code, error.message), retryable: error.retryable };
   }
   return {
     code: "AF_CLIENT_RESPONSE_INVALID",
-    message: error instanceof Error ? error.message : fallbackMessage,
+    message: errorText("AF_CLIENT_RESPONSE_INVALID", error instanceof Error ? error.message : fallbackMessage),
     retryable: true,
   };
 }
@@ -586,7 +590,7 @@ export default function App() {
     } catch (error: unknown) {
       if (signal?.aborted) return;
       const failure = apiFailure(error, "无法读取执行诊断");
-      setTraces((prev) => ({ ...prev, [nodeId]: { attemptId, status: "error", trace: null, error: { code: failure.code, message: failure.message } } }));
+      setTraces((prev) => ({ ...prev, [nodeId]: { attemptId, status: "error", trace: null, error: { code: failure.code, message: errorText(failure.code, failure.message) } } }));
     }
   }, []);
 
@@ -601,7 +605,7 @@ export default function App() {
     } catch (error: unknown) {
       if (signal?.aborted) return;
       const failure = apiFailure(error, "无法读取逐条用例");
-      setSkillOutputs((prev) => ({ ...prev, [nodeId]: { attemptId, status: "error", output: null, error: { code: failure.code, message: failure.message } } }));
+      setSkillOutputs((prev) => ({ ...prev, [nodeId]: { attemptId, status: "error", output: null, error: { code: failure.code, message: errorText(failure.code, failure.message) } } }));
     }
   }, []);
 
@@ -939,7 +943,7 @@ export default function App() {
         });
       } catch (error: unknown) {
         const apiError = error instanceof AfApiError ? error : undefined;
-        push({ tone: "warn", title: "任务创建失败", body: `${apiError?.code ?? "AF_NETWORK_ERROR"} · ${apiError?.message ?? "无法连接 AF API"}` });
+        push({ tone: "warn", title: "任务创建失败", body: describeError(apiError?.code, apiError?.message) });
         return;
       }
       timers.current.forEach(clearTimeout);
@@ -967,7 +971,7 @@ export default function App() {
           push({ tone: "ok", title: "任务已创建，WorkSpec 已自动冻结", body: `任务 ${createdTask.taskId} 已保存契约并生成 revision。现在可以请求 Proposal。` });
         } catch (error: unknown) {
           const failure = apiFailure(error, "无法保存新任务 WorkSpec");
-          push({ tone: "warn", title: "任务已创建，但 WorkSpec 冻结失败", body: `${failure.code} · ${failure.message}。可在治理面板修正后重试。` });
+          push({ tone: "warn", title: "任务已创建，但 WorkSpec 冻结失败", body: describeError(failure.code, failure.message) + "。可在治理面板修正后重试。" });
         }
         loadBootstrap();
         await fetchTaskRuntime(createdTask.taskId);
@@ -1033,7 +1037,7 @@ export default function App() {
       if (afApi.mode === "http") await loadBootstrap();
     }).catch((error: unknown) => {
         const apiError = error instanceof AfApiError ? error : undefined;
-        push({ tone: "warn", title: "任务启动失败", body: `${apiError?.code ?? "AF_NETWORK_ERROR"} · ${apiError?.message ?? "无法连接 AF API"}` });
+        push({ tone: "warn", title: "任务启动失败", body: describeError(apiError?.code, apiError?.message) });
     });
     if (afApi.mode === "http") {
       return;
@@ -1098,7 +1102,7 @@ export default function App() {
         await afApi.cancelTask(id);
       } catch (error: unknown) {
         const failure = apiFailure(error, "无法取消运行");
-        push({ tone: "warn", title: "取消运行失败", body: `${failure.code} · ${failure.message}` });
+        push({ tone: "warn", title: "取消运行失败", body: describeError(failure.code, failure.message) });
         return;
       }
       const [refreshed] = await Promise.all([
@@ -1119,7 +1123,7 @@ export default function App() {
         await afApi.setTaskArchived(id, archived);
       } catch (error: unknown) {
         const failure = apiFailure(error, archived ? "无法归档任务" : "无法恢复任务");
-        push({ tone: "warn", title: archived ? "归档失败" : "恢复失败", body: `${failure.code} · ${failure.message}` });
+        push({ tone: "warn", title: archived ? "归档失败" : "恢复失败", body: describeError(failure.code, failure.message) });
         return;
       }
       const refreshed = await loadBootstrap();
@@ -1233,7 +1237,7 @@ export default function App() {
       }
     } catch (error: unknown) {
       const apiError = error instanceof AfApiError ? error : undefined;
-      push({ tone: "warn", title: "审批失败", body: `${apiError?.code ?? "AF_NETWORK_ERROR"} · ${apiError?.message ?? "无法连接 AF API"}` });
+      push({ tone: "warn", title: "审批失败", body: describeError(apiError?.code, apiError?.message) });
     }
   }, [activeId, fetchTaskRuntime, push]);
 
@@ -1345,7 +1349,7 @@ export default function App() {
       push({ tone: "info", title: "运行请求已提交", body: "任务已进入后台队列，Requirements 和后续节点会异步执行；请等待状态刷新，不要重复点击执行。" });
     } catch (error: unknown) {
       const failure = apiFailure(error, "无法启动任务");
-      push({ tone: "warn", title: "任务启动失败", body: `${failure.code} · ${failure.message}` });
+      push({ tone: "warn", title: "任务启动失败", body: describeError(failure.code, failure.message) });
     } finally {
       setStartingTaskId(null);
     }
@@ -1362,7 +1366,7 @@ export default function App() {
       push({ tone: "ok", title: "人工检查点已批准", body: `${nodeId} 已继续推进，控制面状态已刷新。` });
     } catch (error: unknown) {
       const failure = apiFailure(error, "无法批准任务节点");
-      push({ tone: "warn", title: "人工检查点批准失败", body: `${failure.code} · ${failure.message}` });
+      push({ tone: "warn", title: "人工检查点批准失败", body: describeError(failure.code, failure.message) });
     } finally {
       setApprovingNodeId(null);
     }
@@ -1382,7 +1386,7 @@ export default function App() {
       if (activeId) await fetchTaskRuntime(activeId);
     } catch (error: unknown) {
       const apiError = error instanceof AfApiError ? error : undefined;
-      push({ tone: "warn", title: "Git operation 确认失败", body: `${apiError?.code ?? "AF_NETWORK_ERROR"} · ${apiError?.message ?? "无法确认外部写入"}` });
+      push({ tone: "warn", title: "Git operation 确认失败", body: describeError(apiError?.code, apiError?.message) });
     } finally {
       setConfirmingOperationId(null);
     }
@@ -1414,7 +1418,7 @@ export default function App() {
       push({ tone: "info", title: "SCM operation 已生成", body: `${operation.operationId} · ${operation.status}，等待人工确认远端写入。` });
     } catch (error: unknown) {
       const failure = apiFailure(error, "无法生成 SCM operation");
-      push({ tone: "warn", title: "SCM operation 生成失败", body: `${failure.code} · ${failure.message}` });
+      push({ tone: "warn", title: "SCM operation 生成失败", body: describeError(failure.code, failure.message) });
     } finally {
       setPlanningOperation(false);
     }
@@ -1476,7 +1480,7 @@ export default function App() {
     } catch (error: unknown) {
       const failure = apiFailure(error, "无法保存 WorkSpec");
       setGovernanceLoad({ status: "error", ...failure });
-      push({ tone: "warn", title: "WorkSpec 冻结失败", body: `${failure.code} · ${failure.message}` });
+      push({ tone: "warn", title: "WorkSpec 冻结失败", body: describeError(failure.code, failure.message) });
     }
   }, [active, activeId, fetchGovernance, fetchTaskRuntime, push, scmProviders, taskRuntime]);
 
@@ -1521,7 +1525,7 @@ export default function App() {
     } catch (error: unknown) {
       const failure = apiFailure(error, "无法提交 Requirements 澄清");
       setGovernanceLoad({ status: "error", ...failure });
-      push({ tone: "warn", title: "澄清提交失败", body: `${failure.code} · ${failure.message}` });
+      push({ tone: "warn", title: "澄清提交失败", body: describeError(failure.code, failure.message) });
     } finally {
       setClarificationSubmitting(false);
     }
@@ -1566,7 +1570,7 @@ export default function App() {
     } catch (error: unknown) {
       const failure = apiFailure(error, "无法提交人工审阅");
       setGovernanceLoad({ status: "error", ...failure });
-      push({ tone: "warn", title: "审阅提交失败", body: `${failure.code} · ${failure.message}` });
+      push({ tone: "warn", title: "审阅提交失败", body: describeError(failure.code, failure.message) });
     } finally {
       setReviewSubmitting(false);
     }
@@ -1582,7 +1586,7 @@ export default function App() {
       push({ tone: "ok", title: "Proposal 已生成", body: "Supervisor 提案已进入服务端治理事实。" });
     } catch (error: unknown) {
       const failure = apiFailure(error, "无法生成 Supervisor Proposal");
-      push({ tone: "warn", title: "Proposal 生成失败", body: `${failure.code} · ${failure.message}` });
+      push({ tone: "warn", title: "Proposal 生成失败", body: describeError(failure.code, failure.message) });
     }
   }, [activeId, fetchGovernance, governance.workSpec, push]);
 
@@ -1594,7 +1598,7 @@ export default function App() {
       push({ tone: "ok", title: "CompilationReport 已生成", body: "确定性 Compiler 已保存报告与 ExecutionPlanRevision。" });
     } catch (error: unknown) {
       const failure = apiFailure(error, "无法运行 Plan Compiler");
-      push({ tone: "warn", title: "Compiler 拒绝", body: `${failure.code} · ${failure.message}` });
+      push({ tone: "warn", title: "Compiler 拒绝", body: describeError(failure.code, failure.message) });
     }
   }, [activeId, fetchGovernance, governance.proposal, push]);
 
@@ -1606,7 +1610,7 @@ export default function App() {
       push({ tone: decision === "approved" ? "ok" : "warn", title: decision === "approved" ? "计划已批准" : "计划已拒绝", body: "PlanDecision 已由服务端记录。" });
     } catch (error: unknown) {
       const failure = apiFailure(error, "无法记录 PlanDecision");
-      push({ tone: "warn", title: "计划决策失败", body: `${failure.code} · ${failure.message}` });
+      push({ tone: "warn", title: "计划决策失败", body: describeError(failure.code, failure.message) });
     }
   }, [activeId, fetchGovernance, governance.plan, governance.proposal, push, taskRuntime]);
 
@@ -1827,7 +1831,7 @@ export default function App() {
         {apiLoad.status === "loading" && <div className="apiNotice" data-state="loading">正在连接 AF API…</div>}
         {apiLoad.status === "error" && (
           <div className="apiNotice" data-state="error" role="alert">
-            <span>AF API 不可用 · {apiLoad.code} · {apiLoad.message}</span>
+            <span>AF API 不可用 · {errorText(apiLoad.code, apiLoad.message)}</span>
             {apiLoad.retryable && <button className="btn btn--ghost btn--sm" onClick={loadBootstrap}>重试</button>}
           </div>
         )}
