@@ -1059,10 +1059,16 @@ function ConnectPane({ onToast }: { onToast: Toast }) {
 
   return (
     <div className="stack">
+      <p className="paneNote">
+        本面板展示的是受控连接层的<strong>设计口径</strong>（分级规则、七步链路、策略清单），
+        数字为设计期示例，不是运行时遥测：AF API 没有连接层端点，
+        真实的受控调用事实目前只落在任务轨迹里（<code className="mono">dag.operation.planned</code> 等）。
+      </p>
+
       <div className="statRow">
-        <Stat label="受控连接" value={`${linked}/${list.length}`} hint="已连接 / 全部" />
-        <Stat label="24h 外部调用" value={calls.toLocaleString()} hint="全部经连接层代理" />
-        <Stat label="权限拦截" value={String(denied)} hint="越界或未授权调用" tone="warn" />
+        <Stat label="受控连接" value={`${linked}/${list.length}`} hint="示例口径 · 非实时" />
+        <Stat label="24h 外部调用" value={calls.toLocaleString()} hint="设计期示例 · 无遥测端点" />
+        <Stat label="权限拦截" value={String(denied)} hint="设计期示例 · 非实时" tone="warn" />
       </div>
 
       <SectionLabel text="一次受控调用" hint="七个固定步骤" />
@@ -1287,6 +1293,12 @@ function EnvPane({ onToast }: { onToast: Toast }) {
 
   return (
     <div className="stack">
+      <p className="paneNote">
+        本面板展示的是执行环境的<strong>设计口径</strong>（云环境与沙箱的分级、隔离与数据边界），
+        内容为设计期示例，不是运行时事实：AF API 没有环境端点，
+        任务真实使用的执行器只有 <code className="mono">executorMode</code> 一项（见任务事实）。
+      </p>
+
       <div className="segment segment--lg">
         <button data-on={tab === "cloud"} onClick={() => setTab("cloud")}>
           <Icon.Cloud size={14} />
