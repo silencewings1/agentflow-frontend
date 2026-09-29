@@ -122,7 +122,9 @@ function EvidencePane({
   );
   const ready = items.filter((e) => e.confirmed).length;
   const blocking = items.filter((e) => !e.confirmed && e.required).length;
-  const pct = Math.round((ready / items.length) * 100);
+  /* 证据为空时不得算出 NaN：0/0 会渲染成 "NaN%"，比空列表更难读。
+     空列表本身是合法事实（该任务尚无证据落库），如实显示 0%。 */
+  const pct = items.length === 0 ? 0 : Math.round((ready / items.length) * 100);
 
   return (
     <div className="pane">

@@ -82,15 +82,109 @@ function collectChangedFiles(t: TaskDetailDto | null, patch?: TaskPatchDto | nul
   return [...byPath.values()];
 }
 
-export function realInspectorBundle(t: TaskDetailDto | null, trajectory: TrajectoryEventDto[], patch?: TaskPatchDto | null): InspectorBundle {
+/* 证据链只由**后端真实事实**生成，六类证据各取自己的事实源：
+     gates[]（门禁裁决）、skills[]（技能执行）、deliverables[]（交付物摘要）、
+     gitOperations[]（远端写入）、节点 requiresApproval + structured.approved（人工审批）。
+   此前实现按 `structured.kind` 分支匹配 gate/skill/gitWrite/approval —— 真实 structured
+   里没有 kind 字段（实测 11/11 节点该字段不存在），于是 evidence 恒为空数组，
+   右栏长期显示「证据链 0/0」。形状臆造是这里唯一的根因。 */
+function buildEvidence(t: TaskDetailDto | null): EvidenceItem[] {
   const evidence: EvidenceItem[] = [];
-  for (const n of t?.nodes ?? []) {
-    const s = (n.structured ?? {}) as Record<string, any>;
-    if (s.kind === "gate" && s.gate) evidence.push({ id: "ev:" + n.nodeId, kind: "review", title: "门禁 " + (s.gate.gateId ?? n.nodeId), source: "af/api", version: "gate:" + (s.gate.verdict ?? ""), at: "", actor: s.agent ?? "af", confirmed: s.gate.outcome === "pass", required: true });
-    else if (s.kind === "skill" && s.test) evidence.push({ id: "ev:" + n.nodeId, kind: "test", title: (s.test.passed ?? 0) + " 项测试通过", source: "af/api", version: "test", at: "", actor: "skill", confirmed: (s.test.failed ?? 0) === 0, required: true });
-    else if (s.kind === "git" && s.gitWrite) evidence.push({ id: "ev:" + n.nodeId, kind: "change", title: "写入 " + (s.gitWrite.repositoryRef ?? "") + " " + (s.gitWrite.targetBranch ?? ""), source: "af/api", version: "git:" + (s.gitWrite.changeSetDigest ?? "").slice(0, 8), at: "", actor: "af", confirmed: true, required: true });
-    else if (s.kind === "git" && s.approval) evidence.push({ id: "ev:" + n.nodeId, kind: "approval", title: "人工检查点 " + (s.approval.prompt ?? ""), source: "af/api", version: "approve:" + (s.approval.decision ?? ""), at: "", actor: "me@agentflow.dev", confirmed: !!s.approval.decision, required: true });
+  const shortDigest = (value: string | null | undefined): string => {
+    const text = value ?? "";
+    const hex = text.includes(":") ? text.slice(text.indexOf(":") + 1) : text;
+    return hex.length > 12 ? hex.slice(0, 12) : hex;
+  };
+  const stamp = (value: string | null | undefined): string => {
+    if (!value) return "";
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? new Date(parsed).toLocaleTimeString() : "";
+  };
+
+  /* 1. 门禁裁决：outcome 是确定性程序的判定，evidenceRef 是它依据的摘要。 */
+  for (const gate of t?.rawGates ?? []) {
+    const isTestGate = gate.gateType.includes("test");
+    evidence.push({
+      id: "ev:gate:" + gate.gateId,
+      kind: isTestGate ? "test" : "review",
+      title: `门禁 ${gate.gateType} 判定 ${gate.outcome}`,
+      source: "af/gates evaluator " + gate.evaluatorVersion,
+      version: "evidence:" + shortDigest(gate.evidenceRef),
+      at: stamp(gate.createdAt),
+      actor: "确定性程序",
+      confirmed: gate.outcome === "pass",
+      required: true,
+    });
   }
+
+  /* 2. 技能执行：退出码是唯一能证明「命令真的跑过」的事实。 */
+  for (const skill of t?.skills ?? []) {
+    evidence.push({
+      id: "ev:skill:" + skill.nodeId + ":" + skill.skillId,
+      kind: "test",
+      title: `${skill.skillId} ${skill.status}${skill.exitCode === undefined ? "" : `（exit ${skill.exitCode}）`}`,
+      source: "af/skill " + skill.skillVersion,
+      version: "evidence:" + shortDigest(skill.evidenceRef),
+      at: "",
+      actor: "Skill 执行器",
+      confirmed: skill.status === "completed",
+      required: true,
+    });
+  }
+
+  /* 3. 交付物摘要：digest 是「产物确实生成过」的凭据。 */
+  for (const item of t?.deliverables ?? []) {
+    evidence.push({
+      id: "ev:deliverable:" + item.deliverableId,
+      kind: "change",
+      title: `${item.nodeId} 交付物 ${item.status}`,
+      source: "af/deliverable " + item.schemaVersion,
+      version: shortDigest(item.digest),
+      at: "",
+      actor: item.nodeId,
+      confirmed: item.status === "current",
+      required: true,
+    });
+  }
+
+  /* 4. 远端写入：只有真发生过的外部写操作才进证据链。 */
+  for (const operation of t?.gitOperations ?? []) {
+    evidence.push({
+      id: "ev:git:" + operation.operationId,
+      kind: "change",
+      title: `远端写入 ${operation.status}`,
+      source: "af/connector-git",
+      version: "changeset:" + shortDigest(operation.changeSet?.digest),
+      at: "",
+      actor: "连接层",
+      confirmed: operation.status === "committed",
+      required: true,
+    });
+  }
+
+  /* 5. 人工审批：structured.approved 是审批节点的真实裁决位。 */
+  for (const node of t?.nodes ?? []) {
+    if (!node.requiresApproval) continue;
+    const structured = (node.structured ?? {}) as Record<string, unknown>;
+    const approved = structured.approved;
+    evidence.push({
+      id: "ev:approval:" + node.nodeId,
+      kind: "approval",
+      title: `人工检查点 ${node.nodeId}`,
+      source: "af/governance approval",
+      version: "decision:" + (approved === true ? "approved" : approved === false ? "rejected" : "pending"),
+      at: "",
+      actor: "人工",
+      confirmed: approved === true,
+      required: true,
+    });
+  }
+
+  return evidence;
+}
+
+export function realInspectorBundle(t: TaskDetailDto | null, trajectory: TrajectoryEventDto[], patch?: TaskPatchDto | null): InspectorBundle {
+  const evidence = buildEvidence(t);
 
   /* diffs 只来自真实补丁：key 必须与文件树路径完全一致，供 DiffView 的切换芯片与
      shownFile 回退逻辑使用。available=false 时保持空对象。 */
