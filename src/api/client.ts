@@ -268,6 +268,31 @@ function fixtureDetail(task: TaskSummaryDto, bootstrap: AfBootstrapDto): TaskDet
     ...(terminal ? { remoteRevision: "3333333333333333333333333333333333333333" } : {}),
     actor: "fixture-user",
     createdAt: "2026-09-02T08:00:00.000Z",
+  }] : failed ? [{
+    /* 失败任务演示「写链悬挂」：远端是否已收到写入未知，因此禁止重放，只能对账。
+       没有这个工况，界面上的对账入口就永远不可见 —— 不可见的能力等于不存在。 */
+    contractVersion: "1.1",
+    operationId: `${task.taskId}.git.publish.r1`,
+    idempotencyKey: `${task.taskId}:git:publish:1`,
+    taskId: task.taskId,
+    provider: "github",
+    mcpServerRef: "github-official",
+    mcpServerVersion: "hosted",
+    mcpCapabilitiesDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    repositoryRef: task.repositoryRef,
+    credentialRef: "GITHUB_AGENTFLOW_TOKEN",
+    baseBranch: "main",
+    baseRevision: "1111111111111111111111111111111111111111",
+    expectedRemoteRevision: "1111111111111111111111111111111111111111",
+    sourceRevision: "2222222222222222222222222222222222222222",
+    targetBranch: task.targetBranch,
+    changeSet: { digest: FIXTURE_DIGEST, files: [{ path: "src/example.ts", action: "update", contentDigest: FIXTURE_DIGEST }] },
+    commit: { message: "fix: fixture hung remote write" },
+    status: "unknown",
+    reconcileQueryRef: `fixture://reconcile/${task.taskId}`,
+    errorMessage: "远端写入结果未确认：连接在响应前中断，无法判定提交是否已到达远端。",
+    actor: "fixture-user",
+    createdAt: "2026-09-02T08:00:00.000Z",
   }] : [];
   const currentNodeId = nodes.find((node) => node.status === "running" || node.status === "rejected" || node.status === "awaiting_approval")?.nodeId;
   return {
@@ -646,7 +671,17 @@ function fixtureClient(): AfApiClient {
       if (!operation) throw new AfApiError({ code: "AF_INVALID_REQUEST", message: "fixture Git operation 不存在", retryable: false });
       return operation;
     },
-    async reconcilePushOperation(operationId) { return this.getPushOperation(operationId); },
+    async reconcilePushOperation(operationId) {
+      /* 与真实后端同语义：对账只回读远端事实来收敛状态，绝不重放原写操作。
+         fixture 里「远端事实」即固定为写入已到达，因此 unknown → committed。 */
+      const operation = operations.get(operationId) ?? [...details.values()].flatMap((detail) => detail.gitOperations).find((item) => item.operationId === operationId);
+      if (!operation) throw new AfApiError({ code: "AF_INVALID_REQUEST", message: "fixture Git operation 不存在", retryable: false });
+      if (operation.status !== "unknown" && operation.status !== "failed") return operation;
+      const converged: GitOperationDto = { ...operation, status: "committed", remoteRevision: "3333333333333333333333333333333333333333", updatedAt: new Date().toISOString() };
+      operations.set(operationId, converged);
+      for (const detail of details.values()) detail.gitOperations = detail.gitOperations.map((item) => item.operationId === operationId ? converged : item);
+      return converged;
+    },
   };
 }
 

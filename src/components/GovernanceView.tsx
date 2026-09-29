@@ -1,4 +1,5 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { Icon } from "./Icons";
 import { normalizePlanPayload, normalizeProposalPayload } from "../api/types";
 import type {
   AfGateDetailDto,
@@ -73,6 +74,9 @@ export interface GovernanceViewProps {
   /** 等待人工审阅的闸门节点（App 从 taskRuntime.nodes 派生）。 */
   reviewGates?: Array<{ nodeId: string }>;
   busyAction?: string | null;
+  /** 对 unknown/failed 的 SCM 写入做显式对账：只查询远端事实，不重放写操作。 */
+  onReconcileOperation?: (operationId: string) => void;
+  reconcilingOperationId?: string | null;
 }
 
 const taskLabels: Record<string, string> = {
@@ -559,6 +563,8 @@ export function GovernanceView({
   reviewSubmitting,
   reviewGates = [],
   busyAction,
+  onReconcileOperation,
+  reconcilingOperationId,
 }: GovernanceViewProps) {
   const effectiveRunMode = runMode ?? runIntent?.runMode;
   const currentStatus = runIntent?.status ?? taskStatus;
@@ -642,6 +648,23 @@ export function GovernanceView({
 
         <Section title="SCM 对账" kicker="受控连接层" empty={!scmOperations.length}>
           <div className="govEvidence">{scmOperations.map((operation) => <article key={operation.operationId} data-outcome={operation.status === "committed" ? "pass" : operation.status === "unknown" ? "warn" : operation.status === "failed" ? "fail" : "pending"}><strong>{operation.operationId}</strong><StatusPill value={operation.status} tone={operation.status === "committed" ? "ok" : operation.status === "unknown" ? "warn" : undefined} /><span>{operation.sourceRevision} → {operation.remoteRevision ?? "远端未确认"}</span><code>{operation.reconcileQueryRef ?? operation.changeSet.digest}</code></article>)}</div><p className="govHint">{unresolvedOperations ? `${unresolvedOperations} 项需要 reconcile；禁止重放未知写操作。` : "没有未对账 SCM 操作。"}</p>
+          {/* 挂起操作必须给出路：只诊断不提供动作，用户会卡在「需要 reconcile」这句话上。
+              对账只回读远端事实来收敛状态，不重放写入，因此可以安全暴露。 */}
+          {onReconcileOperation && scmOperations.some((op) => op.status === "unknown" || op.status === "failed") && (
+            <div className="govActions">
+              {scmOperations.filter((op) => op.status === "unknown" || op.status === "failed").map((op) => (
+                <button
+                  key={op.operationId}
+                  className="btn btn--sm"
+                  disabled={reconcilingOperationId === op.operationId}
+                  onClick={() => onReconcileOperation(op.operationId)}
+                >
+                  <Icon.Clock size={12} />
+                  {reconcilingOperationId === op.operationId ? "正在回读远端…" : `对账 ${op.operationId.slice(-12)}`}
+                </button>
+              ))}
+            </div>
+          )}
         </Section>
 
         <Section title="Trusted Delivery" kicker="最终可信交付" empty={!trustedDelivery}>

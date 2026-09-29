@@ -305,6 +305,8 @@ export default function App() {
   const [clarificationSubmitting, setClarificationSubmitting] = useState(false);
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [confirmingOperationId, setConfirmingOperationId] = useState<string | null>(null);
+  /* 正在对账的 operation：对账只查远端事实，不重放写操作，故与 confirm 分开记账 */
+  const [reconcilingOperationId, setReconcilingOperationId] = useState<string | null>(null);
   const [wfStep, setWfStep] = useState(1);
   const [toasts, setToasts] = useState<Toast[]>([]);
   /* 模型路由由服务端按任务决定；前端只读取并展示默认路由，不提供改写入口。
@@ -1463,6 +1465,29 @@ export default function App() {
     }
   }, [activeId, fetchTaskRuntime, push]);
 
+  /* unknown/failed 状态的唯一出路是显式对账（reconcile），而不是重放写操作。
+     reconcile 只查询远端事实来收敛状态，绝不重放原写入 —— 这是写链悬挂后
+     唯一能体面收口的动作。完成后重新拉取任务事实，让状态回读证明已收敛。 */
+  const reconcileGitOperation = useCallback(async (operationId: string) => {
+    setReconcilingOperationId(operationId);
+    try {
+      const operation = await afApi.reconcilePushOperation(operationId);
+      push({
+        tone: operation.status === "committed" ? "ok" : operation.status === "unknown" ? "warn" : "info",
+        title: operation.status === "committed" ? "远端写入已确认" : `对账完成 · ${operation.status}`,
+        body: operation.status === "committed"
+          ? `远端已有该写入：remote ${operation.remoteRevision?.slice(0, 12)}`
+          : operation.errorMessage ?? "对账已完成，操作状态已由控制面更新。",
+      });
+      if (activeId) await fetchTaskRuntime(activeId);
+    } catch (error: unknown) {
+      const apiError = error instanceof AfApiError ? error : undefined;
+      push({ tone: "warn", title: "对账失败", body: describeError(apiError?.code, apiError?.message) });
+    } finally {
+      setReconcilingOperationId(null);
+    }
+  }, [activeId, fetchTaskRuntime, push]);
+
   const planGitOperation = useCallback(async () => {
     if (!activeId || !taskRuntime?.preparedDelivery) return;
     const provider = scmProviders.find((candidate) =>
@@ -1990,6 +2015,8 @@ export default function App() {
                     reviewSubmitting={reviewSubmitting}
                     reviewGates={reviewGates}
                     busyAction={govBusy}
+                    onReconcileOperation={(operationId) => void reconcileGitOperation(operationId)}
+                    reconcilingOperationId={reconcilingOperationId}
                   />
                 ) : null}
                 controls={
