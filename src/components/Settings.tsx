@@ -1059,10 +1059,9 @@ function ConnectPane({ onToast }: { onToast: Toast }) {
 
   return (
     <div className="stack">
-      <p className="paneNote">
-        本面板展示的是受控连接层的<strong>设计口径</strong>（分级规则、七步链路、策略清单），
-        数字为设计期示例，不是运行时遥测：AF API 没有连接层端点，
-        真实的受控调用事实目前只落在任务轨迹里（<code className="mono">dag.operation.planned</code> 等）。
+      <p className="panelDemoNote">
+        设计口径与示例数据 · 非运行时遥测：AF API 没有连接层端点，下列数字是设计期样本；
+        真实受控调用事实目前只落在任务轨迹（如 dag.operation.planned）。
       </p>
 
       <div className="statRow">
@@ -1293,10 +1292,9 @@ function EnvPane({ onToast }: { onToast: Toast }) {
 
   return (
     <div className="stack">
-      <p className="paneNote">
-        本面板展示的是执行环境的<strong>设计口径</strong>（云环境与沙箱的分级、隔离与数据边界），
-        内容为设计期示例，不是运行时事实：AF API 没有环境端点，
-        任务真实使用的执行器只有 <code className="mono">executorMode</code> 一项（见任务事实）。
+      <p className="panelDemoNote">
+        设计口径与示例数据 · 非运行时事实：AF API 没有环境端点，下列内容为设计期样本；
+        任务真实使用的执行器只有 executorMode 一项（见「治理事实」）。
       </p>
 
       <div className="segment segment--lg">
