@@ -37,6 +37,8 @@ export const KNOWN_BACKEND_CODES = [
   "AF_MCP_UNAVAILABLE",
   "AF_MCP_PROTOCOL_ERROR",
   "AF_MODEL_PROVIDER_NOT_FOUND",
+  "AF_MODEL_PROVIDER_PROTOCOL_ERROR",
+  "AF_MODEL_PROVIDER_UNAVAILABLE",
   "AF_ROUTE_NOT_FOUND",
   "AF_WORKSPEC_INVALID",
   "AF_WORKSPEC_FROZEN",
@@ -124,6 +126,8 @@ export const ERROR_CODE_TEXT: Record<string, string> = {
   AF_MCP_UNAVAILABLE: "外部 Git 服务（MCP）当前不可用，请稍后重试。",
   AF_MCP_PROTOCOL_ERROR: "与外部 Git 服务通信出错，请稍后重试。",
   AF_MODEL_PROVIDER_NOT_FOUND: "找不到该模型供应商，可能已被删除或重命名。",
+  AF_MODEL_PROVIDER_PROTOCOL_ERROR: "模型供应商返回的响应不符合协议，请检查 Base URL 与 API 格式是否匹配。",
+  AF_MODEL_PROVIDER_UNAVAILABLE: "模型供应商当前不可用（网络、凭据或额度），请稍后重试或检查凭据配置。",
   AF_CAPABILITY_UNREGISTERED: "该能力未注册，无法使用。",
 
   // —— 监督与内部 ——
