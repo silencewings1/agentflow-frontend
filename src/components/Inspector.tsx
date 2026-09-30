@@ -534,9 +534,13 @@ function Terminal({ log }: { log: string[] }) {
 /* ---------------------------------- env ------------------------------------ */
 
 function Env({ session }: { session: Session }) {
+  /* session.repo 已经是仓库名 —— toSession 会先取 repositoryRef 的 basename。
+     这里再 split("/")[1] 会得到 undefined（曾渲染成 ~/workspace/undefined）。
+     仍按「可能带 owner 前缀」取值，避免上游改为传完整 ref 时又坏掉。 */
+  const workspaceName = session.repo.split("/").filter(Boolean).pop() ?? session.repo;
   const rows = [
     ["容器", "agentflow-sandbox:node20-bookworm"],
-    ["工作区", `~/workspace/${session.repo.split("/")[1]}`],
+    ["工作区", `~/workspace/${workspaceName}`],
     ["分支", session.branch],
     ["包管理", "pnpm 9.7.0"],
     ["网络", "受限 · 仅白名单域名"],
