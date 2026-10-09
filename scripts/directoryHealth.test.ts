@@ -134,6 +134,38 @@ assert.ok(
   "演示模式的编排目录必须由 workflowTemplates 展开（目录外的授权目标因此不可能被构造）",
 );
 
+/* ── 登录页在目录不可用时必须给出可执行指引（缺陷 #54）──
+   empty 状态下没有任何账户，此时"请联系责任人先创建一个"是一条做不到的指引
+   ——责任人本身也是账户，同样不存在。而后端已在 directory.reason 里写好具体
+   恢复步骤（改 seeded / 恢复备份），登录页原先**完全没有读 directory**，
+   等于把唯一有用的那句话丢了。
+   这里钉三件事：Login 接收 directory、判据由 directory.healthy 推导、
+   缺真值时不显示那句做不到的指引。 */
+const login = readFileSync(resolve(here, "../src/components/Login.tsx"), "utf8");
+const app = readFileSync(resolve(here, "../src/App.tsx"), "utf8");
+
+assert.match(
+  login,
+  /directory\?:\s*DirectoryHealthDto/,
+  "Login 应接收 directory DTO：成因与恢复步骤只有后端知道，前端不该自己编一句",
+);
+assert.match(
+  login,
+  /directoryUnhealthy\s*=\s*[^;]*directory[^;]*\.healthy/,
+  "Login 的 directoryUnhealthy 必须由 directory.healthy 推导（不能恒 false）",
+);
+/* 那句"请联系责任人"必须只在目录**健康**时才出现。 */
+assert.match(
+  login,
+  /directoryUnhealthy[\s\S]{0,300}请联系责任人先创建一个/,
+  "「请联系责任人先创建一个」必须与目录不可用互斥：empty 状态下责任人并不存在（缺陷 #54）",
+);
+assert.match(
+  app,
+  /<Login[\s\S]{0,400}directory=\{accountsData\?\.directory/,
+  "App.tsx 必须把目录健康判定传给 Login，否则登录页无从区分成因",
+);
+
 /* ── 两句提示必须互斥（缺陷 #53）──
    文件自己的注释写的是"目录自身不可用时**优先**说这件事：它比『你没有管理权』更根本"，
    但代码原先把两句**并列**渲染，于是在 no-manager 状态下用户同时看到：

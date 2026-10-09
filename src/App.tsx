@@ -2127,6 +2127,10 @@ export default function App() {
         error={accountsError}
         retryable={accountsRetryable}
         actor={accountsData?.actor ?? null}
+        /* 目录的成因与恢复步骤只有后端知道（empty vs no-manager 处置不同），
+           传下去让登录页在无可选账户时给出**可执行**的指引，而不是
+           一律"请联系责任人"——那个责任人在 empty 状态下并不存在。 */
+        directory={accountsData?.directory ?? null}
         onLogin={(handle) => void login(handle)}
         onRetry={() => void loadAccounts()}
       />

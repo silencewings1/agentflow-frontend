@@ -5,6 +5,7 @@ import {
   ACCOUNT_ROLE_ORDER,
   type AccountDto,
   type ActorDto,
+  type DirectoryHealthDto,
 } from "../api";
 
 /**
@@ -27,6 +28,7 @@ export function Login({
   onLogin,
   onRetry,
   actor,
+  directory,
 }: {
   accounts: AccountDto[];
   loading: boolean;
@@ -37,12 +39,25 @@ export function Login({
   onRetry: () => void;
   /** 服务端已解析出的当前身份；停用时非 null，用于说明"你被停用了"而不是"未登录"。 */
   actor?: ActorDto | null | undefined;
+  /**
+   * 目录自身的健康判定（含成因与**可执行的**恢复步骤）。
+   *
+   * 必须传进来：`empty` 状态下没有任何账户，此时"请联系责任人先创建一个"是一条
+   * 做不到的指引（责任人也是账户，同样不存在）；而两种成因处置完全不同——
+   * 存储被改坏要找备份，尚未播种只需等。后端已经在 `${directory.reason}` 里
+   * 写好了具体步骤，登录页却没有读它，等于把最有用的那句话丢了。
+   */
+  directory?: DirectoryHealthDto | null | undefined;
 }) {
   const [selectedHandle, setSelectedHandle] = useState<string>("");
 
   /* 只允许登录在职账户：停用的账户在服务端写路径会被拒，
      在登录页就把它们标成不可选，比让人登录后再撞 403 更诚实。 */
   const selectable = useMemo(() => accounts.filter((account) => account.state === "active"), [accounts]);
+
+  /* 目录不健康（empty / no-manager）时，下方那句提示必须换成后端给出的成因与
+     恢复步骤——见 props 里 directory 的说明。 */
+  const directoryUnhealthy = directory !== undefined && directory !== null && !directory.healthy;
   const selected = selectable.find((account) => account.handle === selectedHandle);
 
   const grouped = ACCOUNT_ROLE_ORDER.map((role) => ({
@@ -98,7 +113,14 @@ export function Login({
 
         {!loading && error === null && selectable.length === 0 && (
           <p className="login__state" data-tone="warn">
-            账户目录中没有可用的在职账户，请联系责任人先创建一个。
+            {/* 目录不健康时用后端给出的成因与恢复步骤：那是**唯一**可执行的指引。
+                只有目录健康却也没有在职账户时才退回到"联系责任人"——
+                那种情形下确实存在别人可能有权限创建账户。
+                原先无条件显示"请联系责任人先创建一个"，在 empty 状态下
+                责任人本身就是不存在的账户，用户照做只会原地打转。 */}
+            {directoryUnhealthy
+              ? directory?.reason ?? "账户目录当前不可用。"
+              : "账户目录中没有可用的在职账户，请联系责任人先创建一个。"}
           </p>
         )}
 
