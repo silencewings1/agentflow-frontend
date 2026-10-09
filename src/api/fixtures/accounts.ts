@@ -178,6 +178,10 @@ export function accountsSnapshot(
  * 前端不应自行推断存储层事实，但演示模式没有后端可问——
  * 这里的判据只用于让「坏目录」这一形态在演示模式下可见，
  * 不参与任何真实判定（真实判定始终来自 AF API 返回的 directory 字段）。
+ *
+ * 与后端的**唯一**差别：后端还要求 manage 落在真实责任位上
+ * （`realSlots`，见 client.ts 的 holdsManageGrant 注释说明为何此处刻意不抄）。
+ * 该差别在所有可达输入上不产生分歧，详见那里。
  */
 export function directoryHealthFor(
   accounts: AccountDto[],

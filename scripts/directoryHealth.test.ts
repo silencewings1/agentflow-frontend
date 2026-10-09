@@ -96,6 +96,44 @@ for (const [fn, label] of [[backendFn, "后端"], [frontendFn, "前端 fixture"]
   );
 }
 
+/* (e) 后端多一道「manage 必须落在真实责任位」的过滤，前端 fixture 没有。
+    这不是遗漏，而是**刻意保留**的等价写法——但等价性有前提：
+    授权入口只接受编排目录里存在的节点，因此不存在"目录外的 manage"，
+    过滤与不过滤是同一个谓词。这条断言把那个前提钉住。
+
+    为什么必须钉：该前提一旦失效（例如将来允许"预先授权尚未登记的编排"），
+    前端的"不过滤"就会把悬空授权持有者显示成管理者，
+    而真实后端拒绝该授权——两边对同一事实给出相反结论，
+    且两边看起来都没坏。这正是本项目反复出现的缺陷形态。
+    因此这里断言：授权入口的 workflowId/nodeId 取自 refs 全集（而非任意输入）。 */
+const membersPane = readFileSync(resolve(here, "../src/components/MembersPane.tsx"), "utf8");
+const apiClient = readFileSync(resolve(here, "../src/api/client.ts"), "utf8");
+
+assert.ok(
+  /realSlots/.test(backendFn) || /holdsRealManage/.test(
+    readFileSync(resolve(here, "../../packages/af/af-api/src/task/accounts-service.ts"), "utf8"),
+  ),
+  "后端的管理者判定应保留真实责任位过滤；若已移除，本文件的等价性前提需重新论证",
+);
+/* 断言必须锚在 `return refs` 这个**取值来源**上，而不是范围里是否出现过 refs。
+   第一版写成 /const assignable[\s\S]{0,400}refs/，结果注入"改成任意目标"后仍然全绿——
+   因为 useMemo 的依赖数组 `[active, refs, grantIndex]` 里还有一个 refs。
+   那是依赖声明，不是取值来源；断言落在它上面就钉不住真正要防的事。 */
+assert.ok(
+  /const assignable[\s\S]{0,400}?return refs\b/.test(membersPane),
+  "授权入口（assignable）必须 `return refs`——这是「前端不过滤 realSlots 仍与后端等价」"
+    + "的唯一依据。若授权入口改为接受任意 workflowId/nodeId，"
+    + "必须在 client.ts 的 holdsManageGrant 补上 realSlots 过滤，否则演示模式与真实后端分叉",
+);
+assert.ok(
+  /function nodeRefs[\s\S]{0,400}workflow\.nodes\.map/.test(membersPane),
+  "nodeRefs 必须是编排目录节点的全集（无过滤），否则 refs 不再等价于后端的 realSlots",
+);
+assert.ok(
+  /workflowTemplates\.map/.test(apiClient),
+  "演示模式的编排目录必须由 workflowTemplates 展开（目录外的授权目标因此不可能被构造）",
+);
+
 console.log(
   "directoryHealth.test: 前端 fixture 与后端 directoryHealth 判据一致"
     + "（分支 empty/no-manager/ok 齐备、都按 state===active 过滤、只看 manage、"

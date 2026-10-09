@@ -523,7 +523,22 @@ function fixtureClient(): AfApiClient {
     return snapshot();
   };
 
-/** 该账户是否在任一**真实责任位**上持有 manage（与 actorOf 的 canManageAccounts 同源）。 */
+/** 该账户是否持有 manage（与 actorOf 的 canManageAccounts 同源）。
+ *
+ * 后端这一处比本函数多一道过滤：manage 必须落在**真实责任位**
+ * （`realSlots`，即编排目录里确实存在的 `workflowId::nodeId`）上，
+ * 悬空授权不得折算成账户管理权。本函数只看"有没有 manage 授权"。
+ *
+ * 这个差异**刻意保留**，而不是照抄：两边在所有可达输入上结论相同——
+ * 引入它的唯一入口是 setNodeGrant，而该入口的 workflowId/nodeId 取自
+ * refs（= 编排目录节点的全集，见 MembersPane 的 assignable），
+ * 服务端 setGrant 同样拒绝目录外的目标（实测 AF_GRANT_NOT_FOUND）。
+ * 既然没有任何路径能造出目录外的授权，"过滤"与"不过滤"就是同一个谓词；
+ * 照抄反而会引入一个**永远为真**的分支，让读者以为这里真在防什么。
+ *
+ * 若将来授权入口放宽（例如允许预先授权尚未登记的编排），
+ * 此处必须同步补上 realSlots 过滤，否则 dev 模式会把悬空授权持有者
+ * 显示成管理者，而真实后端拒绝它——两边对同一事实给出相反结论。 */
   const holdsManageGrant = (accountId: string): boolean =>
     fixtureGrants.some((item) => item.accountId === accountId && item.perm === "manage");
   const snapshot = () => accountsSnapshot(fixtureActor, fixtureAccounts, fixtureGrants, fixtureAudit, fixtureAccountAudit);
