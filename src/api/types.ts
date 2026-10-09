@@ -124,6 +124,117 @@ export interface EnvironmentDto {
 }
 
 /* ---------------------------------------------------------------------------
+ * 多用户：账户目录、节点授权与当前身份（GET /accounts）
+ *
+ * 设计主张：权限不是围栏，是责任分配。因此这里的字段刻意回答三个问题：
+ *   1. 谁在操作（actor）——未登记时如实返回 anonymous，界面据此进登录页；
+ *   2. 谁能做哪个责任位（grants，按 workflowId+nodeId 定位）——不同编排里的
+ *      同名节点是不同责任位，一条授权不得跨编排生效；
+ *   3. 变更过什么（audit）——与证据链的出处/版本/责任人三元组呼应。
+ *
+ * 权限梯度由服务端下发（permRank），界面不自行推导：两处各写一套次序，
+ * 「高级含低级」的提示迟早与实际判定分叉。
+ * ------------------------------------------------------------------------- */
+
+export type AccountRoleDto =
+  | "orchestrator"
+  | "requirement"
+  | "architecture"
+  | "development"
+  | "testing"
+  | "review"
+  | "delivery"
+  | "ops";
+
+export type AccountStateDto = "active" | "suspended";
+export type NodePermDto = "view" | "run" | "approve" | "manage";
+
+export interface AccountDto {
+  accountId: string;
+  name: string;
+  handle: string;
+  role: AccountRoleDto;
+  duty: string;
+  state: AccountStateDto;
+  /** 内置账户不可删除，只能停用——历史授权与审计必须继续可查。 */
+  builtin: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NodeGrantDto {
+  grantId: string;
+  accountId: string;
+  workflowId: string;
+  nodeId: string;
+  perm: NodePermDto;
+  source: "owner" | "role";
+  grantedBy: string;
+  grantedAt: string;
+  /** 授权代际：写回时作为乐观并发判据。 */
+  revision: number;
+}
+
+export interface GrantAuditDto {
+  auditId: string;
+  action: "grant" | "revoke" | "raise" | "lower";
+  accountId: string;
+  workflowId: string;
+  nodeId: string;
+  /** 变更后的权限；revoke 时为被收回前的权限（审计不留空档）。 */
+  perm: NodePermDto;
+  actor: string;
+  occurredAt: string;
+}
+
+export interface ActorDto {
+  accountId: string | null;
+  name: string;
+  handle: string;
+  role: AccountRoleDto | null;
+  state: AccountStateDto | null;
+  /** 未登记或未提供凭据时为 true：只读可用，写操作一律被拒。 */
+  anonymous: boolean;
+  canManageAccounts: boolean;
+  grantCount: number;
+}
+
+export interface AccountsDto {
+  contractVersion: string;
+  actor: ActorDto;
+  accounts: AccountDto[];
+  grants: NodeGrantDto[];
+  audit: GrantAuditDto[];
+  permRank: Record<NodePermDto, number>;
+}
+
+export interface AccountInputDto {
+  name: string;
+  handle: string;
+  role: AccountRoleDto;
+  duty: string;
+  state?: AccountStateDto;
+}
+
+export interface GrantInputDto {
+  accountId: string;
+  workflowId: string;
+  nodeId: string;
+  /** null 表示收回该授权。 */
+  perm: NodePermDto | null;
+  source?: "owner" | "role";
+  /** 缺省表示不校验代际。 */
+  expectedRevision?: number;
+}
+
+export interface GrantMutationDto {
+  grant: NodeGrantDto | null;
+  audit: GrantAuditDto;
+  accounts: AccountsDto;
+}
+
+
+/* ---------------------------------------------------------------------------
  * 模型供应商目录（GET /model-providers）
  *
  * 只读事实：模型路由由服务端按任务与节点画像决定（af-api 用构造期注入的
@@ -1288,6 +1399,14 @@ export interface EvidenceMaterializationDto { evidenceMatrix: EvidenceMatrixDto;
 
 export interface AfApiClient {
   readonly mode: "http" | "fixture";
+  /**
+   * 设定当前身份（服务端按 x-af-actor 解析）。null / 空串表示退出登录。
+   *
+   * 身份是跨全部请求的会话上下文，因此由客户端持有而不是逐调用传参：
+   * 逐调用传参漏传一次就表现为「已登录却未授权」，是最难定位的一类缺陷。
+   */
+  setActor(handle: string | null): void;
+  getActor(): string | null;
   bootstrap(signal?: AbortSignal): Promise<AfBootstrapDto>;
   /** 只读模型供应商目录：模型路由由服务端决定，前端不提供逐任务覆盖。 */
   listModelProviders(signal?: AbortSignal): Promise<ModelProvidersDto>;
@@ -1295,6 +1414,16 @@ export interface AfApiClient {
   getConnectionLayer(signal?: AbortSignal): Promise<ConnectionLayerDto>;
   /** 执行环境事实：执行器模式、目录隔离策略、命令超时、工具策略面。 */
   getEnvironment(signal?: AbortSignal): Promise<EnvironmentDto>;
+  /**
+   * 账户目录 ⊇ 当前身份。**未登录时也必须成功返回**（actor.anonymous=true）：
+   * 登录页本身要列出可选账户，若这里抛错，首屏会整块不可用。
+   */
+  getAccounts(signal?: AbortSignal): Promise<AccountsDto>;
+  createAccount(input: AccountInputDto, signal?: AbortSignal): Promise<AccountsDto>;
+  updateAccount(accountId: string, input: Partial<AccountInputDto>, signal?: AbortSignal): Promise<AccountsDto>;
+  setAccountState(accountId: string, state: AccountStateDto, signal?: AbortSignal): Promise<AccountsDto>;
+  /** 授予/升降/收回（perm=null）一个节点权限；返回新的授权与新审计，界面直接回显。 */
+  setNodeGrant(input: GrantInputDto, signal?: AbortSignal): Promise<GrantMutationDto>;
   listTasks(signal?: AbortSignal): Promise<TaskSummaryDto[]>;
   getTask(taskId: string, signal?: AbortSignal): Promise<TaskDetailDto>;
   validateWorkflow(workflow: WorkflowDefinitionDto, signal?: AbortSignal): Promise<WorkflowValidation>;

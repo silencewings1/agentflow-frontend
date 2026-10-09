@@ -9,9 +9,15 @@ import {
   reworkRoutes,
   type ArchLayer,
 } from "../data/settings";
+import { MembersPane } from "./MembersPane";
 import {
   AfApiError,
   errorText,
+  type ActorDto,
+  type AccountDto,
+  type AccountInputDto,
+  type AccountsDto,
+  type NodePermDto,
   type AgentProfileSummaryDto,
   type ModelProviderApi,
   type ModelProviderInputDto,
@@ -21,7 +27,7 @@ import {
   type EnvironmentDto,
 } from "../api";
 
-export type SettingsPane = "arch" | "agents" | "models" | "connect" | "env";
+export type SettingsPane = "arch" | "members" | "agents" | "models" | "connect" | "env";
 
 /* 架构层的跳转落点：点击直达承载该层证据的界面，而不是让用户自己去找 */
 export type ArchJump = "workflow" | "agents" | "replay" | "evidence" | "checkpoint";
@@ -45,6 +51,12 @@ const PANES: { id: SettingsPane; label: string; glyph: IconName; desc: string }[
     label: "总体架构",
     glyph: "Layers",
     desc: "五层协同架构：每一层职责单一、边界清晰，并显示当前会话在该层的实时状态。",
+  },
+  {
+    id: "members",
+    label: "成员与权限",
+    glyph: "Key",
+    desc: "账户目录与节点授权矩阵：每个责任位由谁承担、持有什么权限等级，变更全程留痕。",
   },
   {
     id: "agents",
@@ -91,6 +103,12 @@ export function SettingsOverlay({
   environment,
   environmentError,
   onRefreshPosture,
+  accounts,
+  actor,
+  onRefreshAccounts,
+  onCreateAccount,
+  onSetAccountState,
+  onSetGrant,
 }: {
   pane: SettingsPane;
   onPane: (p: SettingsPane) => void;
@@ -111,6 +129,19 @@ export function SettingsOverlay({
   environment: EnvironmentDto | null;
   environmentError: string | null;
   onRefreshPosture: () => Promise<void>;
+  /* 多用户：账户目录与授权由 App 持有，面板只渲染与派发（§三 状态只放 App）。 */
+  accounts: AccountsDto | null;
+  actor: ActorDto | null;
+  onRefreshAccounts: () => Promise<void>;
+  onCreateAccount: (input: AccountInputDto) => Promise<void>;
+  onSetAccountState: (accountId: string, state: AccountDto["state"]) => Promise<void>;
+  onSetGrant: (input: {
+    accountId: string;
+    workflowId: string;
+    nodeId: string;
+    perm: NodePermDto | null;
+    expectedRevision?: number;
+  }) => Promise<void>;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -166,9 +197,21 @@ export function SettingsOverlay({
             </button>
           </header>
 
-          <div className="sheet__body" key={pane}>
+          {/* data-pane 让分片样式能按面板收敛滚动行为（成员面板是三列各自独立滚动） */}
+          <div className="sheet__body" key={pane} data-pane={pane}>
             {pane === "arch" && (
               <ArchPane onToast={onToast} runtime={runtime} onJump={onJump} profileCount={agentProfiles.length} link={connectionLayer} />
+            )}
+            {pane === "members" && (
+              <MembersPane
+                data={accounts}
+                actor={actor}
+                onToast={onToast}
+                onRefresh={onRefreshAccounts}
+                onCreateAccount={onCreateAccount}
+                onSetAccountState={onSetAccountState}
+                onSetGrant={onSetGrant}
+              />
             )}
             {pane === "agents" && <AgentsPane onToast={onToast} profiles={agentProfiles} />}
             {pane === "models" && (

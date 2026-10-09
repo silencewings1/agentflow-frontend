@@ -1,0 +1,475 @@
+/* ============================ LOGIN ====================================
+   登录页：全屏居中卡片，账户选择即登录。
+   设计主张：一次只登录一个账户，权限跟随账户走。
+   ======================================================================= */
+
+.login {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  z-index: 100;
+  overflow: auto;
+}
+
+.login__glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 600px;
+  height: 600px;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(
+    circle,
+    color-mix(in oklab, var(--accent) 12%, transparent) 0%,
+    transparent 70%
+  );
+  pointer-events: none;
+  filter: blur(40px);
+}
+
+.login__card {
+  position: relative;
+  width: min(420px, calc(100vw - 48px));
+  padding: 36px 32px 28px;
+  border-radius: var(--r-xl);
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--bg) 92%, transparent);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-pop);
+  display: grid;
+  gap: 20px;
+  animation: loginIn 0.5s var(--ease-spring) both;
+}
+
+@keyframes loginIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.login__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent-text);
+}
+
+.login__logo {
+  color: var(--accent);
+}
+
+.login__title {
+  font-size: var(--step-3);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.login__sub {
+  font-size: var(--step--1);
+  line-height: 1.5;
+  color: var(--text-3);
+  max-width: 56ch;
+  margin-top: -12px;
+}
+
+/* --- 类型选择 --- */
+
+.login__types {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.loginType {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 6px;
+  border: none;
+  background: var(--bg);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.loginType[data-on="true"] {
+  background: var(--accent-soft);
+}
+
+.loginType__label {
+  font-size: var(--step--1);
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.loginType[data-on="true"] .loginType__label {
+  color: var(--accent-text);
+}
+
+.loginType__hint {
+  font-size: 9.5px;
+  color: var(--text-4);
+}
+
+.loginType[data-on="true"] .loginType__hint {
+  color: color-mix(in oklab, var(--accent-text) 70%, var(--text-4));
+}
+
+/* --- 账户列表 --- */
+
+.login__accounts {
+  display: grid;
+  gap: 6px;
+}
+
+.loginAccounts__groupHead {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 2px 2px;
+}
+
+.loginAccounts__groupHead .kicker {
+  color: var(--text-3);
+}
+
+.loginAccounts__groupLabel {
+  font-size: var(--step--2);
+  color: var(--text-4);
+}
+
+.loginAccount {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  animation: fadeUp 0.36s var(--ease-out) both;
+  animation-delay: calc(var(--i) * 50ms);
+  text-align: left;
+}
+
+.loginAccount[data-on="true"] {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.loginAccount:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+.loginAccount[data-on="true"]:hover {
+  border-color: var(--accent-line);
+  background: color-mix(in oklab, var(--accent-soft) 70%, var(--surface-2));
+}
+
+.loginAccount__glyph {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--layer, var(--accent));
+  background: color-mix(in oklab, var(--layer, var(--accent)) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--layer, var(--accent)) 30%, var(--line));
+  flex-shrink: 0;
+}
+
+.loginAccount__glyph[data-tint="accent"] { --layer: var(--accent); }
+.loginAccount__glyph[data-tint="cyan"] { --layer: var(--cyan); }
+.loginAccount__glyph[data-tint="sage"] { --layer: var(--sage); }
+.loginAccount__glyph[data-tint="gold"] { --layer: var(--gold); }
+.loginAccount__glyph[data-tint="plum"] { --layer: var(--plum); }
+.loginAccount__glyph[data-tint="azure"] { --layer: var(--azure); }
+
+.loginAccount__body {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.loginAccount__body b {
+  font-size: var(--step-0);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.loginAccount__body i {
+  font-size: 10px;
+  font-style: normal;
+  color: var(--text-4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loginAccount__layer {
+  font-size: 10px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  text-align: right;
+  line-height: 1.3;
+}
+
+/* --- 登录按钮 --- */
+
+.login__btn {
+  width: 100%;
+  justify-content: center;
+  height: 40px;
+  font-size: var(--step-0);
+}
+
+.login__btn:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.login__foot {
+  font-size: var(--step--2);
+  color: var(--text-4);
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* --- 账户切换器 headText 新增 --- */
+
+.accountSwitcher__headText {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.accountSwitcher__headText i {
+  font-size: 9.5px;
+  color: var(--text-4);
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountSwitcher__foot--logout {
+  color: var(--rose);
+}
+
+.accountSwitcher__foot--logout:hover {
+  color: var(--rose);
+  background: color-mix(in oklab, var(--rose) 10%, transparent);
+}
+
+/* ============================================================
+   登录态与账户切换 · 补充
+   登录页的加载/失败状态、以及左下角账户切换菜单的容器样式。
+   身份相关样式集中在本分片：它们回答的是同一个问题「现在是谁在操作」。
+   ============================================================ */
+
+/* 身份检查中的过渡态。刻意极简且不给交互：这一帧只有确认身份一件事，
+   渲染任何骨架都会让人以为界面已经开始加载数据了。 */
+.identityCheck {
+  margin: 0;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  color: var(--text-3);
+  font-size: var(--step--1);
+}
+
+/* 登录页的状态行：加载中与失败共用同一位置，避免加载完成后布局跳动。
+   失败态用--gold（受阻/需注意）而不是--rose（失败）：目录读不到通常是
+   后端未启用多用户，不是用户操作错了。 */
+.login__state {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-2);
+  background: color-mix(in oklab, var(--surface-2) 60%, transparent);
+  color: var(--text-2);
+  font-size: var(--step--1);
+  line-height: 1.5;
+}
+
+.login__state[data-tone="warn"] {
+  border-color: color-mix(in oklab, var(--gold) 40%, var(--line));
+  background: color-mix(in oklab, var(--gold) 6%, transparent);
+  color: var(--text-2);
+}
+
+/* 停用账户的说明：它是事实（谁被停用了），不是警告，因此用弱化文字色，
+   与上方的失败态在语气上区分开。 */
+.login__foot--suspended {
+  color: var(--text-3);
+}
+
+/* ---------------- 左下角账户切换菜单 ---------------- */
+
+.rail__avatarWrap {
+  position: relative;
+}
+
+/* 遮罩：点空白处收起菜单。层级低于菜单本身，避免把菜单一起盖住。 */
+.rail__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.accountSwitcher {
+  position: absolute;
+  left: calc(100% + 8px);
+  bottom: 0;
+  z-index: 41;
+  width: 264px;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-2);
+  background: color-mix(in oklab, var(--bg) 96%, transparent);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-pop);
+  animation: fadeUp 0.24s var(--ease-out) both;
+}
+
+.accountSwitcher__head {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.accountSwitcher__glyph {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  border: 1px solid color-mix(in oklab, var(--layer, var(--accent)) 34%, var(--line));
+  background: color-mix(in oklab, var(--layer, var(--accent)) 10%, transparent);
+  color: var(--layer, var(--accent));
+}
+
+.accountSwitcher__glyph[data-tint="accent"] { --layer: var(--accent); }
+.accountSwitcher__glyph[data-tint="cyan"] { --layer: var(--cyan); }
+.accountSwitcher__glyph[data-tint="sage"] { --layer: var(--sage); }
+.accountSwitcher__glyph[data-tint="gold"] { --layer: var(--gold); }
+.accountSwitcher__glyph[data-tint="plum"] { --layer: var(--plum); }
+.accountSwitcher__glyph[data-tint="azure"] { --layer: var(--azure); }
+
+.accountSwitcher__headText {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.accountSwitcher__headText b {
+  font-size: var(--step--1);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.accountSwitcher__headText i {
+  font-style: normal;
+  font-size: var(--step--2);
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountSwitcher__layer {
+  font-size: var(--step--2);
+  color: var(--text-3);
+  padding: 2px 6px;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--line-2);
+}
+
+/* 权限摘要：把「能做什么」直接写成一行事实，而不是让用户去成员面板
+   逐格数自己有几个 manage。 */
+.accountSwitcher__meta {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--surface-1) 60%, transparent);
+  font-size: var(--step--2);
+  color: var(--text-3);
+}
+
+.accountSwitcher__meta b {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.accountSwitcher__meta span[data-on="true"] {
+  color: var(--sage);
+}
+
+.accountSwitcher__foot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  text-align: left;
+  font-size: var(--step--1);
+  color: var(--text-2);
+  transition: all 0.2s var(--ease-out);
+}
+
+.accountSwitcher__foot:hover {
+  border-color: var(--line-2);
+  background: color-mix(in oklab, var(--surface-2) 70%, transparent);
+  color: var(--text);
+}
+
+.accountSwitcher__foot--logout:hover {
+  border-color: color-mix(in oklab, var(--rose) 34%, var(--line));
+  background: color-mix(in oklab, var(--rose) 8%, transparent);
+  color: var(--rose);
+}
+
+.loginAccount__body em {
+  display: block;
+  margin-top: 3px;
+  font-style: normal;
+  font-size: var(--step--2);
+  color: var(--text-3);
+  line-height: 1.45;
+}
+
+/* 窄屏下把切换菜单收进可视范围，不让它溢出到视口外。 */
+@media (max-width: 760px) {
+  .accountSwitcher {
+    left: 0;
+    bottom: calc(100% + 8px);
+    width: min(264px, calc(100vw - 32px));
+  }
+}

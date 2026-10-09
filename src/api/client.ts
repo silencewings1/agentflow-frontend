@@ -1,6 +1,7 @@
 import { sessions } from "../data/mock";
 import { defaultModel as fixtureDefaultModel, modelProviders as fixtureModelProviders } from "../data/settings";
 import { workflowTemplates } from "../data/workflows";
+import { FIXTURE_ACCOUNTS, FIXTURE_AUDIT, FIXTURE_GRANTS, accountsSnapshot, actorFor, permRank } from "./fixtures/accounts";
 import { toTaskDetail, toTrajectory, toWorkflowDto } from "./mappers";
 import type {
   AfApiClient,
@@ -25,6 +26,14 @@ import type {
   ModelProvidersDto,
   ConnectionLayerDto,
   EnvironmentDto,
+  AccountDto,
+  AccountsDto,
+  AccountInputDto,
+  AccountStateDto,
+  GrantAuditDto,
+  GrantInputDto,
+  GrantMutationDto,
+  NodeGrantDto,
   ModelProviderInfoDto,
   ModelProviderInputDto,
   ModelProviderTestResultDto,
@@ -419,6 +428,20 @@ function fixtureTrustedDelivery(detail: TaskDetailDto): TrustedDeliveryDto {
 
 function fixtureClient(): AfApiClient {
   const tasks: TaskSummaryDto[] = sessions.map(fixtureTaskSummary);
+  /* 多用户 fixture：账户目录可读可写，但写路径同样要求「已登录且持有 manage」——
+     fixture 若对写操作一路放行，界面里的权限受阻态就永远不会被验证到。 */
+  let fixtureActor: string | null = null;
+  let fixtureAccounts: AccountDto[] = FIXTURE_ACCOUNTS.map((item) => ({ ...item }));
+  let fixtureGrants: NodeGrantDto[] = FIXTURE_GRANTS.map((item) => ({ ...item }));
+  let fixtureAudit: GrantAuditDto[] = FIXTURE_AUDIT.map((item) => ({ ...item }));
+  const snapshot = () => accountsSnapshot(fixtureActor, fixtureAccounts, fixtureGrants, fixtureAudit);
+  const requireManager = () => {
+    const actor = actorFor(fixtureActor, fixtureAccounts, fixtureGrants);
+    if (actor.accountId === null) throw new AfApiError({ code: "AF_ACTOR_UNKNOWN", message: "请求身份不是已登记账户", retryable: false });
+    if (actor.state === "suspended") throw new AfApiError({ code: "AF_ACCOUNT_SUSPENDED", message: "账户已停用", retryable: false });
+    if (!actor.canManageAccounts) throw new AfApiError({ code: "AF_PERMISSION_DENIED", message: "账户管理需要至少一个节点的 manage 权限", retryable: false });
+    return actor;
+  };
   const operations = new Map<string, GitOperationDto>();
   const details = new Map<string, TaskDetailDto>();
   const workSpecs = new Map<string, WorkSpecDto>();
@@ -475,6 +498,102 @@ function fixtureClient(): AfApiClient {
   };
   return {
     mode: "fixture",
+    setActor(handle: string | null) { fixtureActor = handle === null || handle.trim() === "" ? null : handle.trim(); },
+    getActor() { return fixtureActor; },
+    async getAccounts() { return snapshot(); },
+    async createAccount(input) {
+      requireManager();
+      if (fixtureAccounts.some((item) => item.handle.toLowerCase() === input.handle.trim().toLowerCase())) {
+        throw new AfApiError({ code: "AF_ACCOUNT_EXISTS", message: "登录标识已被占用", retryable: false });
+      }
+      fixtureAccounts = [...fixtureAccounts, {
+        accountId: `ac-${Date.now()}`,
+        name: input.name,
+        handle: input.handle,
+        role: input.role,
+        duty: input.duty,
+        state: input.state ?? "active",
+        builtin: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }];
+      return snapshot();
+    },
+    async updateAccount(accountId, input) {
+      requireManager();
+      const existing = fixtureAccounts.find((item) => item.accountId === accountId);
+      if (existing === undefined) throw new AfApiError({ code: "AF_ACCOUNT_NOT_FOUND", message: "找不到该账户", retryable: false });
+      if (input.handle !== undefined && input.handle !== existing.handle
+        && fixtureAccounts.some((item) => item.handle.toLowerCase() === input.handle!.trim().toLowerCase())) {
+        throw new AfApiError({ code: "AF_ACCOUNT_EXISTS", message: "登录标识已被占用", retryable: false });
+      }
+      fixtureAccounts = fixtureAccounts.map((item) => item.accountId === accountId
+        ? { ...item, ...input, builtin: item.builtin, updatedAt: new Date().toISOString() }
+        : item);
+      return snapshot();
+    },
+    async setAccountState(accountId, state) {
+      const actor = requireManager();
+      /* 与后端同一条约束：最后一个管理者不能把自己停用，否则没人能再管理目录。 */
+      if (accountId === actor.accountId && state === "suspended") {
+        throw new AfApiError({ code: "AF_PERMISSION_DENIED", message: "不能停用当前登录账户", retryable: false });
+      }
+      return this.updateAccount(accountId, { state });
+    },
+    async setNodeGrant(input) {
+      const actor = requireManager();
+      if (!fixtureAccounts.some((item) => item.accountId === input.accountId)) {
+        throw new AfApiError({ code: "AF_ACCOUNT_NOT_FOUND", message: "找不到该账户", retryable: false });
+      }
+      const key = (item: { accountId: string; workflowId: string; nodeId: string }) =>
+        `${item.accountId}::${item.workflowId}::${item.nodeId}`;
+      const existing = fixtureGrants.find((item) => key(item) === key(input));
+      if (input.expectedRevision !== undefined && existing !== undefined && existing.revision !== input.expectedRevision) {
+        throw new AfApiError({ code: "AF_GRANT_CONFLICT", message: "该授权已被其他操作更新", retryable: true });
+      }
+      if (input.perm === null) {
+        if (existing === undefined) throw new AfApiError({ code: "AF_GRANT_NOT_FOUND", message: "找不到该授权", retryable: false });
+        fixtureGrants = fixtureGrants.filter((item) => key(item) !== key(input));
+        const audit: GrantAuditDto = {
+          auditId: `${key(input)}:a${existing.revision + 1}`,
+          action: "revoke",
+          accountId: input.accountId,
+          workflowId: input.workflowId,
+          nodeId: input.nodeId,
+          /* 收回时记录被收回前的权限：审计不能出现空档。 */
+          perm: existing.perm,
+          actor: actor.accountId!,
+          occurredAt: new Date().toISOString(),
+        };
+        fixtureAudit = [audit, ...fixtureAudit];
+        return { grant: null, audit, accounts: snapshot() };
+      }
+      const revision = existing === undefined ? 1 : existing.revision + 1;
+      const record: NodeGrantDto = {
+        grantId: key(input),
+        accountId: input.accountId,
+        workflowId: input.workflowId,
+        nodeId: input.nodeId,
+        perm: input.perm,
+        source: input.source ?? "owner",
+        grantedBy: actor.accountId!,
+        grantedAt: existing?.grantedAt ?? new Date().toISOString(),
+        revision,
+      };
+      fixtureGrants = [...fixtureGrants.filter((item) => key(item) !== key(input)), record];
+      const audit: GrantAuditDto = {
+        auditId: `${key(input)}:a${revision}`,
+        action: existing === undefined ? "grant" : permRank(input.perm) > permRank(existing.perm) ? "raise" : "lower",
+        accountId: input.accountId,
+        workflowId: input.workflowId,
+        nodeId: input.nodeId,
+        perm: input.perm,
+        actor: actor.accountId!,
+        occurredAt: new Date().toISOString(),
+      };
+      fixtureAudit = [audit, ...fixtureAudit];
+      return { grant: record, audit, accounts: snapshot() };
+    },
     async bootstrap() { return currentBootstrap(); },
     async listTasks() { return tasks; },
     async getTask(taskId) {
@@ -739,13 +858,32 @@ class HttpAfApiClient implements AfApiClient {
   readonly mode = "http" as const;
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
+  /**
+   * 当前身份句柄。服务端用 x-af-actor 解析请求身份，权限判定与审计 actor
+   * 都以它为准。
+   *
+   * 为什么不放在每个调用点：身份是**跨全部请求的会话上下文**，逐调用传参
+   * 迟早漏传（漏传的表现是「明明登录了却报未授权」这种最难查的错）。
+   * 登录/退出时调用 setActor 一次即可。
+   */
+  private actor: string | null = null;
 
-  constructor(baseUrl: string, fetchImpl?: typeof fetch) {
+  constructor(baseUrl: string, fetchImpl?: typeof fetch, actor?: string) {
     this.baseUrl = baseUrl;
     // Chromium 的原生 fetch 依赖 Window receiver。直接保存后再以
     // this.fetchImpl(...) 调用会把 HttpAfApiClient 误当 receiver，触发
     // `Illegal invocation`；注入的测试实现则应保持原样。
     this.fetchImpl = fetchImpl ?? globalThis.fetch.bind(globalThis);
+    this.actor = actor ?? null;
+  }
+
+  setActor(handle: string | null): void {
+    // 空串等同于退出登录：服务端把空句柄视为未提供凭据。
+    this.actor = handle === null || handle.trim() === "" ? null : handle.trim();
+  }
+
+  getActor(): string | null {
+    return this.actor;
   }
 
   private async request<T>(path: string, init?: RequestInit, signal?: AbortSignal): Promise<T> {
@@ -754,7 +892,7 @@ class HttpAfApiClient implements AfApiClient {
     }
     let response: Response;
     try {
-      response = await this.fetchImpl(`${this.baseUrl.replace(/\/$/, "")}${path}`, { ...init, signal, headers: { "content-type": "application/json", ...init?.headers } });
+      response = await this.fetchImpl(`${this.baseUrl.replace(/\/$/, "")}${path}`, { ...init, signal, headers: { "content-type": "application/json", ...(this.actor === null ? {} : { "x-af-actor": this.actor }), ...init?.headers } });
     } catch (error) {
       throw new AfApiError({
         code: "AF_NETWORK_ERROR",
@@ -844,6 +982,14 @@ class HttpAfApiClient implements AfApiClient {
      界面不提供本地增删，避免本地改动被误读成「已生效」。 */
   getConnectionLayer(signal?: AbortSignal) { return this.request<ConnectionLayerDto>("/connection-layer", undefined, signal); }
   getEnvironment(signal?: AbortSignal) { return this.request<EnvironmentDto>("/environment", undefined, signal); }
+  /* 多用户：账户目录与节点授权。写方法返回更新后的完整目录，界面直接以服务端
+     事实重绘，不做本地乐观改写——本地改写会让「界面显示的权限」与「服务端
+     判定的权限」在失败时静默分叉。 */
+  getAccounts(signal?: AbortSignal) { return this.request<AccountsDto>("/accounts", undefined, signal); }
+  createAccount(input: AccountInputDto, signal?: AbortSignal) { return this.request<AccountsDto>("/accounts", { method: "POST", body: JSON.stringify(input) }, signal); }
+  updateAccount(accountId: string, input: Partial<AccountInputDto>, signal?: AbortSignal) { return this.request<AccountsDto>(`/accounts/${encodeURIComponent(accountId)}`, { method: "PUT", body: JSON.stringify(input) }, signal); }
+  setAccountState(accountId: string, state: AccountStateDto, signal?: AbortSignal) { return this.request<AccountsDto>(`/accounts/${encodeURIComponent(accountId)}/state`, { method: "POST", body: JSON.stringify({ state }) }, signal); }
+  setNodeGrant(input: GrantInputDto, signal?: AbortSignal) { return this.request<GrantMutationDto>("/grants", { method: "POST", body: JSON.stringify(input) }, signal); }
   /* 供应商写入：后端 schema 是 strict，body 必须逐字段对齐 ModelProviderInputDto，
      且 apiKey 仅在非空时提交 —— 传 undefined 表示保留既有凭据，传空串会被 min(1) 拒绝。 */
   createModelProvider(input: ModelProviderInputDto, signal?: AbortSignal) { return this.request<ModelProvidersDto>("/model-providers", { method: "POST", body: JSON.stringify(providerBody(input)) }, signal); }

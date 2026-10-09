@@ -7,9 +7,10 @@ import {
 } from "./data/mock";
 import { afApi, AfApiError, normalizePlanPayload, structuredToEvents, toUiBootstrap, toWorkflowDto } from "./api";
 import { realInspectorBundle } from "./api/inspectorMapper";
+import { ACCOUNT_ROLE_LABEL } from "./api";
 import { describeError, errorText } from "./api/error-text";
 import { buildStageCards } from "./api/stageMapper";
-import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, ModelProviderInputDto, ModelProvidersDto, NodeReviewFeedbackDto, WorkflowVersion, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, ConnectionLayerDto, EnvironmentDto, SkillOutputDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation } from "./api";
+import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, ModelProviderInputDto, ModelProvidersDto, NodeReviewFeedbackDto, WorkflowVersion, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, ConnectionLayerDto, EnvironmentDto, SkillOutputDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation, AccountDto, AccountInputDto, AccountsDto, NodePermDto } from "./api";
 import type { StageSkillOutputView, StageTraceView } from "./components/StageCard";
 import { conversationOf } from "./data/streams";
 import { inspectorOf } from "./data/inspector";
@@ -23,6 +24,7 @@ import { Palette } from "./components/Palette";
 import { Toasts, type Toast } from "./components/Toasts";
 import { Welcome } from "./components/Welcome";
 import { SettingsOverlay, type ArchJump, type SettingsPane } from "./components/Settings";
+import { Login } from "./components/Login";
 import { NewTaskDialog, type NewTaskScmDraft } from "./components/NewTask";
 import { WorkflowStrip } from "./components/Workflow";
 import { RuntimeConsole, type RuntimeLoadState } from "./components/RuntimeConsole";
@@ -321,6 +323,12 @@ export default function App() {
   const [connectionLayerError, setConnectionLayerError] = useState<string | null>(null);
   const [environment, setEnvironment] = useState<EnvironmentDto | null>(null);
   const [environmentError, setEnvironmentError] = useState<string | null>(null);
+  /* 多用户：账户目录 ⊇ 当前身份。null 表示尚未读到，与「未登录」区分开——
+     前者是加载中，后者是有事实的匿名态，界面不该把两者画成同一个样子。 */
+  const [accountsData, setAccountsData] = useState<AccountsDto | null>(null);
+  const [accountsError, setAccountsError] = useState<string | null>(null);
+  const [accountsLoading, setAccountsLoading] = useState(true);
+  const [checkingIdentity, setCheckingIdentity] = useState(true);
   const [mode, setMode] = useState<"session" | "welcome">("welcome");
 
   /* --- streamed event window --------------------------------------------- */
@@ -442,10 +450,61 @@ export default function App() {
     }
   }, []);
 
+  /**
+   * 读取账户目录（含当前身份）。**未登录也必须成功**：登录页要列出可选账户，
+   * 若这里抛错，首屏会整块不可用。因此失败时保留 null 并如实报错，不伪造空目录。
+   */
+  const loadAccounts = useCallback(async (): Promise<AccountsDto | null> => {
+    setAccountsLoading(true);
+    try {
+      const data = await afApi.getAccounts();
+      setAccountsData(data);
+      setAccountsError(null);
+      return data;
+    } catch (error: unknown) {
+      const apiError = error instanceof AfApiError ? error : undefined;
+      setAccountsData(null);
+      setAccountsError(errorText(apiError?.code, apiError?.message));
+      return null;
+    } finally {
+      setAccountsLoading(false);
+    }
+  }, []);
+
+  /* 账户目录的写操作：一律以服务端返回的完整目录重绘，不做本地乐观改写。
+     本地改写会让「界面显示的权限」与「服务端判定的权限」在失败时静默分叉。 */
+  const createAccount = useCallback(async (input: AccountInputDto) => {
+    setAccountsData(await afApi.createAccount(input));
+  }, []);
+
+  const setAccountState = useCallback(async (accountId: string, state: AccountDto["state"]) => {
+    const next = await afApi.setAccountState(accountId, state);
+    setAccountsData(next);
+    /* 停用/恢复的对象可能就是当前登录账户或影响其可管理性：同步刷新身份视图。 */
+    if (next.actor.accountId === accountId) void loadAccounts();
+  }, [loadAccounts]);
+
+  const setNodeGrant = useCallback(async (input: {
+    accountId: string;
+    workflowId: string;
+    nodeId: string;
+    perm: NodePermDto | null;
+    expectedRevision?: number;
+  }) => {
+    const mutation = await afApi.setNodeGrant(input);
+    setAccountsData(mutation.accounts);
+  }, []);
+
   useEffect(() => {
     void loadBootstrap();
     void reloadPosture();
-  }, [loadBootstrap, reloadPosture]);
+    /* 身份检查先于渲染：未登录时进登录页，已登录直接进控制台。
+       这一步决定首屏是登录页还是控制台，因此必须先结束再渲染主界面。 */
+    void (async () => {
+      await loadAccounts();
+      setCheckingIdentity(false);
+    })();
+  }, [loadBootstrap, reloadPosture, loadAccounts]);
 
   const fetchTaskRuntime = useCallback(async (taskId: string, signal?: AbortSignal, quiet = false) => {
     if (!taskId) return;
@@ -821,6 +880,45 @@ export default function App() {
       3600,
     );
   }, []);
+
+  /**
+   * 登录：把身份写入客户端（此后所有请求都带 x-af-actor），再回读账户目录。
+   *
+   * 为什么不只改本地 state：权限判定的权威在服务端。本地记一个"我登录了"
+   * 而请求不带凭据，会表现为"已登录却全部未授权"——最难定位的一类缺陷。
+   */
+  const login = useCallback(
+    async (handle: string) => {
+      afApi.setActor(handle);
+      const data = await loadAccounts();
+      if (data === null) return;
+      if (data.actor.anonymous) {
+        /* 服务端没认这个句柄：立刻撤销本地身份，避免带着一个无效凭据继续操作。 */
+        afApi.setActor(null);
+        push({ tone: "warn", title: "登录失败", body: "服务端未识别该账户，请刷新账户目录后重试。" });
+        return;
+      }
+      push({
+        tone: "info",
+        title: `已登录为 ${data.actor.name}`,
+        body: `${data.actor.role === null ? "" : ACCOUNT_ROLE_LABEL[data.actor.role] + " · "}持有授权 ${data.actor.grantCount} 个节点`,
+      });
+      /* 任务列表按身份重新读取：不同账户看到的责任范围不同，沿用登录前的
+         列表会让人以为"我的任务"里混进了别人的。 */
+      void loadBootstrap();
+    },
+    [loadAccounts, loadBootstrap, push],
+  );
+
+  const logout = useCallback(() => {
+    afApi.setActor(null);
+    setSettingsPane(null);
+    setPaletteOpen(false);
+    void loadAccounts();
+    void loadBootstrap();
+    push({ tone: "info", title: "已退出登录", body: "当前为未登录状态，只读可见。" });
+  }, [loadAccounts, loadBootstrap, push]);
+
 
   const toggleTheme = useCallback(() => {
     setTheme((t) => (t === "lumen" ? "ink" : "lumen"));
@@ -1909,6 +2007,31 @@ export default function App() {
   /* 验收项无法裁决是「任务卡住」的信号，用警示语气，不能混在普通信息里。 */
   const govHintTone = blockingCriteria.length > 0 || controlBlocked || runStalled || governance.compilationReport?.outcome === "rejected" ? "warn" : "info";
 
+  /* 身份检查未结束前不渲染主界面：先画出控制台再闪回登录页，会让人误以为
+     任务列表属于当前身份。等这一帧是刻意的，不是加载慢。 */
+  if (checkingIdentity) {
+    return (
+      <div className="shell" data-identity="checking">
+        <div className="shell__glow" aria-hidden />
+        <p className="identityCheck">正在确认当前身份…</p>
+      </div>
+    );
+  }
+
+  /* 未登录 → 登录页。这里不是"门槛"而是责任交接：账户目录来自服务端，
+     选中哪个账户决定后续所有动作的权限判定。 */
+  if (accountsData === null || accountsData.actor.anonymous) {
+    return (
+      <Login
+        accounts={accountsData?.accounts ?? []}
+        loading={accountsLoading}
+        error={accountsError}
+        onLogin={(handle) => void login(handle)}
+        onRetry={() => void loadAccounts()}
+      />
+    );
+  }
+
   return (
     <div
       className="shell"
@@ -1923,6 +2046,8 @@ export default function App() {
         onNew={() => setNewTaskOpen(true)}
         pane={settingsPane}
         onPane={(p) => setSettingsPane((cur) => (cur === p ? null : p))}
+        actor={accountsData.actor}
+        onLogout={logout}
       />
       <Sidebar
         sessions={sessionsWithDiff}
@@ -2142,6 +2267,12 @@ export default function App() {
           onSaveModelProvider={saveModelProvider}
           onDeleteModelProvider={deleteModelProvider}
           onTestModelProvider={testModelProvider}
+          accounts={accountsData}
+          actor={accountsData.actor}
+          onRefreshAccounts={async () => { await loadAccounts(); }}
+          onCreateAccount={createAccount}
+          onSetAccountState={setAccountState}
+          onSetGrant={setNodeGrant}
         />
       )}
       {newTaskOpen && (

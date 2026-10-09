@@ -1,14 +1,29 @@
-import { Icon } from "./Icons";
+import { useEffect, useState } from "react";
+import { Icon, type IconName } from "./Icons";
 import type { Theme } from "../data/mock";
 import type { SettingsPane } from "./Settings";
+import { ACCOUNT_ROLE_LABEL, type ActorDto } from "../api";
 
-const NAV: { id: SettingsPane; label: string; glyph: "Layers" | "Agent" | "Cpu" | "Plug" | "Cloud" }[] = [
+const NAV: { id: SettingsPane; label: string; glyph: IconName }[] = [
   { id: "arch", label: "总体架构", glyph: "Layers" },
+  { id: "members", label: "成员与权限", glyph: "Key" },
   { id: "agents", label: "智能体", glyph: "Agent" },
   { id: "models", label: "模型配置", glyph: "Cpu" },
   { id: "connect", label: "连接层", glyph: "Plug" },
   { id: "env", label: "环境配置", glyph: "Cloud" },
 ];
+
+/** 当前身份的角色 → 头像图标，让"谁在操作"一眼可辨。 */
+const GLYPH_OF_ROLE: Record<string, IconName> = {
+  requirement: "Book",
+  architecture: "Layers",
+  development: "Pencil",
+  testing: "Beaker",
+  review: "Shield",
+  delivery: "Cube",
+  ops: "Cloud",
+  orchestrator: "Nodes",
+};
 
 export function Rail({
   theme,
@@ -17,6 +32,8 @@ export function Rail({
   onNew,
   pane,
   onPane,
+  actor,
+  onLogout,
 }: {
   theme: Theme;
   onToggleTheme: () => void;
@@ -24,7 +41,22 @@ export function Rail({
   onNew: () => void;
   pane: SettingsPane | null;
   onPane: (p: SettingsPane) => void;
+  /** 当前身份：头像与切换菜单都以它为准，未登录时不渲染头像。 */
+  actor: ActorDto | null;
+  onLogout: () => void;
 }) {
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+
+  /* Esc 关闭切换菜单：用捕获阶段，避免被上层悬浮层的 Esc 处理抢先关掉。 */
+  useEffect(() => {
+    if (!switcherOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSwitcherOpen(false);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [switcherOpen]);
+
   return (
     <aside className="rail">
       <button className="rail__mark" onClick={onNew} title="AgentFlow">
@@ -59,9 +91,73 @@ export function Rail({
         >
           {theme === "lumen" ? <Icon.Moon size={17} /> : <Icon.Sun size={17} />}
         </RailBtn>
-        <button className="rail__avatar" title="me@agentflow.dev">
-          <span className="mono">YZ</span>
-        </button>
+        {actor !== null && (
+          <div className="rail__avatarWrap">
+            <button
+              className="rail__avatar"
+              data-tint="accent"
+              title={actor.accountId === null ? "未登录" : `${actor.name} · ${actor.handle}`}
+              onClick={() => setSwitcherOpen((value) => !value)}
+            >
+              {(() => {
+                const G = Icon[GLYPH_OF_ROLE[actor.role ?? ""] ?? "Agent"];
+                return <G size={15} />;
+              })()}
+            </button>
+            {switcherOpen && (
+              <>
+                <div className="rail__scrim" onClick={() => setSwitcherOpen(false)} />
+                <div className="accountSwitcher">
+                  <div className="accountSwitcher__head">
+                    <span className="accountSwitcher__glyph" data-tint="accent">
+                      {(() => {
+                        const G = Icon[GLYPH_OF_ROLE[actor.role ?? ""] ?? "Agent"];
+                        return <G size={16} />;
+                      })()}
+                    </span>
+                    <div className="accountSwitcher__headText">
+                      <b>{actor.name}</b>
+                      <i className="mono">{actor.handle}</i>
+                    </div>
+                    <span className="accountSwitcher__layer">
+                      {actor.role === null ? "未登录" : ACCOUNT_ROLE_LABEL[actor.role]}
+                    </span>
+                  </div>
+                  {/* 权限是一行事实而不是评价：把"能做什么"直接说清，
+                      免得用户去成员面板逐格数自己有几个 manage。 */}
+                  <div className="accountSwitcher__meta">
+                    <span>
+                      持有授权 <b>{actor.grantCount}</b> 个节点
+                    </span>
+                    <span data-on={actor.canManageAccounts ? "true" : undefined}>
+                      {actor.canManageAccounts ? "可管理成员与授权" : "仅可查看成员与授权"}
+                    </span>
+                  </div>
+                  <button
+                    className="accountSwitcher__foot"
+                    onClick={() => {
+                      onPane("members");
+                      setSwitcherOpen(false);
+                    }}
+                  >
+                    <Icon.Key size={12} />
+                    成员与权限设置
+                  </button>
+                  <button
+                    className="accountSwitcher__foot accountSwitcher__foot--logout"
+                    onClick={() => {
+                      setSwitcherOpen(false);
+                      onLogout();
+                    }}
+                  >
+                    <Icon.X size={12} />
+                    退出登录
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </aside>
   );

@@ -64,6 +64,15 @@ export const KNOWN_BACKEND_CODES = [
   "AF_BUDGET_EXCEEDED",
   "AF_CAPABILITY_UNREGISTERED",
   "AF_WORKSPACE_WRITE_CONFLICT",
+  "AF_ACTOR_UNKNOWN",
+  "AF_ACCOUNT_NOT_FOUND",
+  "AF_ACCOUNT_EXISTS",
+  "AF_ACCOUNT_SUSPENDED",
+  "AF_ACCOUNT_BUILTIN",
+  "AF_PERMISSION_DENIED",
+  "AF_GRANT_NOT_FOUND",
+  "AF_GRANT_CONFLICT",
+  "AF_ACCOUNTS_UNAVAILABLE",
   "AF_INTERNAL",
 ] as const;
 
@@ -84,6 +93,21 @@ export const ERROR_CODE_TEXT: Record<string, string> = {
   AF_GATE_UNAVAILABLE: "门禁暂时不可用，无法继续推进。",
   AF_BUDGET_EXCEEDED: "超出该任务的预算上限（节点数、耗时或重试次数）。",
   AF_WORKSPACE_WRITE_CONFLICT: "工作区写入冲突，可能存在并发修改。",
+
+  // —— 多用户：身份与节点授权 ——
+  // 这几条刻意说清「该找谁处置」：身份问题的处置是重新登录，权限问题的处置
+  // 是让责任人在「成员与权限」中授权。笼统写「无权限」会让人反复重试而不知道
+  // 该做什么 —— 错误文案的职责是给出下一步，不是复述失败。
+  AF_ACTOR_UNKNOWN: "当前身份不是已登记的账户，请重新登录。",
+  AF_ACCOUNT_NOT_FOUND: "找不到该账户，可能已被移除。",
+  AF_ACCOUNT_EXISTS: "该登录标识已被占用，请换一个。",
+  AF_ACCOUNT_SUSPENDED: "该账户已停用，写操作被拒绝；请联系责任人恢复后再试。",
+  AF_ACCOUNT_BUILTIN: "内置账户不可删除，只能停用——它的历史授权与审计必须继续可查。",
+  AF_PERMISSION_DENIED:
+    "当前账户缺少该操作所需的权限；请让持有「可编排」权限的责任人在「成员与权限」中授权。",
+  AF_GRANT_NOT_FOUND: "找不到该节点授权，可能已被收回。",
+  AF_GRANT_CONFLICT: "该授权已被其他操作更新，请刷新后重试。",
+  AF_ACCOUNTS_UNAVAILABLE: "账户目录当前不可用，多用户能力未在本实例启用。",
 
   // —— WorkSpec / Proposal / Plan ——
   AF_WORKSPEC_INVALID: "工作规格不合法，无法冻结。",
