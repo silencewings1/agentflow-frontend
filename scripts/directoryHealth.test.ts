@@ -134,6 +134,40 @@ assert.ok(
   "演示模式的编排目录必须由 workflowTemplates 展开（目录外的授权目标因此不可能被构造）",
 );
 
+/* ── 两句提示必须互斥（缺陷 #53）──
+   文件自己的注释写的是"目录自身不可用时**优先**说这件事：它比『你没有管理权』更根本"，
+   但代码原先把两句**并列**渲染，于是在 no-manager 状态下用户同时看到：
+     ① 目录里没有任何「在职且持 manage」的账户……无法通过界面自救
+     ② 需要变更时，请让持有该权限的责任人操作
+   而此刻根本不存在这样的人——第②句是一条做不到的指引。
+   empty 分支同理（连账户都没有）。
+   这里钉住互斥：第二句必须带 `!directoryUnhealthy` 条件。 */
+assert.match(
+  membersPane,
+  /directoryUnhealthy/,
+  "MembersPane 应把「目录不可用」提成一个判据（两种成因都算），用于与权限提示互斥",
+);
+/* 判据必须由 directory.healthy 推导，不能恒 false。
+   第一版只断言 /directoryUnhealthy/ 出现——注入 `= false` 后仍全绿，
+   因为判断"字段名有没有出现"钉不住"取值从哪来"（与 workflowLabels.test.ts
+   的 presentationKnown 是同一个坑，那里也栽过一次）。 */
+assert.match(
+  membersPane,
+  /directoryUnhealthy\s*=\s*[^;]*directory[^;]*\.healthy/,
+  "directoryUnhealthy 必须由 directory.healthy 推导，否则互斥条件形同虚设（恒 false 时缺陷 #53 复现）",
+);
+assert.match(
+  membersPane,
+  /!canManage\s*&&\s*!directoryUnhealthy/,
+  "「你没有可编排权限，请让责任人操作」必须与「目录不可用」互斥："
+    + "no-manager/empty 时不存在可找的责任人，这句话是做不到的指引（缺陷 #53）",
+);
+/* 反向断言：不得再出现无条件的 !canManage 提示分支。 */
+assert.ok(
+  !/\{!canManage && \(/.test(membersPane),
+  "不应再有裸 `{!canManage && (` 分支：会与目录不可用的提示同时出现",
+);
+
 console.log(
   "directoryHealth.test: 前端 fixture 与后端 directoryHealth 判据一致"
     + "（分支 empty/no-manager/ok 齐备、都按 state===active 过滤、只看 manage、"

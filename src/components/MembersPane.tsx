@@ -184,6 +184,13 @@ export function MembersPane({
   /* 目录可用性由后端判定（判据只有一份：空目录 / 无人在职持 manage）。
      界面不自行推断——它看不到存储层的事实，自行推断只会给出第二个答案。 */
   const directory = data?.directory;
+  /**
+   * 目录不可用（包括 `empty` 与 `no-manager` 两种成因）。
+   *
+   * 提出来是因为它决定**两句提示互斥**：目录本身有问题时，控件置灰的原因就是它，
+   * 此时再说"你没有权限、请让责任人操作"是一条做不到的指引（见下方渲染处注释）。
+   */
+  const directoryUnhealthy = directory !== undefined && !directory.healthy;
 
   /** 统一的写操作包装：失败按服务端错误码如实呈现，绝不静默吞掉。 */
   const run = async (key: string, action: () => Promise<void>, onOk?: () => void) => {
@@ -282,12 +289,20 @@ export function MembersPane({
             "没有任何人有管理权"找谁都没用、只能修存储。只显示后者时，
             用户会反复点击、反复被拒，而真正的原因在任何地方都看不到。
             后端 DTO 的 directory 字段给出判定与处置，这里只负责呈现。 */}
-        {directory !== undefined && !directory.healthy && (
+        {directoryUnhealthy && (
           <p className="permNotice" data-tone="warn" role="alert">
-            {directory.reason ?? "账户目录当前不可用。"}
+            {directory?.reason ?? "账户目录当前不可用。"}
           </p>
         )}
-        {!canManage && (
+        {/* 目录不可用时**不再补这句**。上面那段注释写的是"优先说更根本的"，
+           但代码原先两句并列渲染，于是在 no-manager 状态下用户会同时看到：
+             ① 目录里没有任何「在职且持 manage」的账户……无法通过界面自救（管理权是自救的前提）
+             ② 请让持有该权限的责任人操作
+           而此刻**根本不存在这样的人**——第②句是一条做不到的指引，
+           比不提示更糟（用户会去找一个不存在责任人的授权）。
+           empty 分支同理（连账户都没有）。
+           因此这两句互斥：目录有问题时，置灰的原因就是目录本身。 */}
+        {!canManage && !directoryUnhealthy && (
           <p className="permNotice" role="note">
             当前账户
             {actor.accountId === null ? "未登录" : `（${actor.name}）`}
