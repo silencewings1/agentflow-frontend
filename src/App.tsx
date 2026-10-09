@@ -40,6 +40,8 @@ import {
 } from "./data/workflows";
 
 type ApiLoadState = { status: "loading" } | { status: "ready" } | { status: "error"; code: string; message: string; retryable: boolean };
+/** 稳定空数组：避免每次渲染新建引用导致下游 useMemo 失效。 */
+const EMPTY_WORKFLOWS: never[] = [];
 type GovernanceLoadState = { status: "idle" | "loading" | "ready" } | { status: "error"; code: string; message: string; retryable: boolean };
 type GovernanceSnapshot = {
   workSpec: WorkSpecDto | null;
@@ -2269,6 +2271,10 @@ export default function App() {
           onTestModelProvider={testModelProvider}
           accounts={accountsData}
           actor={accountsData.actor}
+          /* 只有 bootstrap 成功回读的目录才是服务端事实；加载中/失败时传空数组，
+             让面板显式说明"责任位清单尚不可用"，而不是继续用初始的演示模板
+             渲染出一套不存在的节点（详见 MembersPane nodeRefs 说明）。 */
+          workflows={apiLoad.status === "ready" ? workflowCatalog : EMPTY_WORKFLOWS}
           onRefreshAccounts={async () => { await loadAccounts(); }}
           onCreateAccount={createAccount}
           onSetAccountState={setAccountState}

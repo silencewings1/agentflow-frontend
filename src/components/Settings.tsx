@@ -10,6 +10,7 @@ import {
   type ArchLayer,
 } from "../data/settings";
 import { MembersPane } from "./MembersPane";
+import type { Workflow } from "../data/workflows";
 import {
   AfApiError,
   errorText,
@@ -105,6 +106,7 @@ export function SettingsOverlay({
   onRefreshPosture,
   accounts,
   actor,
+  workflows,
   onRefreshAccounts,
   onCreateAccount,
   onSetAccountState,
@@ -132,6 +134,7 @@ export function SettingsOverlay({
   /* 多用户：账户目录与授权由 App 持有，面板只渲染与派发（§三 状态只放 App）。 */
   accounts: AccountsDto | null;
   actor: ActorDto | null;
+  workflows: Workflow[];
   onRefreshAccounts: () => Promise<void>;
   onCreateAccount: (input: AccountInputDto) => Promise<void>;
   onSetAccountState: (accountId: string, state: AccountDto["state"]) => Promise<void>;
@@ -206,6 +209,7 @@ export function SettingsOverlay({
               <MembersPane
                 data={accounts}
                 actor={actor}
+                workflows={workflows}
                 onToast={onToast}
                 onRefresh={onRefreshAccounts}
                 onCreateAccount={onCreateAccount}

@@ -17,7 +17,7 @@ import {
   type NodeGrantDto,
   type NodePermDto,
 } from "../api";
-import { workflowTemplates, type WfNode } from "../data/workflows";
+import type { Workflow, WfNode } from "../data/workflows";
 
 /**
  * 成员与权限：账户目录 + 节点授权矩阵。
@@ -49,8 +49,15 @@ interface NodeRef {
   approval?: boolean;
 }
 
-function nodeRefs(): NodeRef[] {
-  return workflowTemplates.flatMap((workflow) =>
+/**
+ * 责任位清单**只能来自实时编排目录**（bootstrap 回读的服务端冻结编排），
+ * 不能来自 `src/data/workflows.ts` 的演示模板：那是 wf-feature/n1 这类示例
+ * 数据，真实实例里的编排是 standard-code-change/requirements 这类服务端事实。
+ * 用演示模板渲染矩阵会显示一套不存在的节点，并把授权写到没有对应责任位的
+ * 键上——界面看着正常，实际一条授权都不生效。
+ */
+function nodeRefs(workflows: Workflow[]): NodeRef[] {
+  return workflows.flatMap((workflow) =>
     workflow.nodes.map((node) => ({
       workflowId: workflow.id,
       workflowName: workflow.name,
@@ -83,6 +90,7 @@ const ACCOUNT_STATE_LABEL: Record<AccountDto["state"], string> = {
 export function MembersPane({
   data,
   actor,
+  workflows,
   onToast,
   onRefresh,
   onCreateAccount,
@@ -91,6 +99,8 @@ export function MembersPane({
 }: {
   data: AccountsDto | null;
   actor: ActorDto | null;
+  /** 实时编排目录：责任位矩阵的唯一节点来源（见 nodeRefs 的说明）。 */
+  workflows: Workflow[];
   onToast: Toast;
   onRefresh: () => Promise<void>;
   onCreateAccount: (input: AccountInputDto) => Promise<void>;
@@ -124,7 +134,7 @@ export function MembersPane({
     [accounts, selectedId],
   );
 
-  const refs = useMemo(() => nodeRefs(), []);
+  const refs = useMemo(() => nodeRefs(workflows), [workflows]);
 
   /* 授权索引：把 O(节点数 × 授权数) 的线性查找换成一次建表。
      编排有几十个节点、授权有几十条时这不是优化问题，而是每帧几十次遍历。
@@ -425,7 +435,15 @@ export function MembersPane({
               </span>
             </div>
 
-            {assigned.length === 0 ? (
+            {refs.length === 0 ? (
+              /* 编排目录不可用：必须与"这个人没被授权"分开呈现。两者的界面动作
+                 完全不同——前者要重新读取编排，后者要去授权。 */
+              <div className="permEmpty">
+                <Icon.Nodes size={20} />
+                <p>编排目录尚未就绪，无法列出责任位。</p>
+                <em>责任位来自服务端冻结的编排事实；目录读回后这里会显示全部节点。</em>
+              </div>
+            ) : assigned.length === 0 ? (
               <div className="permEmpty">
                 <Icon.Nodes size={20} />
                 <p>该账户尚未被授予任何节点。</p>
