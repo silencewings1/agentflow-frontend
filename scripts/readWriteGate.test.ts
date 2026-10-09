@@ -111,4 +111,39 @@ const appTsx = read("../src/App.tsx");
   );
 }
 
-console.log("readWriteGate: PASS（读不设墙 / 写全量有门槛 / 前端未声称假隔离）");
+/* ── ④ grantCount 展示必须带口径 ──────────────────────────────────────
+   与 ③ 同一类：「界面数字必须说清它数的是什么」。
+
+   `ActorDto.grantCount` 统计的是**真实责任位上的授权条数（含 view）**
+   （af-api accounts-service 的 liveGrants，刻意含 view：view 也是一条责任位记录）。
+   这是如实的，但把它渲染成「持有授权 N 个节点」会被读成能力数。实测：
+
+     账户   显示   可执行
+     李雯    11      1
+     周林    11     11
+     陈硕     1      1
+
+   李雯与周林显示相同、能力相差 11 倍；李雯(11) 与陈硕(1) 显示相差十倍、
+   可执行数相同。因此每一处展示 grantCount 的地方都必须同时出现
+   「含仅可见」（或等价的限定语），否则读者会高估自己。
+   §12.23.25 的 grantCount 缺陷修的是"数错"，这条守的是"数对了但说错了"。 */
+{
+  const railTsx = read("../src/components/Rail.tsx");
+  /* 找到所有渲染 grantCount 的行。 */
+  const renderSites = [appTsx, railTsx].flatMap((src) => src.split("\n").filter((l) => /grantCount\}/.test(l)));
+  assert.ok(renderSites.length > 0, "找不到任何渲染 grantCount 的位置 —— 断言已失效，请核对字段名");
+  for (const line of renderSites) {
+    assert.ok(
+      /含仅可见|仅可见/.test(line),
+      `展示 grantCount 时没有写明「含仅可见」的口径（会被读成能力数）：\n  ${line.trim()}`,
+    );
+  }
+
+  /* 反向：不得再出现"持有授权 N 个节点"这种把条数当能力的措辞。 */
+  const boast = [appTsx, railTsx]
+    .flatMap((src) => src.split("\n"))
+    .filter((l) => /持有授权\s*\$\{/.test(l) || /持有授权\s*<b>/.test(l));
+  assert.deepEqual(boast, [], `仍在使用"持有授权 N 个节点"的措辞（读作能力数）：\n  ${boast.join("\n  ")}`);
+}
+
+console.log("readWriteGate: PASS（读不设墙 / 写全量有门槛 / 前端未声称假隔离 / grantCount 带口径）");

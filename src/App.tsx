@@ -990,7 +990,10 @@ export default function App() {
       push({
         tone: "info",
         title: `已登录为 ${data.actor.name}`,
-        body: `${data.actor.role === null ? "" : ACCOUNT_ROLE_LABEL[data.actor.role] + " · "}持有授权 ${data.actor.grantCount} 个节点`,
+        /* 口径必须写在数字旁边：grantCount 含「仅可见」的责任位，不等于可执行节点数。
+           写成「持有授权 N 个节点」会让人把它当能力数 —— 实测李雯与周林都显示 11，
+           可执行数却是 1 与 11；李雯(11) 与陈硕(1) 显示相差十倍，可执行数同为 1。 */
+        body: `${data.actor.role === null ? "" : ACCOUNT_ROLE_LABEL[data.actor.role] + " · "}责任位覆盖 ${data.actor.grantCount} 个节点（含仅可见）`,
       });
       /* 登录后重新读取 bootstrap —— 但**不是因为任务列表按身份过滤**。
          服务端 `BootstrapService.bootstrap()` 不接收身份，`TaskService.listTasks()`
