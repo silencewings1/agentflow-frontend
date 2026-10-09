@@ -15,7 +15,7 @@ import type {
   TrajectoryEventDto,
   WorkflowDefinitionDto,
 } from "./types";
-import { nodeDisplayName } from "./nodeLabels.ts";
+import { nodeDisplayName, workflowDisplayName } from "./nodeLabels.ts";
 
 const profileRole: Record<string, WfNode["role"]> = {
   "requirements-analyst": "requirement",
@@ -54,7 +54,7 @@ function toWorkflow(dto: WorkflowDefinitionDto): Workflow {
   });
   const edges: WfEdge[] = dto.edges.map((edge) => ({ id: edge.edgeId, from: edge.from, to: edge.to, kind: edge.kind, label: edge.label }));
   const presentation = dto.presentation;
-  return withOrchestrator({ id: dto.workflowId, name: presentation?.name ?? dto.workflowId, glyph: (presentation?.glyph ?? "Nodes") as IconName, tint: (presentation?.tint ?? "accent") as Workflow["tint"], builtin: presentation?.builtin ?? false, summary: presentation?.summary ?? "来自 AF API 的版本化工作流", scene: presentation?.scene ?? "阶段 1.6", nodes, edges, maxRetry: presentation?.maxRetry ?? 1, onExhaust: presentation?.onExhaust ?? "人工接管", workflowVersion: dto.workflowVersion, nodeSpecDigest: dto.nodeSpecDigest, frozen: dto.frozenAt !== undefined });
+  return withOrchestrator({ id: dto.workflowId, name: workflowDisplayName(dto.workflowId, presentation?.name), glyph: (presentation?.glyph ?? "Nodes") as IconName, tint: (presentation?.tint ?? "accent") as Workflow["tint"], builtin: presentation?.builtin ?? false, summary: presentation?.summary ?? "来自 AF API 的版本化工作流", scene: presentation?.scene ?? "阶段 1.6", nodes, edges, maxRetry: presentation?.maxRetry ?? 1, onExhaust: presentation?.onExhaust ?? "人工接管", workflowVersion: dto.workflowVersion, nodeSpecDigest: dto.nodeSpecDigest, frozen: dto.frozenAt !== undefined });
 }
 
 function toProfile(profile: AgentProfileDto): AgentProfileSummaryDto {
