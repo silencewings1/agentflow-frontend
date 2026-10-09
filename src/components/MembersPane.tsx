@@ -119,6 +119,7 @@ export function MembersPane({
   const [draftName, setDraftName] = useState("");
   const [draftHandle, setDraftHandle] = useState("");
   const [draftRole, setDraftRole] = useState<AccountRoleDto>("development");
+  const [draftDuty, setDraftDuty] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
   /* 空数组回落必须是**稳定引用**：写成 `data?.accounts ?? []` 会在每次渲染
@@ -225,17 +226,26 @@ export function MembersPane({
   const submitAccount = () => {
     const name = draftName.trim();
     const handle = draftHandle.trim();
-    if (name.length === 0 || handle.length === 0) {
-      onToast({ tone: "warn", title: "创建账户失败", body: "名称与登录标识都必须填写。" });
+    const duty = draftDuty.trim();
+    /* 职责说明是必填，不由前端代拟。
+       这一条不是表单校验的形式要求：本设计的主张是「权限不是围栏，是责任分配」，
+       而 duty 正是「这个人负责什么」的落点——它是账户在权限矩阵之外唯一的语义说明。
+       前端代写一句「尚未填写职责说明」，等于在每个新建账户上盖一条看起来像
+       真实说明的免责声明：它占着职责字段，却什么责任都没界定，
+       日后没人能判断这是"确实没定"还是"当时没写"。宁可挡住提交，
+       也不产出一条语义为空的记录。 */
+    if (name.length === 0 || handle.length === 0 || duty.length === 0) {
+      onToast({ tone: "warn", title: "创建账户失败", body: "名称、登录标识与职责说明都必须填写。" });
       return;
     }
     void run(
       "create-account",
-      () => onCreateAccount({ name, handle, role: draftRole, duty: "自定义账户，尚未填写职责说明。" }),
+      () => onCreateAccount({ name, handle, role: draftRole, duty }),
       () => {
         setCreating(false);
         setDraftName("");
         setDraftHandle("");
+        setDraftDuty("");
         onToast({ tone: "ok", title: "已创建账户", body: `${name} · ${ACCOUNT_ROLE_LABEL[draftRole]}` });
       },
     );
@@ -330,6 +340,14 @@ export function MembersPane({
                 value={draftHandle}
                 onChange={(event) => setDraftHandle(event.target.value)}
                 placeholder="如：zhangqi@agentflow.dev"
+              />
+            </div>
+            <div className="form__row">
+              <label>职责说明</label>
+              <input
+                value={draftDuty}
+                onChange={(event) => setDraftDuty(event.target.value)}
+                placeholder="如：执行编译、测试与覆盖率检查，产出门禁裁决结论"
               />
             </div>
             <div className="form__row">

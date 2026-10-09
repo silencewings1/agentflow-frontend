@@ -107,7 +107,14 @@ export const ERROR_CODE_TEXT: Record<string, string> = {
     "当前账户缺少该操作所需的权限；请让持有「可编排」权限的责任人在「成员与权限」中授权。",
   AF_GRANT_NOT_FOUND: "找不到该节点授权，可能已被收回。",
   AF_GRANT_CONFLICT: "该授权已被其他操作更新，请刷新后重试。",
-  AF_ACCOUNTS_UNAVAILABLE: "账户目录当前不可用，多用户能力未在本实例启用。",
+  /* 这条刻意**不写死原因**。AF_ACCOUNTS_UNAVAILABLE 是 503 且 retryable=true，
+     它同时覆盖两种来路完全不同的情况：实例本就没组装多用户（重试无用，
+     要找部署方启用），与目录暂时读不到（重试就有用）。错误文案里断言其中一种，
+     会让另一种情况下的用户被引向错误的处置——说"未启用"而其实是瞬时故障，
+     用户就不重试了；说"暂时不可用"而其实没启用，用户会一直重试。
+     因此只陈述可确证的事实（读不到），并把两种处置都给出。 */
+  AF_ACCOUNTS_UNAVAILABLE:
+    "账户目录当前读不到。若这是本实例未启用多用户能力，请联系部署方启用；否则稍后重试。",
 
   // —— WorkSpec / Proposal / Plan ——
   AF_WORKSPEC_INVALID: "工作规格不合法，无法冻结。",
