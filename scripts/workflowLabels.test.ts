@@ -90,4 +90,44 @@ assert.match(
 assert.notEqual(nodeDisplayName("requirements"), "requirements", "节点名也应有中文投影");
 assert.ok(labels.includes("WORKFLOW_DISPLAY_NAME"), "nodeLabels.ts 应含编排名投影表");
 
-console.log("workflowLabels 自检通过：投影覆盖真实后端 id，mapper 已接上投影且无裸 id 回退。");
+/* ── (c) 不得把兜底值当成治理事实显示（缺陷 #52）──
+   同一根因的另一面：presentation 后端从不填，于是 maxRetry/onExhaust 各自兜底成
+   `1` 与「人工接管」。那不是默认值而是**凭空造出的事实**——实测节点级 retryPolicy
+   为 1/2/3 混杂（requirements 是 2 次），界面却写「重试上限 1 次」。
+   编排级本就没有这个字段，因此没有"正确的默认值"，只能如实说明"服务端未给出"。
+   这条钉两件事：mapper 必须记下"服务端给没给"，界面必须据此分流。 */
+const workflowUi = readFileSync(resolve(here, "../src/components/Workflow.tsx"), "utf8");
+const workflowTypes = readFileSync(resolve(here, "../src/data/workflows.ts"), "utf8");
+
+assert.match(
+  mappers,
+  /retryPolicyKnown:/,
+  "mappers.ts 必须记录重试策略是否来自服务端（否则界面无从区分真值与兜底）",
+);
+assert.match(
+  mappers,
+  /retryPolicyKnown:\s*presentation\?\.maxRetry\s*!==\s*undefined/,
+  "retryPolicyKnown 必须由 presentation 是否真给出决定，不能恒为 true",
+);
+assert.match(
+  workflowTypes,
+  /retryPolicyKnown\?:\s*boolean/,
+  "Workflow 类型应声明 retryPolicyKnown",
+);
+assert.match(
+  workflowUi,
+  /value\.retryPolicyKnown\s*\?/,
+  "Workflow.tsx 的编排策略必须按 retryPolicyKnown 分流，不能直接打印兜底值",
+);
+/* 反向断言：不得再出现"无条件打印 maxRetry 次"的写法。 */
+assert.ok(
+  !/<dd className="mono">\{value\.maxRetry\} 次<\/dd>/.test(workflowUi),
+  "Workflow.tsx 不应无条件显示 `{value.maxRetry} 次`：服务端未给出时那是个凭空兜底的数",
+);
+assert.ok(
+  workflowUi.includes("服务端未给出"),
+  "服务端未给出时必须如实说明，而不是显示一个看起来像事实的默认值",
+);
+
+console.log("workflowLabels 自检通过：投影覆盖真实后端 id，mapper 已接上投影且无裸 id 回退；");
+console.log("重试策略如实标注来源，不把兜底值当治理事实显示。");

@@ -598,6 +598,14 @@
   white-space: normal;
 }
 
+/* 服务端未给出的值：不能显示成一个看起来像事实的默认值。
+   形态差异先于颜色差异——用斜体与更低的对比度表达"这不是一个已知的值"，
+   而不是给它一个像真实数据的排版。见 Workflow.tsx 编排策略的说明。 */
+.kv dd[data-unknown] {
+  font-style: italic;
+  color: var(--text-4);
+}
+
 .modelPick {
   width: 100%;
   padding: 4px 7px;

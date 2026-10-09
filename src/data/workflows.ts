@@ -102,6 +102,19 @@ export interface Workflow {
   edges: WfEdge[];
   maxRetry: number;
   onExhaust: "人工接管" | "降级处理" | "终止任务";
+  /**
+   * 上面两项是否来自服务端。
+   *
+   * 为什么需要这个标志：`WorkflowDefinitionDto.presentation` 在契约里可选，而
+   * AF API **从不填它**，于是 `mappers.ts` 原先用 `?? 1` / `?? "人工接管"` 兜底——
+   * 那不是"默认值"，而是**凭空造出的治理事实**（实测节点级 retryPolicy 为
+   * 1/2/3 混杂，界面却写「1 次」）。编排级本就没有这个字段，因此没有"正确的
+   * 默认值"可填，只能如实说明"服务端未给出"。界面负责的是**呈现事实**，
+   * 不是替服务端猜一个看起来合理的数。
+   *
+   * 本地 fixture 与设计演示数据自行填好，因此恒为 true。
+   */
+  retryPolicyKnown?: boolean;
   workflowVersion?: number;
   nodeSpecDigest?: string;
   frozen?: boolean;

@@ -895,13 +895,26 @@ export function WorkflowPicker({
               <dt>适用</dt>
               <dd>{value.scene}</dd>
             </div>
+            {/* 重试上限与超限处置**只有服务端给了才显示**。
+                `WorkflowDefinitionDto.presentation` 在契约里可选而 AF API 从不填，
+                原先各自兜底成固定的 `1 次` 与「人工接管」——那不是默认值，而是
+                **凭空造出的治理事实**：实测 standard-code-change 的节点级
+                retryPolicy 是 1/2/3 混杂（requirements 为 2），而界面写「1 次」。
+                编排级本来也没有这个字段（真实策略在**节点级** retryPolicy），
+                因此这里没有"正确的默认值"可填，只能如实说明"服务端未给出"。
+                这与 §4.3「不许暗示一个不成立的推进」同源：界面不得声称一件
+                它并不掌握的事实，否则审阅者会据此做判断。 */}
             <div>
               <dt>重试上限</dt>
-              <dd className="mono">{value.maxRetry} 次</dd>
+              <dd className="mono" data-unknown={!value.retryPolicyKnown || undefined}>
+                {value.retryPolicyKnown ? `${value.maxRetry} 次` : "服务端未给出"}
+              </dd>
             </div>
             <div>
               <dt>超限处置</dt>
-              <dd>{value.onExhaust}</dd>
+              <dd data-unknown={!value.retryPolicyKnown || undefined}>
+                {value.retryPolicyKnown ? value.onExhaust : "服务端未给出"}
+              </dd>
             </div>
             <div>
               <dt>门禁数</dt>
