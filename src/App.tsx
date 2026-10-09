@@ -549,9 +549,24 @@ export default function App() {
     perm: NodePermDto | null;
     expectedRevision?: number;
   }) => {
-    const mutation = await afApi.setNodeGrant(input);
-    setAccountsData(mutation.accounts);
-  }, []);
+    try {
+      const mutation = await afApi.setNodeGrant(input);
+      setAccountsData(mutation.accounts);
+    } catch (error: unknown) {
+      /* 乐观并发冲突：**必须**把界面重新对齐到服务端事实，然后才抛出。
+         不刷新的话，用户看到的是"操作未生效，请刷新后重试"——而界面里没有任何
+         刷新入口，他只能反复点同一个格子，每次都用同一个过期 revision，
+         于是永远 409。提示让他做一件他做不到的事，比不提示更糟。
+         这里重新拉一次目录：冲突的语义是"别人改过了"，此刻服务端拥有的才是真相，
+         重绘之后用户看到的既是最新权限（可能已经是他想要的值），
+         再点一次也会带上正确的 revision。 */
+      const apiError = error instanceof AfApiError ? error : undefined;
+      if (apiError?.code === "AF_GRANT_CONFLICT" || apiError?.code === "AF_ACCOUNT_CONFLICT") {
+        void loadAccounts();
+      }
+      throw error;
+    }
+  }, [loadAccounts]);
 
   useEffect(() => {
     void loadBootstrap();
