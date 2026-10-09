@@ -455,9 +455,9 @@ function fixtureClient(): AfApiClient {
     }, ...fixtureAccountAudit];
   };
 
-  /* 账户写入的内部实现。action 由调用方显式给出，而不是从
-     "是否只改了 state 一个字段"推断：推断会在将来出现"同时改资料与状态"
-     的调用时悄悄给出错误分类，而审计的分类错了，读的人不会知道它错了。 */
+  /* 账户写入的内部实现。审计分类在函数内部由"实际改了什么"推出，
+     不接受调用方声明——两条路由（PUT / POST state）共用它，声明式分类
+     会让同一个动作留下两种说法（缺陷 #46）。 */
   /**
    * 状态变更的两条守卫，供 PUT 与 POST /state 共用。
    *
@@ -492,7 +492,6 @@ function fixtureClient(): AfApiClient {
   const fixtureWriteAccount = async (
     accountId: string,
     input: Partial<AccountInputDto>,
-    action: "update" | "state",
   ): Promise<AccountsDto> => {
     const existing = fixtureAccounts.find((item) => item.accountId === accountId);
     if (existing === undefined) throw new AfApiError({ code: "AF_ACCOUNT_NOT_FOUND", message: "找不到该账户", retryable: false });
@@ -511,6 +510,15 @@ function fixtureClient(): AfApiClient {
     const changedFields = (Object.keys(next) as Array<keyof AccountDto>)
       .filter((field) => field !== "updatedAt" && existing[field] !== next[field]);
     fixtureAccounts = fixtureAccounts.map((item) => (item.accountId === accountId ? next : item));
+    /* `action` 由**实际改了什么**推出，而不是由调用方走哪条路由决定。
+       此前它是参数（PUT 传 "update"、POST /state 传 "state"），于是同一个动作
+       在审计里留下两种说法，而界面（MembersPane 的 AccountAuditRow）正是按 action
+       选文案——"停用了"与"修改了…的状态"说的是同一件事。后端已按同一判据修正
+       （缺陷 #46），fixture 必须同源，否则 dev 模式与真实环境给出不同的历史。
+       判定与后端一致：只有 state **单独**变化才算停用/恢复；连带改了别的字段
+       说明这是一次资料编辑顺带改状态，说成"停用了"会盖掉其余实际改动。 */
+    const action: AccountAuditDto["action"] =
+      changedFields.length === 1 && changedFields[0] === "state" ? "state" : "update";
     recordAccountAudit(action, next, changedFields);
     return snapshot();
   };
@@ -608,12 +616,12 @@ function fixtureClient(): AfApiClient {
       return snapshot();
     },
     async updateAccount(accountId, input) {
-      return fixtureWriteAccount(accountId, input, "update");
+      return fixtureWriteAccount(accountId, input);
     },
     async setAccountState(accountId, state) {
       /* 守卫已上移到 fixtureWriteAccount（PUT 与 POST 的公共出口），
          避免"守了一条路由、开着另一条"的分叉。 */
-      return fixtureWriteAccount(accountId, { state }, "state");
+      return fixtureWriteAccount(accountId, { state });
     },
     async setNodeGrant(input) {
       const actor = requireManager();
