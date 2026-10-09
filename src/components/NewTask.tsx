@@ -37,6 +37,7 @@ export function NewTaskDialog({
   onValidateWorkflow,
   canCreateWith,
   existingBranches = [],
+  initialPrompt = "",
 }: {
   onClose: () => void;
   onStart: (prompt: string, wf: Workflow, contract: AgentEvent, scm: NewTaskScmDraft) => Promise<void>;
@@ -50,9 +51,12 @@ export function NewTaskDialog({
   canCreateWith: (workflowId: string) => { allowed: boolean; reason: string };
   /** 已知目标分支（含历史任务），用于默认分支名避开重名。 */
   existingBranches?: string[];
+  /** 用户在输入区写下的意图：空态下点发送不应丢掉它，而要带进这里继续走真实创建流程。 */
+  initialPrompt?: string;
 }) {
-  /* 任务目标留空由用户填写：预填演示任务会让无关条目混进冻结后的 WorkSpec */
-  const [prompt, setPrompt] = useState("");
+  /* 任务目标不由演示数据预填（那会让无关条目混进冻结后的 WorkSpec），
+     只接收调用方传来的真实意图——即用户刚在输入区写下的那段话。 */
+  const [prompt, setPrompt] = useState(initialPrompt);
   const initialProvider = scmProviders.find((provider) => provider.available) ?? scmProviders[0];
   const [serverRef, setServerRef] = useState(initialProvider?.mcpServerRef ?? "");
   const provider = scmProviders.find((item) => item.mcpServerRef === serverRef);

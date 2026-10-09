@@ -287,6 +287,9 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsPane, setSettingsPane] = useState<SettingsPane | null>(null);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
+  /* 空态输入区写下的意图：真实模式下「自由对话」不存在，用户那段话唯一
+     合法的去处是新建任务的任务目标。留在这里带进对话框，而不是丢弃。 */
+  const [newTaskIntent, setNewTaskIntent] = useState("");
   /* 初始编排取首条会话自己的编排，而不是写死第一套模板 */
   const [workflowCatalog, setWorkflowCatalog] = useState<Workflow[]>(workflowTemplates);
   /* 编排的冻结版本历史：服务端权威事实，供「查看编排」面板展示历史任务按哪一版重放 */
@@ -1111,7 +1114,17 @@ export default function App() {
   const runTurn = useCallback(
     (prompt: string, contract?: AgentEvent, keepHistory?: boolean) => {
       if (afApi.mode === "http") {
-        push({ tone: "info", title: "真实模式由工作流节点驱动", body: "当前 AF API 未声明自由对话路由；请通过任务创建、启动、确认与返工入口操作，页面不会伪造一轮智能体执行。" });
+        /* 真实模式没有自由对话路由，但用户写下的话是有用的——它就是任务目标。
+           这里把它交给真正能落地的入口（新建任务），并说明为什么改道，
+           而不是只弹一条提示就把输入丢掉：那样用户看到的是「点了发送，
+           字消失了，什么也没发生」。 */
+        setNewTaskIntent(prompt);
+        setNewTaskOpen(true);
+        push({
+          tone: "info",
+          title: "已按任务目标发起创建",
+          body: "当前 AF API 未声明自由对话路由；这段话已带入新建任务，请确认仓库与分支后创建。创建后由工作流节点驱动执行。",
+        });
         return;
       }
       /* 规划待确认期间，输入框的语义变为「提交修改意见」而非普通对话 */
@@ -1232,6 +1245,8 @@ export default function App() {
       setPendingApproval(null);
       setStreaming(false);
       setNewTaskOpen(false);
+      /* 意图已兑现为任务目标，不能留到下一次新建时复现 */
+      setNewTaskIntent("");
       if (afApi.mode === "http") {
         preferredActiveRef.current = createdTask.taskId;
         setActiveId(createdTask.taskId);
@@ -2387,9 +2402,10 @@ export default function App() {
       )}
       {newTaskOpen && (
         <NewTaskDialog
-          onClose={() => setNewTaskOpen(false)}
+          onClose={() => { setNewTaskOpen(false); setNewTaskIntent(""); }}
           onStart={startTask}
           onToast={push}
+          initialPrompt={newTaskIntent}
           /* 决策 4：新建任务只允许 v3（含人工审阅闸门）。历史任务仍按各自
              锁定的版本在会话里展示，所以这里只过滤「新建」用的列表。 */
           workflows={workflowCatalog.filter((item) => item.id !== "standard-code-change" || (item.workflowVersion ?? 1) >= 3)}
