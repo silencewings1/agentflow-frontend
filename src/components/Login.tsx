@@ -23,6 +23,7 @@ export function Login({
   accounts,
   loading,
   error,
+  retryable,
   onLogin,
   onRetry,
   actor,
@@ -30,6 +31,8 @@ export function Login({
   accounts: AccountDto[];
   loading: boolean;
   error: string | null;
+  /** 重试是否有意义。目录不可用有两种成因，其中"部署方声明未启用"重试永远不会成功。 */
+  retryable?: boolean;
   onLogin: (handle: string) => void;
   onRetry: () => void;
   /** 服务端已解析出的当前身份；停用时非 null，用于说明"你被停用了"而不是"未登录"。 */
@@ -81,9 +84,15 @@ export function Login({
         {error !== null && (
           <div className="login__state" data-tone="warn" role="alert">
             <span>{error}</span>
-            <button className="btn btn--ghost btn--sm" onClick={onRetry}>
-              重试
-            </button>
+            {/* 只在重试确实可能成功时才给按钮。
+                不可重试的错误（如"本实例未启用多用户能力"）配一个"重试"按钮，
+                等于让用户反复做一件注定无效的事；文案已经说了"重试不会改变结果"，
+                按钮却在劝他重试，两者自相矛盾。 */}
+            {retryable !== false && (
+              <button className="btn btn--ghost btn--sm" onClick={onRetry}>
+                重试
+              </button>
+            )}
           </div>
         )}
 

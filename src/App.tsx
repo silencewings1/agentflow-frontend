@@ -176,7 +176,11 @@ function apiFailure(error: unknown, fallbackMessage: string): Omit<Extract<ApiLo
      后端 message 是工程口径（英文、含步骤名与内部约束），不适合直接展示；
      未登记的错误码由 describeError 回退，保留原文供报障对照。 */
   if (error instanceof AfApiError) {
-    return { code: error.code, message: errorText(error.code, error.message), retryable: error.retryable };
+    return {
+      code: error.code,
+      message: errorText(error.code, error.message, error.details),
+      retryable: error.retryable,
+    };
   }
   return {
     code: "AF_CLIENT_RESPONSE_INVALID",
@@ -385,6 +389,9 @@ export default function App() {
     [canCreateWith, workflowCatalog],
   );
   const [accountsError, setAccountsError] = useState<string | null>(null);
+  /* 目录不可用是否**可能**通过重试解决。后端用 details.multiUserEnabled 自证成因：
+     声明未启用（false）时重试永远不会成功，因此界面不该给"重试"按钮。 */
+  const [accountsRetryable, setAccountsRetryable] = useState(true);
   const [accountsLoading, setAccountsLoading] = useState(true);
   const [checkingIdentity, setCheckingIdentity] = useState(true);
   const [mode, setMode] = useState<"session" | "welcome">("welcome");
@@ -518,11 +525,17 @@ export default function App() {
       const data = await afApi.getAccounts();
       setAccountsData(data);
       setAccountsError(null);
+      setAccountsRetryable(true);
       return data;
     } catch (error: unknown) {
       const apiError = error instanceof AfApiError ? error : undefined;
       setAccountsData(null);
-      setAccountsError(errorText(apiError?.code, apiError?.message));
+      /* 传 details：目录不可用有**两种处置相反**的成因，后端会用
+         details.multiUserEnabled 自证是哪一种。不传的话这里只能显示
+         那条"若…否则…"的含糊文案，用户得自己猜该找部署方还是该重试。 */
+      setAccountsError(errorText(apiError?.code, apiError?.message, apiError?.details));
+      /* 后端自证"本实例声明未启用"时，重试是徒劳的，按钮要一并收起来。 */
+      setAccountsRetryable(apiError?.details?.multiUserEnabled !== false);
       return null;
     } finally {
       setAccountsLoading(false);
@@ -2112,6 +2125,7 @@ export default function App() {
         accounts={accountsData?.accounts ?? []}
         loading={accountsLoading}
         error={accountsError}
+        retryable={accountsRetryable}
         actor={accountsData?.actor ?? null}
         onLogin={(handle) => void login(handle)}
         onRetry={() => void loadAccounts()}

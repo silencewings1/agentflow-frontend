@@ -75,6 +75,7 @@ export const KNOWN_BACKEND_CODES = [
   "AF_GRANT_NOT_FOUND",
   "AF_GRANT_CONFLICT",
   "AF_ACCOUNTS_UNAVAILABLE",
+  "AF_ACCOUNTS_DISABLED",
   "AF_INTERNAL",
 ] as const;
 
@@ -112,14 +113,22 @@ export const ERROR_CODE_TEXT: Record<string, string> = {
     "这是目录里最后一位管理者，撤掉后就没有人能管理账户了，因此被拒绝；请先授权另一位管理者再调整。",
   AF_GRANT_NOT_FOUND: "找不到该节点授权，可能已被收回。",
   AF_GRANT_CONFLICT: "该授权已被其他操作更新，请刷新后重试。",
-  /* 这条刻意**不写死原因**。AF_ACCOUNTS_UNAVAILABLE 是 503 且 retryable=true，
-     它同时覆盖两种来路完全不同的情况：实例本就没组装多用户（重试无用，
-     要找部署方启用），与目录暂时读不到（重试就有用）。错误文案里断言其中一种，
-     会让另一种情况下的用户被引向错误的处置——说"未启用"而其实是瞬时故障，
-     用户就不重试了；说"暂时不可用"而其实没启用，用户会一直重试。
-     因此只陈述可确证的事实（读不到），并把两种处置都给出。 */
+  /* 这条是**后备**文案，仅在后端没有给出 `details.multiUserEnabled` 时使用
+     （例如旧版本后端，或错误在到达这里之前被包装过）。
+     为什么后备文案必须继续并列两种处置：AF_ACCOUNTS_UNAVAILABLE 确实覆盖
+     两种来路相反的情况——实例本就未启用多用户（重试无用，要找部署方），
+     与目录暂时读不到（重试就有用）。在**拿不到**区分依据时，断言其中一种
+     会把另一种情况下的用户引向错误的处置，因此只陈述可确证的事实（读不到）。
+     但正常路径不再需要这条含糊文案：后端已经用 details.multiUserEnabled
+     自证是"声明未启用"还是"瞬时故障"，见 errorText 的分支。 */
   AF_ACCOUNTS_UNAVAILABLE:
     "账户目录当前读不到。若这是本实例未启用多用户能力，请联系部署方启用；否则稍后重试。",
+
+  /* —— 目录不可用时按**成因**给出的确定文案 ——
+     后端用 details.multiUserEnabled 自证成因（声明未启用 false / 瞬时故障 true），
+     因此这里可以把处置写死，不必再让用户同时准备两条路。 */
+  AF_ACCOUNTS_DISABLED:
+    "本实例未启用多用户能力，账户目录不可用。重试不会改变结果，请联系部署方启用后再使用。",
 
   // —— WorkSpec / Proposal / Plan ——
   AF_WORKSPEC_INVALID: "工作规格不合法，无法冻结。",
@@ -197,8 +206,20 @@ export function errorCodeText(code: string | undefined): string | undefined {
  * 未登记的码给出中文兜底并附上后端原文——既不把英文技术句直接甩给用户，也不丢
  * 掉报障时对照日志所需的信息。
  */
-export function errorText(code: string | undefined, backendMessage?: string): string {
+export function errorText(
+  code: string | undefined,
+  backendMessage?: string,
+  details?: Record<string, unknown>,
+): string {
   const label = code ?? "AF_CLIENT_RESPONSE_INVALID";
+  /* 目录不可用时按**成因**分流。
+     判据是后端给出的声明（multiUserEnabled 为 false 即"部署方声明没开"），
+     而不是对现象的猜测：只有这一种情况的处置是"重试无用、找部署方"。
+     没有 details（旧后端）时落回后备文案，那条同时给出两种处置。 */
+  if (label === "AF_ACCOUNTS_UNAVAILABLE" && details?.multiUserEnabled === false) {
+    const disabled = errorCodeText("AF_ACCOUNTS_DISABLED");
+    if (disabled) return disabled;
+  }
   const text = errorCodeText(label);
   if (text) return text;
   const detail = backendMessage ? `（原始信息：${backendMessage}）` : "";
