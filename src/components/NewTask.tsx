@@ -5,7 +5,7 @@ import { WorkflowPicker } from "./Workflow";
 import { validateWorkflowGraph, workflowTemplates, type Workflow } from "../data/workflows";
 import { defaultTargetBranch } from "../data/branchNaming";
 import type { AgentEvent } from "../data/mock";
-import type { AgentProfileSummaryDto, ScmProviderDto, SkillSummaryDto, WorkflowValidation } from "../api";
+import type { ActorDto, AgentProfileSummaryDto, ScmProviderDto, SkillSummaryDto, WorkflowValidation } from "../api";
 
 export interface NewTaskScmDraft {
   provider?: "github" | "gitlab";
@@ -38,6 +38,7 @@ export function NewTaskDialog({
   canCreateWith,
   existingBranches = [],
   initialPrompt = "",
+  actor = null,
 }: {
   onClose: () => void;
   onStart: (prompt: string, wf: Workflow, contract: AgentEvent, scm: NewTaskScmDraft) => Promise<void>;
@@ -53,6 +54,9 @@ export function NewTaskDialog({
   existingBranches?: string[];
   /** 用户在输入区写下的意图：空态下点发送不应丢掉它，而要带进这里继续走真实创建流程。 */
   initialPrompt?: string;
+  /** 当前登录身份。默认分支名里的用户段由它推导——
+      多用户下若缺省，所有人的默认分支会顶着同一个名字（归属失真、易于撞名）。 */
+  actor?: ActorDto | null;
 }) {
   /* 任务目标不由演示数据预填（那会让无关条目混进冻结后的 WorkSpec），
      只接收调用方传来的真实意图——即用户刚在输入区写下的那段话。 */
@@ -63,8 +67,10 @@ export function NewTaskDialog({
   const [repositoryRef, setRepositoryRef] = useState(repositoryDefaultFor(initialProvider));
   const [baseBranch, setBaseBranch] = useState("main");
   /* 默认分支名在挂载时算一次：用户改动后不再被 props 变化覆盖。
-     useState 的惰性初始化正好保证「只生成一次」。 */
-  const [targetBranch, setTargetBranch] = useState(() => defaultTargetBranch(existingBranches));
+     useState 的惰性初始化正好保证「只生成一次」。
+     名字里的用户段取自**当前登录身份**（actor）：多用户下若用固定常量，
+     所有人的默认分支都会顶着同一个人的名字，归属失真且易于撞名。 */
+  const [targetBranch, setTargetBranch] = useState(() => defaultTargetBranch(existingBranches, new Date(), actor));
   const [wf, setWf] = useState<Workflow>(workflows[0] ?? workflowTemplates[0]!);
   const [serverValidation, setServerValidation] = useState<WorkflowValidation | null>(null);
   const [submitting, setSubmitting] = useState(false);

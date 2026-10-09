@@ -2417,6 +2417,9 @@ export default function App() {
           /* 按选中编排判定的创建准入，与后端同源；选中的编排缺入口权限时
              主按钮呈受阻态，而不是等提交才报错。 */
           canCreateWith={canCreateWith}
+          /* 默认目标分支名里的用户段取自登录身份：多用户下同一个实例
+             会有多位使用者，用固定常量会让所有人的分支都顶同一个名字。 */
+          actor={accountsData?.actor ?? null}
         />
       )}
       <Toasts items={toasts} />
