@@ -2326,6 +2326,14 @@ export default function App() {
                       onCheckpoint={handleCheckpoint}
                       planPending={planPending}
                       onAcceptPlan={acceptPlan}
+                      /* 检查点的"判定人"取自后端 approvals 里的真实 actor。
+                         不用本地状态：刷新后本地选择会丢，而归属事实不该随界面重置。
+                         也不退回某个写死的 handle——多用户下那等于冒名。 */
+                      approvalActorOf={(nodeId) => {
+                        const rows = governance?.approvals?.nodeApprovals ?? [];
+                        const hit = [...rows].reverse().find((row) => row.nodeId === nodeId);
+                        return hit ? hit.actor : null;
+                      }}
                       onOpenFile={(p) => {
                         setActiveFile(p);
                         setInspectorTab("diff");

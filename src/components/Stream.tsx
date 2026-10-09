@@ -15,6 +15,7 @@ export function Stream({
   onCopy,
   planPending,
   onAcceptPlan,
+  approvalActorOf,
 }: {
   events: AgentEvent[];
   emptyLabel?: string;
@@ -27,6 +28,11 @@ export function Stream({
   /** 规划待确认：决定规划卡片是否可操作 */
   planPending?: boolean;
   onAcceptPlan?: () => void;
+  /** 查"这个节点的批准是谁做的"。由 App 从 governance.approvals 提供——
+      后端 `NodeApprovalDto.actor` 记的就是真实批准人。
+      缺了它，检查点只能退回去显示一个编造的标识（多用户下等于冒名），
+      因此这不是可选装饰，而是归属事实的唯一来源。 */
+  approvalActorOf?: (nodeId: string) => string | null;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -50,6 +56,7 @@ export function Stream({
             onCopy={onCopy}
             planPending={planPending}
             onAcceptPlan={onAcceptPlan}
+            approvalActorOf={approvalActorOf}
           />
         ))}
         {!events.length && !streaming && emptyLabel && <p className="stream__empty">{emptyLabel}</p>}
@@ -70,6 +77,7 @@ function Event({
   onCopy,
   planPending,
   onAcceptPlan,
+  approvalActorOf,
 }: {
   e: AgentEvent;
   index: number;
@@ -80,6 +88,8 @@ function Event({
   onCopy: () => void;
   planPending?: boolean;
   onAcceptPlan?: () => void;
+  /** 转发给检查点：判定人来自 governance.approvals（见 Stream props 说明）。 */
+  approvalActorOf?: (nodeId: string) => string | null;
 }) {
   const style = { ["--i" as string]: Math.min(index, 14) };
 
@@ -280,7 +290,7 @@ function Event({
       return <Controlled e={e} style={style} />;
 
     case "checkpoint":
-      return <Checkpoint e={e} style={style} onDecide={onCheckpoint} />;
+      return <Checkpoint e={e} style={style} onDecide={onCheckpoint} approvalActorOf={approvalActorOf} />;
 
     case "contract":
       return <Contract e={e} style={style} />;
@@ -722,9 +732,15 @@ function Controlled({ e, style }: { e: Extract<AgentEvent, { kind: "controlled" 
 
 /* ===================== 人工检查点（第一节人工检查层） ================= */
 
-function Checkpoint({ e, style, onDecide }: { e: Extract<AgentEvent, { kind: "checkpoint" }>; style: object; onDecide?: (nodeId: string, option: string) => void }) {
+function Checkpoint({ e, style, onDecide, approvalActorOf }: { e: Extract<AgentEvent, { kind: "checkpoint" }>; style: object; onDecide?: (nodeId: string, option: string) => void; approvalActorOf?: (nodeId: string) => string | null }) {
   const [pick, setPick] = useState<string | null>(e.decided ?? null);
   const select = (o: string) => { setPick(o); const nid = (e as any).afNodeId ?? e.node; onDecide?.(nid, o); };
+  /* 判定人必须是**事实**，不能是编造的字符串。
+     取值顺序：事件自带 → 后端 approvals 里的真实 actor → 明说"未记录"。
+     最后那一档刻意不是某个具体名字：多用户下把一个固定 handle 当作
+     "已判定人"显示，等于在人工检查层（归属的立命之处）冒名。 */
+  const nodeId = (e as any).afNodeId ?? e.node;
+  const decider = e.decidedBy ?? approvalActorOf?.(nodeId) ?? null;
   return (
     <article className="ev ev--card" style={style}>
       <div className="ev__gutter" />
@@ -761,7 +777,7 @@ function Checkpoint({ e, style, onDecide }: { e: Extract<AgentEvent, { kind: "ch
         </div>
         {pick && (
           <p className="ckpt__done mono">
-            已判定「{pick}」· {e.decidedBy ?? "me@agentflow.dev"} · 判定结论进入证据链
+            已判定「{pick}」· {decider ?? "判定人未记录"} · 判定结论进入证据链
           </p>
         )}
       </div>
