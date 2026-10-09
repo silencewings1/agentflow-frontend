@@ -2340,9 +2340,21 @@
   padding: 14px 16px 16px;
 }
 
+/* 覆盖通用 .split 的两列比例。通用比例（1fr | 268px）是为"窄侧栏"设计的，
+   但成员面板右列是授权矩阵：它要同时放下节点名、编排标识与四级权限格，
+   268px 会把节点名挤成逐字换行、把 workflowId 折成四行——信息还在，
+   却读不出来。这里给右列一个按可用宽度伸缩的上限，并给左列设下限，
+   使账户名与登录标识始终单行可读。 */
 .sheet__body[data-pane="members"] .split {
   height: 100%;
   align-items: stretch;
+  grid-template-columns: minmax(220px, 0.85fr) minmax(0, 1.35fr);
+}
+
+.sheet__body[data-pane="members"] .split__list {
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 4px;
 }
 
 .sheet__body[data-pane="members"] .split__list {
@@ -2405,10 +2417,31 @@
   .sheet__body[data-pane="members"] .split {
     height: auto;
     align-items: start;
+    /* 单列堆叠：并排两列在窄屏会把矩阵压到无法阅读。 */
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
   }
 
   .sheet__body[data-pane="members"] .split__list,
   .sheet__body[data-pane="members"] .memberDetail {
     overflow-y: visible;
   }
+}
+
+/* 节点标识（workflowId / nodeId / gateId）是**标识符**，不是文案：
+   折行会把 `standard-code-change` 拆成四行，读者无法把它读成一个整体。
+   因此禁用折行并在必要时省略——标识符宁可截断也不要打碎。 */
+.permRow__node i.mono {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* 节点名同理：短名（需求分析、方案设计）必须保持完整可读，
+   不做逐字换行。 */
+.permRow__node b {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

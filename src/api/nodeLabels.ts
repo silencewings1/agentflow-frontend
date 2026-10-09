@@ -11,7 +11,9 @@
 
 const NODE_DISPLAY_NAME: Record<string, string> = {
   requirements: "需求分析",
+  "requirements-review": "需求评审",
   design: "方案设计",
+  "design-review": "方案评审",
   implementation: "代码开发",
   "unit-tests": "单元测试",
   "integration-tests": "集成测试",

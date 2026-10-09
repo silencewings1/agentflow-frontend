@@ -430,8 +430,10 @@ export function MembersPane({
                   {NODE_PERM_LABEL[perm]}
                 </span>
               ))}
+              {/* 层级用**权限名**而不是代数表达：`0 < 1 < 2 < 3` 对用户没有意义，
+                  而「可见 < 可执行 < 可裁决 < 可编排」本身就是这套语义的完整说明。 */}
               <span className="permLegend__hint">
-                点击调整 · 高级含低级（{NODE_PERM_ORDER.map((perm) => `${permRank(perm)}`).join(" < ")}）
+                点击调整 · 高级含低级（{NODE_PERM_ORDER.map((perm) => NODE_PERM_LABEL[perm]).join(" < ")}）
               </span>
             </div>
 
