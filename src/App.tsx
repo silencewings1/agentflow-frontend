@@ -2022,12 +2022,17 @@ export default function App() {
 
   /* 未登录 → 登录页。这里不是"门槛"而是责任交接：账户目录来自服务端，
      选中哪个账户决定后续所有动作的权限判定。 */
-  if (accountsData === null || accountsData.actor.anonymous) {
+  /* 停用账户必须被挡在登录页：服务端把它解析为**已登记**身份（anonymous=false），
+     因此只判 anonymous 会让一个已停用账户进入控制台、然后在每个写操作上撞 403。
+     那是最糟的一种呈现——界面看起来登录成功了，实际任何动作都不生效。
+     登录页本身已把停用账户列为不可选，这里的判据与它保持一致。 */
+  if (accountsData === null || accountsData.actor.anonymous || accountsData.actor.state === "suspended") {
     return (
       <Login
         accounts={accountsData?.accounts ?? []}
         loading={accountsLoading}
         error={accountsError}
+        actor={accountsData?.actor ?? null}
         onLogin={(handle) => void login(handle)}
         onRetry={() => void loadAccounts()}
       />

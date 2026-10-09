@@ -4,6 +4,7 @@ import {
   ACCOUNT_ROLE_LABEL,
   ACCOUNT_ROLE_ORDER,
   type AccountDto,
+  type ActorDto,
 } from "../api";
 
 /**
@@ -24,12 +25,15 @@ export function Login({
   error,
   onLogin,
   onRetry,
+  actor,
 }: {
   accounts: AccountDto[];
   loading: boolean;
   error: string | null;
   onLogin: (handle: string) => void;
   onRetry: () => void;
+  /** 服务端已解析出的当前身份；停用时非 null，用于说明"你被停用了"而不是"未登录"。 */
+  actor?: ActorDto | null | undefined;
 }) {
   const [selectedHandle, setSelectedHandle] = useState<string>("");
 
@@ -121,6 +125,15 @@ export function Login({
               ];
             })}
           </div>
+        )}
+
+        {actor?.state === "suspended" && (
+          <p className="login__state" data-tone="warn" role="alert">
+            <span>
+              当前身份「{actor.name}」已停用，不能登录。
+              历史授权与审计仍然保留，需要管理者恢复后才能继续。
+            </span>
+          </p>
         )}
 
         {suspended.length > 0 && (
