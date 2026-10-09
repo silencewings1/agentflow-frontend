@@ -119,6 +119,11 @@ export const ERROR_CODE_TEXT: Record<string, string> = {
   AF_LAST_MANAGER:
     "这是目录里最后一位管理者，撤掉后就没有人能管理账户了，因此被拒绝；请先授权另一位管理者再调整。",
   AF_GRANT_NOT_FOUND: "找不到该节点授权，可能已被收回。",
+  /* 同一码、另一种成因：要授权的那个责任位**已不在编排中**（编排被保存过新版本）。
+     上面那句的处置是"刷新"（授权大概已被他人收回），这里刷新一万次也没用——
+     那条责任位不会再出现，用户要换一个节点。后端用 details.reason 自证成因。 */
+  AF_GRANT_SLOT_UNKNOWN:
+    "该责任位已不在当前编排中（编排可能保存过新版本）；请刷新后换一个节点再授权。",
   AF_GRANT_CONFLICT: "该授权已被其他操作更新，请刷新后重试。",
   /* 这条是**后备**文案，仅在后端没有给出 `details.multiUserEnabled` 时使用
      （例如旧版本后端，或错误在到达这里之前被包装过）。
@@ -234,6 +239,13 @@ export function errorText(
   if (label === "AF_PERMISSION_DENIED" && details?.reason === "self-suspend") {
     const selfSuspend = errorCodeText("AF_SELF_SUSPEND");
     if (selfSuspend) return selfSuspend;
+  }
+  /* AF_GRANT_NOT_FOUND 同样覆盖两种处置相反的成因：收回一条已被他人收回的授权
+     （刷新即可），与给一个**已从编排移除**的责任位授权（刷新无效，要换节点）。
+     与上面 self-suspend 同一分流手法。 */
+  if (label === "AF_GRANT_NOT_FOUND" && details?.reason === "slot-unknown") {
+    const slotUnknown = errorCodeText("AF_GRANT_SLOT_UNKNOWN");
+    if (slotUnknown) return slotUnknown;
   }
   const text = errorCodeText(label);
   if (text) return text;

@@ -200,6 +200,31 @@ assert.ok(
   "不应再有裸 `{!canManage && (` 分支：会与目录不可用的提示同时出现",
 );
 
+/* ── 同一错误码覆盖两种处置时，必须能分流（缺陷 #55）──
+   AF_GRANT_NOT_FOUND 同时表示：
+     ① 收回一条不存在的授权     → 处置是"刷新"（可能已被他人收回）
+     ② 给一个已从编排移除的责任位授权 → 处置是"换节点"（刷新无效）
+   后端已用 details.reason='slot-unknown' 自证成因（在 accounts-service 里）。
+   这里钉住前端确实按它分流——只说"提示存在"是不够的，必须走对的处置。 */
+const errorText = readFileSync(resolve(here, "../src/api/error-text.ts"), "utf8");
+assert.match(
+  errorText,
+  /details\?\.reason === "slot-unknown"/,
+  "前端必须按 details.reason='slot-unknown' 分流 AF_GRANT_NOT_FOUND，"
+    + "否则责任位已被移除的用户会被引导去反复刷新（缺陷 #55）",
+);
+assert.match(
+  errorText,
+  /slot-unknown[\s\S]{0,300}AF_GRANT_SLOT_UNKNOWN/,
+  "分流后必须给出「责任位已不在编排中」的专有文案，而不是复用「可能已被收回」",
+);
+/* 反向：通用文案不应再被当成唯一处置（保留它是为了收回应答）。 */
+assert.match(
+  errorText,
+  /AF_GRANT_NOT_FOUND: "找不到该节点授权，可能已被收回。"/,
+  "「收回」路径的通用文案应保留：它不是错文案，只是覆盖不了另一种成因",
+);
+
 console.log(
   "directoryHealth.test: 前端 fixture 与后端 directoryHealth 判据一致"
     + "（分支 empty/no-manager/ok 齐备、都按 state===active 过滤、只看 manage、"
