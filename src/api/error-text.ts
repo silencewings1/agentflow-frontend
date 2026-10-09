@@ -67,6 +67,7 @@ export const KNOWN_BACKEND_CODES = [
   "AF_ACTOR_UNKNOWN",
   "AF_ACCOUNT_NOT_FOUND",
   "AF_ACCOUNT_EXISTS",
+  "AF_ACCOUNT_CONFLICT",
   "AF_ACCOUNT_SUSPENDED",
   "AF_ACCOUNT_BUILTIN",
   "AF_PERMISSION_DENIED",
@@ -102,6 +103,7 @@ export const ERROR_CODE_TEXT: Record<string, string> = {
   AF_ACTOR_UNKNOWN: "当前身份不是已登记的账户，请重新登录。",
   AF_ACCOUNT_NOT_FOUND: "找不到该账户，可能已被移除。",
   AF_ACCOUNT_EXISTS: "该登录标识已被占用，请换一个。",
+  AF_ACCOUNT_CONFLICT: "该账户刚被其他操作改过，本次改动没有生效；请刷新后重试。",
   AF_ACCOUNT_SUSPENDED: "该账户已停用，写操作被拒绝；请联系责任人恢复后再试。",
   AF_ACCOUNT_BUILTIN: "内置账户不可删除，只能停用——它的历史授权与审计必须继续可查。",
   AF_PERMISSION_DENIED:
