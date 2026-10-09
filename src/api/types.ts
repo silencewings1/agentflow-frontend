@@ -224,6 +224,16 @@ export interface AccountsDto {
   audit: GrantAuditDto[];
   /** 账户级变更审计：创建 / 改名 / 改角色 / 停用 / 恢复。 */
   accountAudit: AccountAuditDto[];
+  /**
+   * 审计的**总条数**（不是返回的条数）。
+   *
+   * `audit` / `accountAudit` 都是有上限的列表，而审计表只增不删，
+   * 因此"超过上限"是必然事件。没有总数时界面无法区分
+   * 「目录里只有这些变更」与「这里只是最新的一页」——两者长得一模一样，
+   * 而「留痕优先」不该让用户把一页当成全部。
+   */
+  auditTotal: number;
+  accountAuditTotal: number;
   permRank: Record<NodePermDto, number>;
   /**
    * 目录自身的可用性（不是"当前身份能做什么"）。

@@ -160,6 +160,11 @@ export function accountsSnapshot(
     grants,
     audit,
     accountAudit,
+    /* 总数与列表同源：fixture 路径下没有服务端分页，列表就是全部，
+       因此两者相等。给出这两个字段的理由与 accountAudit 相同——
+       冻结契约上的字段在本地模式缺失会让界面走不到"这是最新一页"的分支。 */
+    auditTotal: audit.length,
+    accountAuditTotal: accountAudit.length,
     permRank: { ...PERM_RANK },
     /* 目录可用性同样必须给出，理由与上面的 accountAudit 完全相同：
        冻结契约上的字段若在本地模式缺失，界面的告警分支就永远走不到——

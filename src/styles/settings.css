@@ -2408,6 +2408,22 @@
   font-size: var(--step--1);
 }
 
+/* 审计被截断时的说明。与 __empty 同族（都是"列表不完整"的告知），
+   但用 --gold 左缘标出：它不是错误，而是一条会影响判断的**限制**——
+   用户若把一页当成全部历史，会据此得出"没有更早的变更"这个错误结论。
+   数字用 tabular-nums 保证与上方记录纵向可比。 */
+.permAudit__truncated {
+  margin: 6px 0 0;
+  padding: 7px 9px;
+  color: var(--text-3);
+  font-size: var(--step--2);
+  line-height: 1.5;
+  background: color-mix(in oklab, var(--gold) 6%, transparent);
+  border-left: 2px solid color-mix(in oklab, var(--gold) 45%, transparent);
+  border-radius: 0 var(--r-xs) var(--r-xs) 0;
+  font-variant-numeric: tabular-nums;
+}
+
 .permAdd__empty {
   padding: 2px;
 }

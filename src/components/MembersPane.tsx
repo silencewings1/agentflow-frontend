@@ -130,6 +130,11 @@ export function MembersPane({
   const grants = data?.grants ?? EMPTY;
   const audit = data?.audit ?? EMPTY;
   const accountAudit = data?.accountAudit ?? EMPTY;
+  /* 审计总数（含未返回的部分）。服务端只回一页，`total > 返回条数` 说明历史被截断。
+     没有它时「这里只有这些」与「这里只是最新一页」在界面上无法区分，
+     而审计表只增不删，超过上限是必然事件。 */
+  const auditTotal = data?.auditTotal ?? audit.length;
+  const accountAuditTotal = data?.accountAuditTotal ?? accountAudit.length;
 
   /* 选中项的回落：账户被停用或服务端目录变化时，避免右列指向一个不存在的账户。
      这是渲染期的纯派生，不用 effect —— 用 effect 会多渲染一帧空态。 */
@@ -580,7 +585,14 @@ export function MembersPane({
             </section>
 
             <section className="permGroup">
-              <SectionLabel text="账户变更记录" hint="谁在何时被创建、改动或停用" />
+              <SectionLabel
+                text="账户变更记录"
+                hint={
+                  accountAuditTotal > 8
+                    ? `共 ${accountAuditTotal} 条，显示最新 ${Math.min(8, accountAudit.length)} 条`
+                    : "谁在何时被创建、改动或停用"
+                }
+              />
               <div className="permAudit">
                 {accountAudit.length === 0 ? (
                   <p className="permAudit__empty">尚无账户变更。</p>
@@ -590,10 +602,30 @@ export function MembersPane({
                   ))
                 )}
               </div>
+              {/* 截断必须说出来。审计表只增不删，因此这不是边界情况：
+                  不说明时「只显示了 8 条」与「一共只有 8 条」长得完全一样，
+                  而本项目的主张是留痕优先——把一页当成全部等于在治理事实上说假话。 */}
+              {accountAuditTotal > accountAudit.length ? (
+                <p className="permAudit__truncated">
+                  目录共 {accountAuditTotal} 条账户变更，此处仅显示服务端返回的最新 {accountAudit.length} 条；
+                  更早的记录仍保留在治理存储中，可经 API 读取。
+                </p>
+              ) : accountAuditTotal > 8 ? (
+                <p className="permAudit__truncated">
+                  本页显示最新 8 条（共 {accountAuditTotal} 条）。
+                </p>
+              ) : null}
             </section>
 
             <section className="permGroup">
-              <SectionLabel text="授权变更记录" hint="与证据链三元组呼应" />
+              <SectionLabel
+                text="授权变更记录"
+                hint={
+                  auditTotal > 8
+                    ? `共 ${auditTotal} 条，显示最新 ${Math.min(8, audit.length)} 条`
+                    : "与证据链三元组呼应"
+                }
+              />
               <div className="permAudit">
                 {audit.length === 0 ? (
                   <p className="permAudit__empty">尚无授权变更。</p>
@@ -603,6 +635,14 @@ export function MembersPane({
                   ))
                 )}
               </div>
+              {auditTotal > audit.length ? (
+                <p className="permAudit__truncated">
+                  目录共 {auditTotal} 条授权变更，此处仅显示服务端返回的最新 {audit.length} 条；
+                  更早的记录仍保留在治理存储中，可经 API 读取。
+                </p>
+              ) : auditTotal > 8 ? (
+                <p className="permAudit__truncated">本页显示最新 8 条（共 {auditTotal} 条）。</p>
+              ) : null}
             </section>
 
             <button className="btn btn--ghost btn--sm memberRefresh" onClick={() => void onRefresh()}>
