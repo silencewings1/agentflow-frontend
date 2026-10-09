@@ -40,15 +40,55 @@ const backendRepo = read("../../packages/af/af-api/src/repositories/accounts-rep
 
 /* 取出"账户写入"那个函数的函数体，后续断言都在函数体内做。
    为什么按函数体切片而不是全文匹配：全文匹配会让"别处恰好也有一句相同的话"
-   蒙混过关（本项目出现过断言落在依赖数组、落在别处同名调用上的先例）。 */
+   蒙混过关（本项目出现过断言落在依赖数组、落在别处同名调用上的先例）。
+
+   截取方式：**花括号配对**，与缩进、修饰符、后续成员写法都无关。
+   原型是"下一个同缩进的 `}`"，配一条 `slice(0, 4000)` 兜底——
+   实测 store.ts 那一段切出 **4259 字符**（越过本函数，吃进了
+   `upsertNodeGrant` / `listAccountAudit`），而它比兜底值还大，
+   说明兜底并不能兜住越界。当前断言恰好落在正确函数内（偏移 2797），
+   但边界一旦漂移就会变成"断言落在错的函数上"——
+   directoryHealth.test.ts 正是这样假绿了一轮（见该文件注释与 §12.23.20）。
+   这里改用括号配对，把同类风险一次消掉。 */
 const bodyOf = (src: string, startMarker: string, label: string): string => {
   const start = src.indexOf(startMarker);
   assert.ok(start >= 0, `${label}：找不到 ${startMarker}`);
-  /* 函数体到下一个顶层成员为止。这里用"下一个同缩进的 }"做界，
-     足够稳定且不引入解析器依赖。 */
-  const rest = src.slice(start);
-  const end = rest.search(/\n  \};|\n  \}\n/);
-  return end > 0 ? rest.slice(0, end) : rest.slice(0, 4000);
+
+  /* 先找到**参数表**的配对右括号，再取其后第一个 `{` 作为函数体起点。
+     少了这一步会取错：`async upsertAccount(input: { … })` 的参数本身就是
+     一个对象类型字面量，标记之后的第一个 `{` 是**参数对象**而非函数体，
+     直接用它配对会在签名结束处就收尾（实测只切出 620 字符，
+     真正要查的那段过滤反而被切掉了）——fix 本身也踩了一次同样的坑。 */
+  const parenOpen = src.indexOf("(", start);
+  assert.ok(parenOpen > start, `${label}：${startMarker} 之后找不到参数表 '('`);
+  let parenDepth = 0;
+  let parenClose = -1;
+  for (let i = parenOpen; i < src.length; i += 1) {
+    if (src[i] === "(") parenDepth += 1;
+    else if (src[i] === ")") {
+      parenDepth -= 1;
+      if (parenDepth === 0) {
+        parenClose = i;
+        break;
+      }
+    }
+  }
+  assert.ok(parenClose > 0, `${label}：${startMarker} 的参数表括号不配对`);
+
+  const open = src.indexOf("{", parenClose);
+  assert.ok(
+    open > parenClose,
+    `${label}：${startMarker} 之后找不到函数体起始 '{'（若该成员是箭头函数或表达式体，需更新此处）`,
+  );
+  let depth = 0;
+  for (let i = open; i < src.length; i += 1) {
+    if (src[i] === "{") depth += 1;
+    else if (src[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return src.slice(start, i + 1);
+    }
+  }
+  assert.fail(`${label}：${startMarker} 的函数体花括号不配对`);
 };
 
 const storeFn = bodyOf(backendStore, "async upsertAccount(", "af-storage store.ts");
