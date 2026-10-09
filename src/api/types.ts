@@ -203,12 +203,27 @@ export interface ActorDto {
   grantCount: number;
 }
 
+/** 账户变更审计条目：创建 / 改名 / 改角色 / 停用 / 恢复。 */
+export interface AccountAuditDto {
+  auditId: string;
+  action: "create" | "update" | "state";
+  accountId: string;
+  /** 变更后的账户快照，使历史可独立回放。 */
+  account: AccountDto;
+  /** 本次实际改动的字段名（新建时为空）。 */
+  changedFields: string[];
+  actor: string;
+  occurredAt: string;
+}
+
 export interface AccountsDto {
   contractVersion: string;
   actor: ActorDto;
   accounts: AccountDto[];
   grants: NodeGrantDto[];
   audit: GrantAuditDto[];
+  /** 账户级变更审计：创建 / 改名 / 改角色 / 停用 / 恢复。 */
+  accountAudit: AccountAuditDto[];
   permRank: Record<NodePermDto, number>;
 }
 

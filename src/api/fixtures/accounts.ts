@@ -15,6 +15,7 @@
  */
 
 import type {
+  AccountAuditDto,
   AccountDto,
   AccountsDto,
   AccountRoleDto,
@@ -141,13 +142,23 @@ export function actorFor(handle: string | null, accounts: AccountDto[], grants: 
   };
 }
 
-export function accountsSnapshot(handle: string | null, accounts: AccountDto[], grants: NodeGrantDto[], audit: GrantAuditDto[]): AccountsDto {
+export function accountsSnapshot(
+  handle: string | null,
+  accounts: AccountDto[],
+  grants: NodeGrantDto[],
+  audit: GrantAuditDto[],
+  /* 账户级审计由调用方维护；fixture 路径同样要给出，
+     否则冻结契约上的字段在本地模式下会缺失，界面据此渲染出空历史——
+     那会被误读成"没有发生任何变更"，而不是"这条路径没实现它"。 */
+  accountAudit: AccountAuditDto[] = [],
+): AccountsDto {
   return {
     contractVersion: "1.0",
     actor: actorFor(handle, accounts, grants),
     accounts,
     grants,
     audit,
+    accountAudit,
     permRank: { ...PERM_RANK },
   };
 }

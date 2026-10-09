@@ -14,6 +14,7 @@ import {
   type AccountRoleDto,
   type AccountsDto,
   type ActorDto,
+  type AccountAuditDto,
   type GrantAuditDto,
   type NodeGrantDto,
   type NodePermDto,
@@ -128,6 +129,7 @@ export function MembersPane({
   const accounts = data?.accounts ?? EMPTY;
   const grants = data?.grants ?? EMPTY;
   const audit = data?.audit ?? EMPTY;
+  const accountAudit = data?.accountAudit ?? EMPTY;
 
   /* 选中项的回落：账户被停用或服务端目录变化时，避免右列指向一个不存在的账户。
      这是渲染期的纯派生，不用 effect —— 用 effect 会多渲染一帧空态。 */
@@ -543,6 +545,19 @@ export function MembersPane({
             </section>
 
             <section className="permGroup">
+              <SectionLabel text="账户变更记录" hint="谁在何时被创建、改动或停用" />
+              <div className="permAudit">
+                {accountAudit.length === 0 ? (
+                  <p className="permAudit__empty">尚无账户变更。</p>
+                ) : (
+                  accountAudit.slice(0, 8).map((row) => (
+                    <AccountAuditRow key={row.auditId} row={row} accounts={accounts} />
+                  ))
+                )}
+              </div>
+            </section>
+
+            <section className="permGroup">
               <SectionLabel text="授权变更记录" hint="与证据链三元组呼应" />
               <div className="permAudit">
                 {audit.length === 0 ? (
@@ -561,6 +576,37 @@ export function MembersPane({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function AccountAuditRow({ row, accounts }: { row: AccountAuditDto; accounts: AccountDto[] }) {
+  const actor = accounts.find((item) => item.accountId === row.actor);
+  /* 停用/恢复是最需要留痕的动作，因此单列一种说法；资料变更进一步说明改了哪些字段，
+     使"改了什么"不必靠对比前后快照才能回答。 */
+  const actionText = row.action === "create" ? "创建了" : row.action === "state" ? (row.account.state === "suspended" ? "停用了" : "恢复了") : "修改了";
+  const FIELD_LABEL: Record<string, string> = {
+    name: "姓名",
+    handle: "登录标识",
+    role: "角色",
+    duty: "职责说明",
+    state: "状态",
+  };
+  const changed = row.action === "update" && row.changedFields.length > 0
+    ? row.changedFields.map((field) => FIELD_LABEL[field] ?? field).join("、")
+    : null;
+  return (
+    <div className="permAudit__row">
+      <span className="mono">{timeOnlyLabel(row.occurredAt)}</span>
+      <b>{actor?.name ?? row.actor}</b>
+      <i>{actionText}</i>
+      <b>{row.account.name}</b>
+      {changed !== null ? (
+        <>
+          <i>的</i>
+          <span className="permAudit__perm">{changed}</span>
+        </>
+      ) : null}
     </div>
   );
 }

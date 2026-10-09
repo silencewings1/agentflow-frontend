@@ -26,6 +26,7 @@ import type {
   ModelProvidersDto,
   ConnectionLayerDto,
   EnvironmentDto,
+  AccountAuditDto,
   AccountDto,
   AccountsDto,
   AccountInputDto,
@@ -434,7 +435,52 @@ function fixtureClient(): AfApiClient {
   let fixtureAccounts: AccountDto[] = FIXTURE_ACCOUNTS.map((item) => ({ ...item }));
   let fixtureGrants: NodeGrantDto[] = FIXTURE_GRANTS.map((item) => ({ ...item }));
   let fixtureAudit: GrantAuditDto[] = FIXTURE_AUDIT.map((item) => ({ ...item }));
-  const snapshot = () => accountsSnapshot(fixtureActor, fixtureAccounts, fixtureGrants, fixtureAudit);
+  /* 账户级审计与后端同构：fixture 若不记，本地开发时"账户变更记录"永远是空的，
+     而这会被误读成"没有发生任何变更"——恰好掩盖了要验证的那件事。 */
+  let fixtureAccountAudit: AccountAuditDto[] = [];
+  const recordAccountAudit = (
+    action: AccountAuditDto["action"],
+    account: AccountDto,
+    changedFields: string[],
+  ) => {
+    const actorId = fixtureActor === null ? "" : (fixtureAccounts.find((item) => item.handle === fixtureActor)?.accountId ?? "");
+    fixtureAccountAudit = [{
+      auditId: `${account.accountId}-a${fixtureAccountAudit.filter((row) => row.accountId === account.accountId).length + 1}`,
+      action,
+      accountId: account.accountId,
+      account: { ...account },
+      changedFields,
+      actor: actorId,
+      occurredAt: new Date().toISOString(),
+    }, ...fixtureAccountAudit];
+  };
+
+  /* 账户写入的内部实现。action 由调用方显式给出，而不是从
+     "是否只改了 state 一个字段"推断：推断会在将来出现"同时改资料与状态"
+     的调用时悄悄给出错误分类，而审计的分类错了，读的人不会知道它错了。 */
+  const fixtureWriteAccount = async (
+    accountId: string,
+    input: Partial<AccountInputDto>,
+    action: "update" | "state",
+  ): Promise<AccountsDto> => {
+    const existing = fixtureAccounts.find((item) => item.accountId === accountId);
+    if (existing === undefined) throw new AfApiError({ code: "AF_ACCOUNT_NOT_FOUND", message: "找不到该账户", retryable: false });
+    if (input.handle !== undefined && input.handle !== existing.handle
+      && fixtureAccounts.some((item) => item.handle.toLowerCase() === input.handle!.trim().toLowerCase())) {
+      throw new AfApiError({ code: "AF_ACCOUNT_EXISTS", message: "登录标识已被占用", retryable: false });
+    }
+    const next: AccountDto = { ...existing, ...input, builtin: existing.builtin, updatedAt: new Date().toISOString() };
+    /* 只列**真正变化**的字段：把未变字段也列进去，审计就会声称改了一些没改的东西。 */
+    const changedFields = (Object.keys(next) as Array<keyof AccountDto>)
+      .filter((field) => field !== "updatedAt" && existing[field] !== next[field]);
+    fixtureAccounts = fixtureAccounts.map((item) => (item.accountId === accountId ? next : item));
+    recordAccountAudit(action, next, changedFields);
+    return snapshot();
+  };
+
+  const snapshot = () => accountsSnapshot(fixtureActor, fixtureAccounts, fixtureGrants, fixtureAudit, fixtureAccountAudit);
+  /* 与后端 grantAuditAction 同一形状：升=raise，降=lower，**等级相等=reaffirm**。
+     fixture 在这里各写一遍就会漂移，故两处必须给出相同结论。 */
   const requireManager = () => {
     const actor = actorFor(fixtureActor, fixtureAccounts, fixtureGrants);
     if (actor.accountId === null) throw new AfApiError({ code: "AF_ACTOR_UNKNOWN", message: "请求身份不是已登记账户", retryable: false });
@@ -506,7 +552,7 @@ function fixtureClient(): AfApiClient {
       if (fixtureAccounts.some((item) => item.handle.toLowerCase() === input.handle.trim().toLowerCase())) {
         throw new AfApiError({ code: "AF_ACCOUNT_EXISTS", message: "登录标识已被占用", retryable: false });
       }
-      fixtureAccounts = [...fixtureAccounts, {
+      const created: AccountDto = {
         accountId: `ac-${Date.now()}`,
         name: input.name,
         handle: input.handle,
@@ -516,21 +562,13 @@ function fixtureClient(): AfApiClient {
         builtin: false,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-      }];
+      };
+      fixtureAccounts = [...fixtureAccounts, created];
+      recordAccountAudit("create", created, []);
       return snapshot();
     },
     async updateAccount(accountId, input) {
-      requireManager();
-      const existing = fixtureAccounts.find((item) => item.accountId === accountId);
-      if (existing === undefined) throw new AfApiError({ code: "AF_ACCOUNT_NOT_FOUND", message: "找不到该账户", retryable: false });
-      if (input.handle !== undefined && input.handle !== existing.handle
-        && fixtureAccounts.some((item) => item.handle.toLowerCase() === input.handle!.trim().toLowerCase())) {
-        throw new AfApiError({ code: "AF_ACCOUNT_EXISTS", message: "登录标识已被占用", retryable: false });
-      }
-      fixtureAccounts = fixtureAccounts.map((item) => item.accountId === accountId
-        ? { ...item, ...input, builtin: item.builtin, updatedAt: new Date().toISOString() }
-        : item);
-      return snapshot();
+      return fixtureWriteAccount(accountId, input, "update");
     },
     async setAccountState(accountId, state) {
       const actor = requireManager();
@@ -538,7 +576,7 @@ function fixtureClient(): AfApiClient {
       if (accountId === actor.accountId && state === "suspended") {
         throw new AfApiError({ code: "AF_PERMISSION_DENIED", message: "不能停用当前登录账户", retryable: false });
       }
-      return this.updateAccount(accountId, { state });
+      return fixtureWriteAccount(accountId, { state }, "state");
     },
     async setNodeGrant(input) {
       const actor = requireManager();
