@@ -509,6 +509,15 @@ function fixtureClient(): AfApiClient {
     /* 只列**真正变化**的字段：把未变字段也列进去，审计就会声称改了一些没改的东西。 */
     const changedFields = (Object.keys(next) as Array<keyof AccountDto>)
       .filter((field) => field !== "updatedAt" && existing[field] !== next[field]);
+    /* 什么都没改就**提前返回**：不写记录、不写审计、不推进 updatedAt。
+       两个后端都有这条守卫（store.ts 的 `if (changedFields.length === 0) return existing`
+       与 accounts-repository.ts 的同名分支，见缺陷 #24），fixture 此前漏了——
+       于是 dev 模式下一次空保存会凭空多出一条 `update, changedFields:[]` 的审计，
+       而真实环境什么都不留。界面会把这条空记录渲染成"修改了"，读的人
+       据此以为发生过一次改动；这正是 no-op 守卫要防的"凭空生成的冲突"，
+       只不过这里生成的是**凭空的改动记录**。
+       判据与后端同源：以"有没有字段真变了"为准，不以"有没有发出请求"为准。 */
+    if (changedFields.length === 0) return snapshot();
     fixtureAccounts = fixtureAccounts.map((item) => (item.accountId === accountId ? next : item));
     /* `action` 由**实际改了什么**推出，而不是由调用方走哪条路由决定。
        此前它是参数（PUT 传 "update"、POST /state 传 "state"），于是同一个动作
