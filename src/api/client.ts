@@ -458,6 +458,37 @@ function fixtureClient(): AfApiClient {
   /* 账户写入的内部实现。action 由调用方显式给出，而不是从
      "是否只改了 state 一个字段"推断：推断会在将来出现"同时改资料与状态"
      的调用时悄悄给出错误分类，而审计的分类错了，读的人不会知道它错了。 */
+  /**
+   * 状态变更的两条守卫，供 PUT 与 POST /state 共用。
+   *
+   * ① 不能停用当前登录账户——那是把管理权从自己手里拿走（"别把自己关在门外"）。
+   * ② 不能停用**最后一位在职管理者**——那是把所有人关在门外，终局不可恢复：
+   *    写路径一律要求 manage，无人持有之后连"重新授权"本身都会被拒。
+   *
+   * 两者保护的不是同一件事：①只在目标是自己时成立，
+   * 但两个人各自停用对方时①也拦不住，因此必须另有②。
+   */
+  const fixtureAssertStateChangeAllowed = (accountId: string, state: string | undefined): void => {
+    if (state !== "suspended") return;
+    const actor = requireManager();
+    if (accountId === actor.accountId) {
+      throw new AfApiError({ code: "AF_PERMISSION_DENIED", message: "不能停用当前登录账户", retryable: false });
+    }
+    const target = fixtureAccounts.find((item) => item.accountId === accountId);
+    /* 只在该写入真的会拿走管理权时判定：已经是停用态则不涉及新的损失。 */
+    if (target?.state === "active" && holdsManageGrant(accountId)) {
+      const stillCovered = fixtureAccounts.some((item) =>
+        item.accountId !== accountId && item.state === "active" && holdsManageGrant(item.accountId));
+      if (!stillCovered) {
+        throw new AfApiError({
+          code: "AF_LAST_MANAGER",
+          message: "不能停用最后一位管理者：停用后目录将无人可管理",
+          retryable: false,
+        });
+      }
+    }
+  };
+
   const fixtureWriteAccount = async (
     accountId: string,
     input: Partial<AccountInputDto>,
@@ -469,6 +500,12 @@ function fixtureClient(): AfApiClient {
       && fixtureAccounts.some((item) => item.handle.toLowerCase() === input.handle!.trim().toLowerCase())) {
       throw new AfApiError({ code: "AF_ACCOUNT_EXISTS", message: "登录标识已被占用", retryable: false });
     }
+    /* 状态相关的守卫放在这个**公共出口**上，而不是 setAccountState 里。
+       原因与后端同源：PUT /accounts/:id 也能带 state，两条路由若各自加守卫，
+       就会出现"POST 拒绝、PUT 放行"——同一个动作两个结论。
+       （后端此前正是这个形状，已修正；fixture 必须跟着一致，否则 dev 模式下
+       测试通过、真实环境却被拒，两边分叉。） */
+    fixtureAssertStateChangeAllowed(accountId, input.state);
     const next: AccountDto = { ...existing, ...input, builtin: existing.builtin, updatedAt: new Date().toISOString() };
     /* 只列**真正变化**的字段：把未变字段也列进去，审计就会声称改了一些没改的东西。 */
     const changedFields = (Object.keys(next) as Array<keyof AccountDto>)
@@ -574,33 +611,8 @@ function fixtureClient(): AfApiClient {
       return fixtureWriteAccount(accountId, input, "update");
     },
     async setAccountState(accountId, state) {
-      const actor = requireManager();
-      /* 不能停用当前登录账户：停用自己是把管理权从自己手里拿走。 */
-      if (accountId === actor.accountId && state === "suspended") {
-        throw new AfApiError({ code: "AF_PERMISSION_DENIED", message: "不能停用当前登录账户", retryable: false });
-      }
-      /* 与后端同一形状的**最后管理者**守卫（后端在 wouldOrphanDirectory）。
-         此前这里只挡住了"停用自己"，看起来像是同一条约束，其实是另一条：
-         它拦不住"把别人——包括仅剩的那位管理者——停用"。
-         今天恰好等价，因为 fixture 里只有一位账户持 manage；
-         但一旦出现第二位管理者，dev 用户就能把目录里的管理者全部停用，
-         留下一个谁都管不了的目录，而真实后端会拒绝——两边就此分叉。
-         判据必须与后端同源：停用后若**在职**且持有 manage 的账户一个不剩，就拒绝。
-         （停用者不算数：它即使还持有 manage 也行使不了。） */
-      if (state === "suspended") {
-        const target = fixtureAccounts.find((item) => item.accountId === accountId);
-        if (target?.state === "active" && holdsManageGrant(accountId)) {
-          const stillCovered = fixtureAccounts.some((item) =>
-            item.accountId !== accountId && item.state === "active" && holdsManageGrant(item.accountId));
-          if (!stillCovered) {
-            throw new AfApiError({
-              code: "AF_LAST_MANAGER",
-              message: "不能停用最后一位管理者：停用后目录将无人可管理",
-              retryable: false,
-            });
-          }
-        }
-      }
+      /* 守卫已上移到 fixtureWriteAccount（PUT 与 POST 的公共出口），
+         避免"守了一条路由、开着另一条"的分叉。 */
       return fixtureWriteAccount(accountId, { state }, "state");
     },
     async setNodeGrant(input) {
