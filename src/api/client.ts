@@ -478,6 +478,9 @@ function fixtureClient(): AfApiClient {
     return snapshot();
   };
 
+/** 该账户是否在任一**真实责任位**上持有 manage（与 actorOf 的 canManageAccounts 同源）。 */
+  const holdsManageGrant = (accountId: string): boolean =>
+    fixtureGrants.some((item) => item.accountId === accountId && item.perm === "manage");
   const snapshot = () => accountsSnapshot(fixtureActor, fixtureAccounts, fixtureGrants, fixtureAudit, fixtureAccountAudit);
   /* 与后端 grantAuditAction 同一形状：升=raise，降=lower，**等级相等=reaffirm**。
      fixture 在这里各写一遍就会漂移，故两处必须给出相同结论。 */
@@ -572,9 +575,31 @@ function fixtureClient(): AfApiClient {
     },
     async setAccountState(accountId, state) {
       const actor = requireManager();
-      /* 与后端同一条约束：最后一个管理者不能把自己停用，否则没人能再管理目录。 */
+      /* 不能停用当前登录账户：停用自己是把管理权从自己手里拿走。 */
       if (accountId === actor.accountId && state === "suspended") {
         throw new AfApiError({ code: "AF_PERMISSION_DENIED", message: "不能停用当前登录账户", retryable: false });
+      }
+      /* 与后端同一形状的**最后管理者**守卫（后端在 wouldOrphanDirectory）。
+         此前这里只挡住了"停用自己"，看起来像是同一条约束，其实是另一条：
+         它拦不住"把别人——包括仅剩的那位管理者——停用"。
+         今天恰好等价，因为 fixture 里只有一位账户持 manage；
+         但一旦出现第二位管理者，dev 用户就能把目录里的管理者全部停用，
+         留下一个谁都管不了的目录，而真实后端会拒绝——两边就此分叉。
+         判据必须与后端同源：停用后若**在职**且持有 manage 的账户一个不剩，就拒绝。
+         （停用者不算数：它即使还持有 manage 也行使不了。） */
+      if (state === "suspended") {
+        const target = fixtureAccounts.find((item) => item.accountId === accountId);
+        if (target?.state === "active" && holdsManageGrant(accountId)) {
+          const stillCovered = fixtureAccounts.some((item) =>
+            item.accountId !== accountId && item.state === "active" && holdsManageGrant(item.accountId));
+          if (!stillCovered) {
+            throw new AfApiError({
+              code: "AF_LAST_MANAGER",
+              message: "不能停用最后一位管理者：停用后目录将无人可管理",
+              retryable: false,
+            });
+          }
+        }
       }
       return fixtureWriteAccount(accountId, { state }, "state");
     },
@@ -591,6 +616,25 @@ function fixtureClient(): AfApiClient {
       }
       if (input.perm === null) {
         if (existing === undefined) throw new AfApiError({ code: "AF_GRANT_NOT_FOUND", message: "找不到该授权", retryable: false });
+        /* 与后端同源的**最后管理者**守卫（后端在 wouldOrphanDirectory）。
+           收回最后一条 manage 会让目录进入不可恢复状态：写路径一律要求 manage，
+           无人持有之后连"重新授权"本身都会被拒，只能改存储层。
+           与"不能自我停用"是同一类保护，但覆盖面更大——自降权完全可以合法地
+           由别人执行，只有整个目录会因此失去唯一管理者时才必须拒绝。
+           fixture 此前完全没有这条守卫，dev 用户一点就能把目录锁死，
+           而真实后端会拒绝：两边对同一动作给出相反结果是比缺守卫更坏的信号。 */
+        if (existing.perm === "manage" && holdsManageGrant(input.accountId)) {
+          const stillCovered = fixtureGrants.some((item) =>
+            key(item) !== key(input) && item.perm === "manage"
+            && (fixtureAccounts.find((a) => a.accountId === item.accountId)?.state === "active"));
+          if (!stillCovered) {
+            throw new AfApiError({
+              code: "AF_LAST_MANAGER",
+              message: "不能收回最后一位管理者：收回后目录将无人可管理",
+              retryable: false,
+            });
+          }
+        }
         fixtureGrants = fixtureGrants.filter((item) => key(item) !== key(input));
         const audit: GrantAuditDto = {
           auditId: `${key(input)}:a${existing.revision + 1}`,
