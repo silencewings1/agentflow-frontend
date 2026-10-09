@@ -568,7 +568,18 @@ export function MembersPane({
 function AuditRow({ row, accounts }: { row: GrantAuditDto; accounts: AccountDto[] }) {
   const account = accounts.find((item) => item.accountId === row.accountId);
   const actionText =
-    row.action === "grant" ? "授予" : row.action === "revoke" ? "收回" : row.action === "raise" ? "升级为" : "降级为";
+    row.action === "grant"
+      ? "授予"
+      : row.action === "revoke"
+        ? "收回"
+        : row.action === "raise"
+          ? "升级为"
+          : row.action === "lower"
+            ? "降级为"
+            : /* reaffirm：等级没有变化。不写"降级"或"升级"——那会凭空造出
+                 一次从未发生的变更，而审计的价值就在于它记的是事实。
+                 也不用"无变化"这类含糊说法，直接说明这次写入确认了原等级。 */
+              "确认";
   const actor = accounts.find((item) => item.accountId === row.actor);
   return (
     <div className="permAudit__row">

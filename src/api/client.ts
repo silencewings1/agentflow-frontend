@@ -583,7 +583,14 @@ function fixtureClient(): AfApiClient {
       fixtureGrants = [...fixtureGrants.filter((item) => key(item) !== key(input)), record];
       const audit: GrantAuditDto = {
         auditId: `${key(input)}:a${revision}`,
-        action: existing === undefined ? "grant" : permRank(input.perm) > permRank(existing.perm) ? "raise" : "lower",
+        action:
+          existing === undefined
+            ? "grant"
+            : permRank(input.perm) > permRank(existing.perm)
+              ? "raise"
+              : permRank(input.perm) < permRank(existing.perm)
+                ? "lower"
+                : "reaffirm",
         accountId: input.accountId,
         workflowId: input.workflowId,
         nodeId: input.nodeId,

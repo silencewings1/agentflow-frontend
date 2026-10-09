@@ -177,7 +177,11 @@ export interface NodeGrantDto {
 
 export interface GrantAuditDto {
   auditId: string;
-  action: "grant" | "revoke" | "raise" | "lower";
+  /** `reaffirm` = 重复写入同一等级（等级没变）。
+      为什么需要它：二分三元（> 则 raise，否则 lower）在等级**相等**时会落到
+      "降级"，于是一次"什么都没改"的写入被显示成「降级为「可执行」」——
+      而该账户本来就是可执行。审查者据此会得出一个从未发生的变更结论。 */
+  action: "grant" | "revoke" | "raise" | "lower" | "reaffirm";
   accountId: string;
   workflowId: string;
   nodeId: string;
