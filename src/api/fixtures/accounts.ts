@@ -19,6 +19,7 @@ import type {
   AccountDto,
   AccountsDto,
   AccountRoleDto,
+  DirectoryHealthDto,
   GrantAuditDto,
   NodeGrantDto,
   NodePermDto,
@@ -160,5 +161,48 @@ export function accountsSnapshot(
     audit,
     accountAudit,
     permRank: { ...PERM_RANK },
+    /* 目录可用性同样必须给出，理由与上面的 accountAudit 完全相同：
+       冻结契约上的字段若在本地模式缺失，界面的告警分支就永远走不到——
+       "没有任何人有管理权"这个形态在演示模式下无法复现，
+       而它恰好是运维最需要看懂的形态。
+       演示数据是**可用**的目录（有在职持 manage 的账户），
+       因此这里给出 healthy 的真值，而不是留空让界面去猜。 */
+    directory: directoryHealthFor(accounts, grants),
   };
+}
+
+/**
+ * 演示模式下的目录可用性判定，与后端 `AccountsService.directoryHealth` 同源：
+ * 空目录 / 无人在职持 manage 即不可用。
+ *
+ * 前端不应自行推断存储层事实，但演示模式没有后端可问——
+ * 这里的判据只用于让「坏目录」这一形态在演示模式下可见，
+ * 不参与任何真实判定（真实判定始终来自 AF API 返回的 directory 字段）。
+ */
+export function directoryHealthFor(
+  accounts: AccountDto[],
+  grants: NodeGrantDto[],
+): DirectoryHealthDto {
+  if (accounts.length === 0) {
+    return {
+      healthy: false,
+      code: "empty",
+      reason:
+        "账户目录为空：没有任何已登记身份，因此任何写操作都无法通过身份校验，也无法创建第一个账户（创建本身就需要已登记身份）。这通常意味着存储文件被外部改坏；请把 account_settings.singleton.seeded 置为 false 触发重新播种，或从备份恢复 af_governance.json。",
+    };
+  }
+  const hasRealManager = accounts.some(
+    (account) =>
+      account.state === "active" &&
+      grants.some((grant) => grant.accountId === account.accountId && grant.perm === "manage"),
+  );
+  if (!hasRealManager) {
+    return {
+      healthy: false,
+      code: "no-manager",
+      reason:
+        "目录里没有任何「在职且持 manage」的账户：所有账户与授权变更都会被拒，且无法通过界面自救（管理权是自救的前提）。请检查 node_grants 里的 manage 授权与 accounts 的 state，恢复至少一位在职管理者后重启。",
+    };
+  }
+  return { healthy: true, code: "ok", reason: null };
 }
