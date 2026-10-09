@@ -196,7 +196,14 @@ export function MembersPane({
       onToast({
         tone: "warn",
         title: "操作未生效",
-        body: errorText(apiError?.code, apiError?.message ?? "未知错误"),
+        /* 必须把 details 一并传下去：AF_ACCOUNTS_UNAVAILABLE 覆盖两种**处置相反**的
+           成因——实例声明未启用多用户（重试无用，要找部署方）vs 目录暂时读不到
+           （稍后重试就有用）。后端已经用 details.multiUserEnabled 自证是哪一种，
+           丢掉它就只能显示那条"若…否则…"的并列文案，用户会去反复重试一件徒劳的事。
+           声明未启用的实例下**每一次写操作**（授权/建号/停用）都返回这个码，
+           因此这不是边角情形。列表页的 loadAccounts 早已传了 details（见 App.tsx），
+           这里漏掉就形成"同一个码在两条路径上给出两种处置"。 */
+        body: errorText(apiError?.code, apiError?.message ?? "未知错误", apiError?.details),
       });
     } finally {
       setBusy(null);
