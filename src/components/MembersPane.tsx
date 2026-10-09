@@ -6,6 +6,7 @@ import {
   NODE_PERM_LABEL,
   NODE_PERM_ORDER,
   permRank,
+  timeOnlyLabel,
   AfApiError,
   errorText,
   type AccountDto,
@@ -463,7 +464,12 @@ export function MembersPane({
                         <div key={key} className="permRow" data-on={current ? "true" : undefined}>
                           <div className="permRow__node">
                             <b>{ref.nodeName}</b>
-                            <i className="mono">{ref.workflowId} · {ref.nodeId}</i>
+                            {/* 行内不再重复 workflowId：它由分组标题承载，每行都相同，
+                                重复只会挤掉区分度更高的 nodeId（requirements-review
+                                这类长 id 会被截成 requirements-re…）。
+                                这里显示 nodeId 而非中文名，是因为授权键的后半段就是它，
+                                排查「这条授权落在哪个责任位」时要能与接口原样对上。 */}
+                            <i className="mono">{ref.nodeId}</i>
                             {ref.gate && <i className="mono">门禁 · {ref.gate}</i>}
                             {ref.approval && <i className="permRow__human">人工判定</i>}
                           </div>
@@ -548,7 +554,8 @@ function AuditRow({ row, accounts }: { row: GrantAuditDto; accounts: AccountDto[
   const actor = accounts.find((item) => item.accountId === row.actor);
   return (
     <div className="permAudit__row">
-      <span className="mono">{row.occurredAt.slice(11, 16)}</span>
+      {/* 时间必须转本地时区：直接对 UTC ISO 串切片会在东八区整体偏 8 小时。 */}
+      <span className="mono">{timeOnlyLabel(row.occurredAt)}</span>
       <b>{actor?.name ?? row.actor}</b>
       <i>{actionText}</i>
       <b>{account?.name ?? row.accountId}</b>

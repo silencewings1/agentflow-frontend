@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Icon } from "./Icons";
 import { describeValidationIssue } from "../api/error-text";
+import { dateOnlyLabel } from "../api";
 import {
   addWorkflowEdge,
   NODE_H,
@@ -282,7 +283,8 @@ export function WorkflowStrip({
                     <b className="mono">v{v.workflowVersion}</b>
                     <span className="mono">{v.nodeSpecDigest.slice(7, 19)}…</span>
                     <em>{v.frozen ? "已冻结" : "草稿"}</em>
-                    {v.frozenAt && <small className="mono">{v.frozenAt.slice(0, 10)}</small>}
+                    {/* 冻结时间是 UTC ISO 串，必须转本地时区后再取日期（直接 slice 会有时区偏差）。 */}
+                    {v.frozenAt && <small className="mono">{dateOnlyLabel(v.frozenAt)}</small>}
                   </li>
                 ))}
               </ul>
