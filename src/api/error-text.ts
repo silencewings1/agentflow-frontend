@@ -70,6 +70,7 @@ export const KNOWN_BACKEND_CODES = [
   "AF_ACCOUNT_SUSPENDED",
   "AF_ACCOUNT_BUILTIN",
   "AF_PERMISSION_DENIED",
+  "AF_LAST_MANAGER",
   "AF_GRANT_NOT_FOUND",
   "AF_GRANT_CONFLICT",
   "AF_ACCOUNTS_UNAVAILABLE",
@@ -105,6 +106,8 @@ export const ERROR_CODE_TEXT: Record<string, string> = {
   AF_ACCOUNT_BUILTIN: "内置账户不可删除，只能停用——它的历史授权与审计必须继续可查。",
   AF_PERMISSION_DENIED:
     "当前账户缺少该操作所需的权限；请让持有「可编排」权限的责任人在「成员与权限」中授权。",
+  AF_LAST_MANAGER:
+    "这是目录里最后一位管理者，撤掉后就没有人能管理账户了，因此被拒绝；请先授权另一位管理者再调整。",
   AF_GRANT_NOT_FOUND: "找不到该节点授权，可能已被收回。",
   AF_GRANT_CONFLICT: "该授权已被其他操作更新，请刷新后重试。",
   /* 这条刻意**不写死原因**。AF_ACCOUNTS_UNAVAILABLE 是 503 且 retryable=true，
