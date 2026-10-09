@@ -119,6 +119,24 @@ assert.match(
   /value\.retryPolicyKnown\s*\?/,
   "Workflow.tsx 的编排策略必须按 retryPolicyKnown 分流，不能直接打印兜底值",
 );
+/* 「适用」行（scene）同样必须分流。只断言 retryPolicyKnown 出现不够——
+   同一面板里那两行是各自独立的渲染点，删掉其中一行的分流，上面这条仍绿。
+   这里把编排策略这一块整体切出来，要求 scene 的渲染也被 presentationKnown 包住。 */
+/* 锚点要取**渲染块里**那处「编排策略」：文件里该词出现两次（另一次在别处说明中），
+   indexOf 取首个会把窗口开在错误位置，于是正确的代码被判成违规。
+   改为取「编排策略」`kicker` 那一处（后面紧跟 <dl）。 */
+const sideStart = workflowUi.indexOf('<span className="kicker">编排策略</span>');
+const sideBlock = sideStart >= 0 ? workflowUi.slice(sideStart, sideStart + 1400) : "";
+assert.ok(sideBlock.length > 0, "找不到编排策略渲染块，断言失效（先修断言，别放宽）");
+assert.match(
+  sideBlock,
+  /适用[\s\S]{0,220}presentationKnown/,
+  "「适用」（scene）行必须按 presentationKnown 分流，缺真值时不得直接渲染兜底值",
+);
+assert.ok(
+  !/<dt>适用<\/dt>\s*<dd>\{value\.scene\}<\/dd>/.test(sideBlock),
+  "不应无条件渲染 {value.scene}：缺真值时会显示内部阶段号充当编排属性",
+);
 /* 反向断言：不得再出现"无条件打印 maxRetry 次"的写法。 */
 assert.ok(
   !/<dd className="mono">\{value\.maxRetry\} 次<\/dd>/.test(workflowUi),
@@ -127,6 +145,62 @@ assert.ok(
 assert.ok(
   workflowUi.includes("服务端未给出"),
   "服务端未给出时必须如实说明，而不是显示一个看起来像事实的默认值",
+);
+
+/* ── (d) 说明文案同样不得用占位话冒充内容 ──
+   `summary` / `scene` 原先前端兜底成「来自 AF API 的版本化工作流」与「阶段 1.6」。
+   前者看着像描述却不含任何关于该编排的信息；后者是**项目自身的内部阶段号**，
+   不是编排的属性。两者都会让读者以为自己已经了解了这个编排。 */
+/* 断言前先剥掉注释：我在 mappers.ts 里写的"不要兜底成…"说明文字本身包含该字符串，
+   直接 includes 会把**注释里的告诫**当成**代码里的违规**（这条断言第一版就是这样误报的）。
+   与 auditAction.test.ts 用 bodyOf 切函数体是同一思路：断言要落在代码上，不是文本上。 */
+const mappersCode = mappers.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+assert.ok(
+  !mappersCode.includes("来自 AF API 的版本化工作流"),
+  "mappers.ts 不应再兜底「来自 AF API 的版本化工作流」：它看着像描述但无信息量",
+);
+assert.ok(
+  !/scene:\s*presentation\?\.scene\s*\?\?\s*"阶段/.test(mappers),
+  "scene 不应兜底成内部阶段号（如「阶段 1.6」）——那不是编排的属性",
+);
+/* 必须由「presentation 是否存在」决定，不能恒置 true。
+   第一版只写 /presentationKnown:/ —— 注入 `presentationKnown: true,` 后仍然全绿，
+   因为那个正则只要求字段名出现，不约束**它的取值从哪来**。 */
+assert.match(
+  mappers,
+  /presentationKnown:\s*presentation\s*!==\s*undefined/,
+  "presentationKnown 必须由服务端是否给出展示投影决定，不能恒为 true",
+);
+/* 说明文案那一处渲染必须包在 presentationKnown 的分支里。
+   只断言「文件里出现过 value.presentationKnown」是不够的：同一文件另一处
+   （编排策略的"适用"行）也在用它，删掉 summary 的分支后那个断言仍绿。
+   因此把范围**锚定到 wfStage__sum 附近**再断言。 */
+const sumSiteStart = Math.max(0, workflowUi.indexOf("wfStage__sum") - 500);
+const sumSite = workflowUi.slice(sumSiteStart, workflowUi.indexOf("wfStage__sum") + 300);
+assert.match(
+  sumSite,
+  /presentationKnown/,
+  "说明文案（wfStage__sum）必须按 presentationKnown 分流，缺真值时不得照常渲染",
+);
+/* 反向断言要匹配的是**无条件渲染**，而不是那行文本本身。
+   `{value.presentationKnown ? <p ...>{value.summary}</p> : ...}` 里同样含有
+   `<p className="wfStage__sum">{value.summary}</p>`——直接搜文本会把**正确的分支**
+   判成违规（第一版就是这样误报的）。真正的判别是：该 `<p>` 之前**没有** presentationKnown。
+   做法与 auditAction.test.ts 的 bodyOf 一样：把这块渲染切出来，看它是否被分支包住。 */
+const sumBlockStart = workflowUi.indexOf("{/* 说明文案只有服务端给了才显示");
+const sumBlockEnd = workflowUi.indexOf("wfLegend", sumBlockStart);
+const sumBlock = sumBlockStart >= 0 && sumBlockEnd > sumBlockStart
+  ? workflowUi.slice(sumBlockStart, sumBlockEnd)
+  : "";
+assert.ok(sumBlock.length > 0, "找不到 wfStage__sum 的渲染块，断言失效（先修断言，别放宽）");
+assert.match(
+  sumBlock,
+  /presentationKnown\s*\?[\s\S]*wfStage__sum[\s\S]*:/,
+  "说明文案必须写成 presentationKnown ? <占位分支> : <如实说明>，缺真值时不得照常渲染",
+);
+assert.ok(
+  workflowUi.includes("服务端未提供该编排的说明") || workflowUi.includes("服务端未给出"),
+  "缺真值时应如实说明，而不是显示占位文案",
 );
 
 console.log("workflowLabels 自检通过：投影覆盖真实后端 id，mapper 已接上投影且无裸 id 回退；");

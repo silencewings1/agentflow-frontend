@@ -654,7 +654,12 @@ export function WorkflowPicker({
             <span className="tag tag--xs mono">v{value.workflowVersion ?? 1}</span>
             {locked && <span className="tag tag--xs tag--lock">运行中已冻结</span>}
           </div>
-          <p className="wfStage__sum">{value.summary}</p>
+          {/* 说明文案只有服务端给了才显示。原先兜底成「来自 AF API 的版本化工作流」，
+              那句话看着像描述、实则不提供任何关于该编排的信息，读者却会以为已经
+              了解了它——与"重试上限凭空兜底"同一类问题（见编排策略的说明）。 */}
+          {value.presentationKnown
+            ? <p className="wfStage__sum">{value.summary}</p>
+            : <p className="wfStage__sum" data-unknown>服务端未提供该编排的说明。</p>}
           <div className="wfLegend">
             <span className="wfLegend__i" data-k="flow">
               <i />
@@ -893,7 +898,9 @@ export function WorkflowPicker({
           <dl className="kv kv--tight">
             <div>
               <dt>适用</dt>
-              <dd>{value.scene}</dd>
+              <dd data-unknown={!value.presentationKnown || undefined}>
+                {value.presentationKnown ? value.scene : "服务端未给出"}
+              </dd>
             </div>
             {/* 重试上限与超限处置**只有服务端给了才显示**。
                 `WorkflowDefinitionDto.presentation` 在契约里可选而 AF API 从不填，

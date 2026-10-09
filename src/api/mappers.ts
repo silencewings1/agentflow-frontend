@@ -54,9 +54,13 @@ function toWorkflow(dto: WorkflowDefinitionDto): Workflow {
   });
   const edges: WfEdge[] = dto.edges.map((edge) => ({ id: edge.edgeId, from: edge.from, to: edge.to, kind: edge.kind, label: edge.label }));
   const presentation = dto.presentation;
-  return withOrchestrator({ id: dto.workflowId, name: workflowDisplayName(dto.workflowId, presentation?.name), glyph: (presentation?.glyph ?? "Nodes") as IconName, tint: (presentation?.tint ?? "accent") as Workflow["tint"], builtin: presentation?.builtin ?? false, summary: presentation?.summary ?? "来自 AF API 的版本化工作流", scene: presentation?.scene ?? "阶段 1.6", nodes, edges, maxRetry: presentation?.maxRetry ?? 1, onExhaust: presentation?.onExhaust ?? "人工接管", /* 只有服务端真的给了才置 true。AF API 目前从不发 presentation，因此真实后端下
+  return withOrchestrator({ id: dto.workflowId, name: workflowDisplayName(dto.workflowId, presentation?.name), glyph: (presentation?.glyph ?? "Nodes") as IconName, tint: (presentation?.tint ?? "accent") as Workflow["tint"], builtin: presentation?.builtin ?? false, summary: presentation?.summary ?? "", scene: presentation?.scene ?? "", nodes, edges, maxRetry: presentation?.maxRetry ?? 1, onExhaust: presentation?.onExhaust ?? "人工接管", /* 只有服务端真的给了才置 true。AF API 目前从不发 presentation，因此真实后端下
        恒为 false，界面据此显示"服务端未给出"而不是一个凭空兜底的数字。 */
-    retryPolicyKnown: presentation?.maxRetry !== undefined && presentation.onExhaust !== undefined, workflowVersion: dto.workflowVersion, nodeSpecDigest: dto.nodeSpecDigest, frozen: dto.frozenAt !== undefined });
+    retryPolicyKnown: presentation?.maxRetry !== undefined && presentation.onExhaust !== undefined,
+    /* summary / scene 同属展示投影，服务端未给时留空由界面如实说明，
+       不填"来自 AF API 的版本化工作流"这类占位文案——它看着像描述，
+       实则不提供任何关于该编排的信息，读者却会以为已经了解了它。 */
+    presentationKnown: presentation !== undefined, workflowVersion: dto.workflowVersion, nodeSpecDigest: dto.nodeSpecDigest, frozen: dto.frozenAt !== undefined });
 }
 
 function toProfile(profile: AgentProfileDto): AgentProfileSummaryDto {

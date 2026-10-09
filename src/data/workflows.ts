@@ -115,6 +115,8 @@ export interface Workflow {
    * 本地 fixture 与设计演示数据自行填好，因此恒为 true。
    */
   retryPolicyKnown?: boolean;
+  /** summary / scene 是否来自服务端展示投影。未给出时界面如实说明，不填占位文案。 */
+  presentationKnown?: boolean;
   workflowVersion?: number;
   nodeSpecDigest?: string;
   frozen?: boolean;

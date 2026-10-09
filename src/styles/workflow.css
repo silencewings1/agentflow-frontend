@@ -292,6 +292,13 @@
   color: var(--text-3);
 }
 
+/* 服务端未提供说明文案：如实说明缺失，而不是填一句看着像描述的占位话。
+   用斜体与更低的对比度表达"这不是一个已知的值"（形态差异先于颜色差异）。 */
+.wfStage__sum[data-unknown] {
+  font-style: italic;
+  color: var(--text-4);
+}
+
 .wfLegend {
   display: flex;
   flex-wrap: wrap;
