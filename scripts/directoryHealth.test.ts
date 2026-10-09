@@ -29,14 +29,39 @@ const backendSrc = readFileSync(
   "utf8",
 );
 
-/** 取出某个函数体（从声明起到下一个顶层 `}` 或 `\n}` 结尾）。 */
+/** 取出某个函数体：从声明处起，按**花括号配对**截到该函数真正的结尾。
+ *
+ * 为什么不按"下一个函数声明"截断（曾这样写，是一个真实缺陷）：
+ * 原实现用 `/\n  private (async )?[a-z]/` 找下一个成员方法，
+ * 于是**只认 `private` 成员**。`accounts-service.ts` 里 `directoryHealth`
+ * 之后的 `actorOf` 是 `public`（写作 `\n  actorOf(`），正则匹配不到，
+ * 截取便一路吃到下一个 `private` 方法——实测多吃了 **4745 字符**。
+ *
+ * 后果不是"多读点文本"而是**断言指向了别的函数**：
+ * 下面 (b) 要检查"谁算管理者时过滤停用账户"，而多吃的片段里正好有
+ * `actorOf` 的 `canManageAccounts: record.state === 'active' && …`，
+ * 那条 `state === 'active'` 断言因此**永远为真**——
+ * 把 `hasRealManager` 里的真实过滤删掉，这个脚本依然退出 0。
+ * 一个自称在守 A 的断言，实际守的是 B。
+ *
+ * 改法：按花括号计数定位函数结尾，与修饰符、缩进、后续成员写法都无关。 */
 const bodyOf = (source: string, marker: string, label: string): string => {
   const start = source.indexOf(marker);
   assert.ok(start >= 0, `${label} 中找不到 ${marker}`);
-  /* 取足够长的片段：这些函数都不长，用下一条函数声明或文件末尾截断。 */
-  const rest = source.slice(start);
-  const nextFn = rest.slice(marker.length).search(/\n(export )?(async )?function |\n  private (async )?[a-z]/);
-  return nextFn < 0 ? rest : rest.slice(0, marker.length + nextFn);
+  const open = source.indexOf("{", start);
+  assert.ok(open >= start, `${label} 中 ${marker} 之后找不到函数体起始 '{'`);
+  let depth = 0;
+  for (let i = open; i < source.length; i += 1) {
+    const ch = source[i];
+    /* 逐字符扫描；本仓这些函数体里没有模板字符串嵌套花括号的写法，
+       这里也不做字符串/注释状态机——一旦需要，会先在此处显式说明。 */
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, i + 1);
+    }
+  }
+  assert.fail(`${label} 中 ${marker} 的函数体花括号不配对`);
 };
 
 const frontendFn = bodyOf(frontendSrc, "export function directoryHealthFor", "前端 fixtures/accounts.ts");
@@ -58,20 +83,97 @@ for (const code of ["empty", "no-manager", "ok"]) {
 /* (b) 两侧都必须在判定"谁算管理者"时过滤掉停用账户。
    这是最容易被漏掉、后果最重的一条：把停用账户算作覆盖，
    会让"唯一管理者已被停用"误判为目录健康——而那种状态下
-   所有写操作都以 AF_PERMISSION_DENIED 被拒，且没有自救途径。 */
-const activeFilterPattern = /state === ['"]active['"]/;
-assert.ok(
-  activeFilterPattern.test(backendFn),
-  "后端 directoryHealth 必须按 state === 'active' 过滤（停用账户不算管理能力）",
-);
-assert.ok(
-  activeFilterPattern.test(frontendFn),
-  "前端 fixture 的 directoryHealthFor 必须同样按 state === 'active' 过滤，"
+   所有写操作都以 AF_PERMISSION_DENIED 被拒，且没有自救途径。
+
+   ⚠️ 这里原先是对**源码文本**做正则断言，结果是一个**假绿**，两个缺陷叠加：
+     1. 断言落在错的函数上：后端把过滤放在 `hasRealManager`，
+        `directoryHealth` 只是调用它；而原来的截取一路吃到 `actorOf`，
+        那条正则命中的是 `canManageAccounts: record.state === 'active'`——
+        与目录健康判定无关的另一件事。把 `hasRealManager` 的过滤删掉，
+        本脚本照样退出 0。
+     2. 只认一种等价写法：后端真实过滤是**否定式**
+        `if (account.state !== 'active') continue`，
+        而正则 `/state === ['"]active['"]/` 只认肯定式，对它永不匹配。
+     两个缺陷互相掩盖：正因吃错了函数，才"匹配"上了 actorOf 里的肯定式。
+
+   ⇒ 不再对文本做正则，改为**让函数真的跑一遍**。
+     前端 fixture 是纯函数，可直接 import 执行；这比"源码里有这串字符"
+     强得多——它钉的是行为，且对被测函数的写法、位置、是否内联一概不敏感。 */
+const { directoryHealthFor } = await import("../src/api/fixtures/accounts.ts");
+
+const grant = (accountId: string, perm: string) => ({
+  grantId: `g-${accountId}`, accountId, workflowId: "wf", nodeId: "n",
+  perm, source: "owner", grantedBy: "seed",
+  grantedAt: "2026-01-01T00:00:00.000Z", revision: 1,
+});
+const account = (accountId: string, state: string) => ({
+  accountId, name: "某人", handle: `${accountId}@agentflow.dev`, role: "orchestrator",
+  duty: "d", state, builtin: false, createdAt: 1, updatedAt: 1,
+});
+
+/* 停用者持有 manage：必须判不可用。若过滤被去掉，这里会变成 ok —— 缺陷本意。 */
+assert.equal(
+  directoryHealthFor([account("a", "suspended")] as never, [grant("a", "manage")] as never).code,
+  "no-manager",
+  "前端 fixture 必须按 state==='active' 过滤：唯一管理者已停用时应判 no-manager，"
     + "否则演示模式会把「唯一管理者已停用」显示成健康目录",
 );
+/* 对照：同一账户在职时必须是 ok，证明上一条拒的是"停用"而不是"这个输入本来就不可用"。 */
+assert.equal(
+  directoryHealthFor([account("a", "active")] as never, [grant("a", "manage")] as never).code,
+  "ok",
+  "对照：在职管理者必须判 ok",
+);
+/* 在职但只有更低等级 → 仍不可用（manage 才是管理能力）。 */
+assert.equal(
+  directoryHealthFor([account("a", "active")] as never, [grant("a", "approve")] as never).code,
+  "no-manager",
+  "在职但只持 approve 不得算作管理者",
+);
+assert.equal(directoryHealthFor([], []).code, "empty", "空目录必须判 empty");
 
-/* (b2) 两侧都只看 manage 等级的授权。 */
-for (const [fn, label] of [[backendFn, "后端"], [frontendFn, "前端 fixture"]] as const) {
+/* 后端侧：断言必须落在**真正持有过滤的那个函数**上。
+   `directoryHealth` 只调用 `hasRealManager`，过滤在后者内部；
+   因此取后者的函数体来查，且同时接受肯定式与否定式两种等价写法。 */
+const backendHasRealManager = bodyOf(
+  backendSrc,
+  "private async hasRealManager(",
+  "af-api accounts-service.ts",
+);
+/* 判据是"这个函数体里对 state 做了 active 判定"，两种写法都算：
+   肯定式 `state === 'active'`、否定式 `state !== 'active'`（本仓用的是后者）。 */
+const activeFilterPattern = /state\s*[!=]==\s*['"]active['"]/;
+assert.ok(
+  activeFilterPattern.test(backendHasRealManager),
+  "后端 hasRealManager（真正的管理者判定处）必须按 active 过滤，"
+    + "否则「唯一管理者已停用」会被误判为目录健康",
+);
+assert.ok(
+  /hasRealManager/.test(backendFn),
+  "后端 directoryHealth 必须经 hasRealManager 判定管理者（判据只能有一份）",
+);
+/* 否定式与肯定式都必须被上面的模式接受——钉住这一点的价值：
+   本仓后端用的是否定式，早先只认肯定式的断言对它永不匹配。 */
+assert.ok(activeFilterPattern.test("if (account.state !== 'active') continue"), "否定式写法必须被识别");
+assert.ok(activeFilterPattern.test('record.state === "active" && x'), "肯定式写法必须被识别");
+
+/* (b2) 两侧都只看 manage 等级的授权。
+   后端侧的判定链是两层：`directoryHealth` → `hasRealManager`（按 active 过滤）
+   → `holdsRealManage`（**这一层才比对 perm === 'manage'**）。
+   因此"只认 manage"要落在 `holdsRealManage` 上；
+   早先查 `directoryHealth` 体是对错了函数（那里面连 `manage` 字面量都没有）。
+
+   更强的证据是上面的**行为断言**：在职但只持 approve → no-manager。
+   文本断言在这里只作"判据位置未漂移"的锚点，不单独承担正确性。 */
+const backendHoldsRealManage = bodyOf(
+  backendSrc,
+  "private async holdsRealManage(",
+  "af-api accounts-service.ts",
+);
+for (const [fn, label] of [
+  [backendHoldsRealManage, "后端 holdsRealManage"],
+  [frontendFn, "前端 fixture"],
+] as const) {
   assert.ok(
     /['"]manage['"]/.test(fn),
     `${label} 的管理者判定必须只认 manage 等级（更低的等级不能管理账户）`,
