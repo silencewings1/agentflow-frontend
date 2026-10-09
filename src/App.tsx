@@ -992,8 +992,16 @@ export default function App() {
         title: `已登录为 ${data.actor.name}`,
         body: `${data.actor.role === null ? "" : ACCOUNT_ROLE_LABEL[data.actor.role] + " · "}持有授权 ${data.actor.grantCount} 个节点`,
       });
-      /* 任务列表按身份重新读取：不同账户看到的责任范围不同，沿用登录前的
-         列表会让人以为"我的任务"里混进了别人的。 */
+      /* 登录后重新读取 bootstrap —— 但**不是因为任务列表按身份过滤**。
+         服务端 `BootstrapService.bootstrap()` 不接收身份，`TaskService.listTasks()`
+         亦然；实测 6 个身份拿到的响应正文逐字节相同（同一 sha256）。
+         多用户口径下「读不设墙」正是指这件事（§12.14.2：读路径无门槛、
+         写路径全量有门槛），因此任务列表是全目录共享的。
+         重新读取的真实理由是刷新与身份**无关**的那部分视图：登录前是匿名会话，
+         登录后 SCM/编排就绪态与"已登录为 X"的头部状态都要按新身份重绘。
+         原注释写成"按身份过滤任务"，会让人以为存在一条并不存在的数据隔离，
+         进而推断"别人看不到我的任务"——而实际上任何已登记身份都能读到同一份列表。
+         权限在这里的正确含义是「能不能**做**」，不是「能不能**看**」。 */
       void loadBootstrap();
     },
     [loadAccounts, loadBootstrap, push],
