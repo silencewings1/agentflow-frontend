@@ -5,7 +5,7 @@ import {
   type Session,
   type Theme,
 } from "./data/mock";
-import { afApi, AfApiError, normalizePlanPayload, structuredToEvents, toUiBootstrap, toWorkflowDto } from "./api";
+import { afApi, AfApiError, normalizePlanPayload, permRank, structuredToEvents, toUiBootstrap, toWorkflowDto } from "./api";
 import { realInspectorBundle } from "./api/inspectorMapper";
 import { ACCOUNT_ROLE_LABEL } from "./api";
 import { describeError, errorText } from "./api/error-text";
@@ -328,6 +328,36 @@ export default function App() {
   /* 多用户：账户目录 ⊇ 当前身份。null 表示尚未读到，与「未登录」区分开——
      前者是加载中，后者是有事实的匿名态，界面不该把两者画成同一个样子。 */
   const [accountsData, setAccountsData] = useState<AccountsDto | null>(null);
+  /* 新建任务的入口责任位准入。
+     服务端在创建时按「该编排入口节点上是否持 run」判定；界面若照常可点，
+     用户填完整张表单才在提交时被拒——那是 AGENTS.md §4.3 明确禁止的呈现
+     （前置条件未满足的不可逆操作不得看起来可用）。因此这里用**同一份数据**
+     （账户目录的 grants + 编排的入口节点）预先算出结论，让按钮在点击前就是受阻态。
+     判据与后端同源：入口节点 + run（manage 含 run，用 permRank 处理高低级包含）。 */
+  const newTaskAdmission = useMemo(() => {
+    const actor = accountsData?.actor ?? null;
+    if (actor === null || actor.accountId === null) return { allowed: false, reason: "尚未登录。" };
+    if (actor.state === "suspended") return { allowed: false, reason: "账户已停用，无法创建任务。" };
+    const entry = workflowCatalog[0];
+    if (entry === undefined) return { allowed: false, reason: "编排目录尚未就绪。" };
+    /* 入口节点：无入边（fail 边不算主流程边）的节点。与 mappers.ts 的口径一致。 */
+    const entryIds = entry.nodes
+      .filter((node) => !entry.edges.some((edge) => edge.kind !== "fail" && edge.to === node.id))
+      .map((node) => node.id);
+    const grants = accountsData?.grants ?? [];
+    const allowed = entryIds.some((nodeId) =>
+      grants.some(
+        (grant) =>
+          grant.accountId === actor.accountId &&
+          grant.workflowId === entry.id &&
+          grant.nodeId === nodeId &&
+          permRank(grant.perm) >= permRank("run"),
+      ),
+    );
+    return allowed
+      ? { allowed: true, reason: "" }
+      : { allowed: false, reason: `当前账户在「${entry.name}」的入口责任位上没有执行权限，创建的任务将由该责任位开始执行。` };
+  }, [accountsData, workflowCatalog]);
   const [accountsError, setAccountsError] = useState<string | null>(null);
   const [accountsLoading, setAccountsLoading] = useState(true);
   const [checkingIdentity, setCheckingIdentity] = useState(true);
@@ -2066,6 +2096,7 @@ export default function App() {
         onArchive={archiveTask}
         onUnarchive={unarchiveTask}
         onNew={() => setNewTaskOpen(true)}
+        newTaskAdmission={newTaskAdmission}
       />
 
       <main className="main">

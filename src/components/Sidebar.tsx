@@ -25,6 +25,7 @@ export function Sidebar({
   onArchive,
   onUnarchive,
   onNew,
+  newTaskAdmission,
 }: {
   sessions: Session[];
   activeId: string;
@@ -35,6 +36,9 @@ export function Sidebar({
   onArchive: (id: string) => void;
   onUnarchive: (id: string) => void;
   onNew: () => void;
+  /* 新建任务的准入结论：由 App 用与后端同源的判据算出后传入。
+     界面只负责呈现——判定逻辑不在这里另写一份，否则两处口径会漂移。 */
+  newTaskAdmission: { allowed: boolean; reason: string };
 }) {
   const [q, setQ] = useState("");
 
@@ -102,7 +106,17 @@ export function Sidebar({
           />
           <span className="kbd">/</span>
         </label>
-        <button className="btn btn--accent btn--block" onClick={onNew}>
+        {/* 前置条件未满足时呈现**受阻态**而不是"可点然后报错"：
+            创建任务会落在入口责任位上，没有该责任位的执行权就不该起这个头。
+            受阻原因写在 title 与下方说明里——只说"不可用"而不说"为什么、
+            找谁"，用户就只能在反复尝试中猜测。 */}
+        <button
+          className="btn btn--accent btn--block"
+          onClick={onNew}
+          disabled={!newTaskAdmission.allowed}
+          data-blocked={!newTaskAdmission.allowed}
+          title={newTaskAdmission.allowed ? undefined : newTaskAdmission.reason}
+        >
           <Icon.Plus size={14} />
           新任务
           <span className="btn__keys">
@@ -110,6 +124,11 @@ export function Sidebar({
             <span className="kbd">N</span>
           </span>
         </button>
+        {!newTaskAdmission.allowed && (
+          <p className="sidebar__blocked" role="note">
+            {newTaskAdmission.reason}
+          </p>
+        )}
       </div>
 
       <nav className="sidebar__list">

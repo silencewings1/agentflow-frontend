@@ -335,6 +335,33 @@
   background: color-mix(in oklab, var(--accent) 92%, #fff 8%);
 }
 
+/* 受阻的前置条件：用形态差异（虚线描边 + 去掉主色实心）先于颜色表达"不可点"，
+   对色觉障碍友好。主色实心代表"这是当前该做的事"，条件不成立时继续用实心
+   就与其它可点主操作无法区分——那正是"看起来可用"的成因。
+   悬停不抬升：受阻态不该有可交互的反馈。 */
+.btn[data-blocked="true"] {
+  background: transparent;
+  border: 1px dashed color-mix(in oklab, var(--line-strong) 70%, var(--line));
+  color: var(--text-3);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.btn[data-blocked="true"]:hover {
+  transform: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* 受阻原因：写在按钮下方而不是只塞进 title——title 需要悬停才发现，
+   而"为什么不能做、该找谁"恰恰是用户此刻唯一需要的信息。 */
+.sidebar__blocked {
+  margin: 8px 2px 0;
+  font-size: var(--step--2);
+  line-height: 1.5;
+  color: var(--text-4);
+}
+
 .btn--outline {
   border: 1px solid var(--line-strong);
   color: var(--text-2);
