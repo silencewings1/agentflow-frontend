@@ -71,6 +71,7 @@ export const KNOWN_BACKEND_CODES = [
   "AF_ACCOUNT_SUSPENDED",
   "AF_ACCOUNT_BUILTIN",
   "AF_PERMISSION_DENIED",
+  "AF_SELF_SUSPEND",
   "AF_LAST_MANAGER",
   "AF_GRANT_NOT_FOUND",
   "AF_GRANT_CONFLICT",
@@ -109,6 +110,12 @@ export const ERROR_CODE_TEXT: Record<string, string> = {
   AF_ACCOUNT_BUILTIN: "内置账户不可删除，只能停用——它的历史授权与审计必须继续可查。",
   AF_PERMISSION_DENIED:
     "当前账户缺少该操作所需的权限；请让持有「可编排」权限的责任人在「成员与权限」中授权。",
+  /* 同一码、另一种成因：被拒的人**就是**持有者可编排责任的人，只是不能对自己下手。
+     上面的通用文案在这里是**错的处置**——它让用户去找"持有可编排权限的责任人"，
+     而那个人正是他自己，照做只会原地打转。因此按 details.reason 分流，
+     给出真实可执行的下一步：找另一位管理者，或先授权一位。 */
+  AF_SELF_SUSPEND:
+    "不能停用自己：停用后你就无法再登录，也就无法恢复自己。请让另一位持有「可编排」权限的责任人操作，或先授权一位管理者。",
   AF_LAST_MANAGER:
     "这是目录里最后一位管理者，撤掉后就没有人能管理账户了，因此被拒绝；请先授权另一位管理者再调整。",
   AF_GRANT_NOT_FOUND: "找不到该节点授权，可能已被收回。",
@@ -219,6 +226,14 @@ export function errorText(
   if (label === "AF_ACCOUNTS_UNAVAILABLE" && details?.multiUserEnabled === false) {
     const disabled = errorCodeText("AF_ACCOUNTS_DISABLED");
     if (disabled) return disabled;
+  }
+  /* AF_PERMISSION_DENIED 覆盖两种处置相反的成因：缺少管理权（去找责任人）
+     与自己不能停用自己（**你**就是那位责任人）。用同一个码时通用文案会把
+     第二种引向"请让持有可编排权限的责任人授权"——而那个人正是用户自己，
+     他会原地打转。后端用 details.reason 自证成因，这里按它分流。 */
+  if (label === "AF_PERMISSION_DENIED" && details?.reason === "self-suspend") {
+    const selfSuspend = errorCodeText("AF_SELF_SUSPEND");
+    if (selfSuspend) return selfSuspend;
   }
   const text = errorCodeText(label);
   if (text) return text;
