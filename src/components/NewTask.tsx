@@ -35,6 +35,7 @@ export function NewTaskDialog({
   skills = [],
   scmProviders,
   onValidateWorkflow,
+  canCreateWith,
   existingBranches = [],
 }: {
   onClose: () => void;
@@ -45,6 +46,8 @@ export function NewTaskDialog({
   skills?: SkillSummaryDto[];
   scmProviders: ScmProviderDto[];
   onValidateWorkflow: (workflow: Workflow) => Promise<WorkflowValidation>;
+  /** 该编排的创建准入（由 App 用与后端同源的判据算出）：缺入口权限时主按钮受阻。 */
+  canCreateWith: (workflowId: string) => { allowed: boolean; reason: string };
   /** 已知目标分支（含历史任务），用于默认分支名避开重名。 */
   existingBranches?: string[];
 }) {
@@ -89,6 +92,10 @@ export function NewTaskDialog({
   if (!targetBranch.trim()) blockers.push("填写目标功能分支。");
   if (forbiddenTargetBranch) blockers.push("目标功能分支不能是 main / master：平台禁止直接向受保护分支写入。");
   if (localIssues.length > 0) blockers.push(`工作流 DAG 有 ${localIssues.length} 项问题，展开工作流检查后再创建。`);
+  /* 权限放在最后：它是"人"的问题，前面几条都是"信息还没填全"。
+     两者同时不满足时先引导补信息，避免用户先去申请一个当前填不完的权限。 */
+  const admission = canCreateWith(wf.id);
+  if (!admission.allowed) blockers.push(admission.reason);
   const ready = blockers.length === 0;
 
   const submit = async () => {

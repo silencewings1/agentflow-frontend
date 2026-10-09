@@ -328,36 +328,62 @@ export default function App() {
   /* 多用户：账户目录 ⊇ 当前身份。null 表示尚未读到，与「未登录」区分开——
      前者是加载中，后者是有事实的匿名态，界面不该把两者画成同一个样子。 */
   const [accountsData, setAccountsData] = useState<AccountsDto | null>(null);
-  /* 新建任务的入口责任位准入。
+  /* 新建任务的入口责任位准入：按**具体编排**判定，返回该编排是否可被本账户创建。
      服务端在创建时按「该编排入口节点上是否持 run」判定；界面若照常可点，
      用户填完整张表单才在提交时被拒——那是 AGENTS.md §4.3 明确禁止的呈现
-     （前置条件未满足的不可逆操作不得看起来可用）。因此这里用**同一份数据**
-     （账户目录的 grants + 编排的入口节点）预先算出结论，让按钮在点击前就是受阻态。
+     （前置条件未满足的不可逆操作不得看起来可用）。
+     刻意按编排而不是按 catalog[0] 判定：NewTask 允许用户改选编排，
+     写死第一条会在改选后给出错误结论（把可创建的编排标成受阻，或反过来）。
      判据与后端同源：入口节点 + run（manage 含 run，用 permRank 处理高低级包含）。 */
-  const newTaskAdmission = useMemo(() => {
-    const actor = accountsData?.actor ?? null;
-    if (actor === null || actor.accountId === null) return { allowed: false, reason: "尚未登录。" };
-    if (actor.state === "suspended") return { allowed: false, reason: "账户已停用，无法创建任务。" };
-    const entry = workflowCatalog[0];
-    if (entry === undefined) return { allowed: false, reason: "编排目录尚未就绪。" };
-    /* 入口节点：无入边（fail 边不算主流程边）的节点。与 mappers.ts 的口径一致。 */
-    const entryIds = entry.nodes
-      .filter((node) => !entry.edges.some((edge) => edge.kind !== "fail" && edge.to === node.id))
-      .map((node) => node.id);
-    const grants = accountsData?.grants ?? [];
-    const allowed = entryIds.some((nodeId) =>
-      grants.some(
-        (grant) =>
-          grant.accountId === actor.accountId &&
-          grant.workflowId === entry.id &&
-          grant.nodeId === nodeId &&
-          permRank(grant.perm) >= permRank("run"),
-      ),
-    );
-    return allowed
-      ? { allowed: true, reason: "" }
-      : { allowed: false, reason: `当前账户在「${entry.name}」的入口责任位上没有执行权限，创建的任务将由该责任位开始执行。` };
-  }, [accountsData, workflowCatalog]);
+  const canCreateWith = useCallback(
+    (workflowId: string): { allowed: boolean; reason: string } => {
+      const actor = accountsData?.actor ?? null;
+      if (actor === null || actor.accountId === null) return { allowed: false, reason: "尚未登录。" };
+      if (actor.state === "suspended") return { allowed: false, reason: "账户已停用，无法创建任务。" };
+      /* 服务端编排目录未就绪时必须单独判断，不能拿 demo fixture 顶替。
+         workflowCatalog 在 bootstrap 返回前是 `workflowTemplates`（设计演示用的
+         本地编排），它既不是服务端事实、也可能与真实编排同 id 而不同节点。
+         直接在下游 find() 会命中它，于是给出一条指向**不存在编排**的拒绝理由
+         （实测表现为：bootstrap 未返回期间提示「在『需求开发』的入口责任位上没有
+         执行权限」，而该编排根本不在服务端）。结论恰好也是"受阻"，所以不会
+         被误当成放行——但理由错误会让用户去找一个不存在的编排申请权限，
+         比不提示更糟。 */
+      if (apiLoad.status !== "ready") {
+        return { allowed: false, reason: "正在读取服务端编排目录，稍候即可创建。" };
+      }
+      const wf = workflowCatalog.find((item) => item.id === workflowId);
+      if (wf === undefined) return { allowed: false, reason: "编排目录尚未就绪。" };
+      /* 入口节点：无入边（fail 边不算主流程边）的节点。与服务端 entryNodeIds 口径一致，
+         已用 bootstrap 实测比对（standard-code-change v3 两边都是 requirements）。 */
+      const entryIds = wf.nodes
+        .filter((node) => !wf.edges.some((edge) => edge.kind !== "fail" && edge.to === node.id))
+        .map((node) => node.id);
+      const grants = accountsData?.grants ?? [];
+      const allowed = entryIds.some((nodeId) =>
+        grants.some(
+          (grant) =>
+            grant.accountId === actor.accountId &&
+            grant.workflowId === wf.id &&
+            grant.nodeId === nodeId &&
+            permRank(grant.perm) >= permRank("run"),
+        ),
+      );
+      return allowed
+        ? { allowed: true, reason: "" }
+        : {
+            allowed: false,
+            reason: `当前账户在「${wf.name}」的入口责任位上没有执行权限，创建的任务将由该责任位开始执行。`,
+          };
+    },
+    [accountsData, workflowCatalog, apiLoad.status],
+  );
+
+  /* 侧栏按钮只代表「新建任务」这个入口，此时尚未选定编排，用默认编排给出提示。
+     真正的准入以 NewTask 内选中的编排为准。 */
+  const newTaskAdmission = useMemo(
+    () => canCreateWith(workflowCatalog[0]?.id ?? ""),
+    [canCreateWith, workflowCatalog],
+  );
   const [accountsError, setAccountsError] = useState<string | null>(null);
   const [accountsLoading, setAccountsLoading] = useState(true);
   const [checkingIdentity, setCheckingIdentity] = useState(true);
@@ -1003,13 +1029,22 @@ export default function App() {
       } else if (meta && e.key.toLowerCase() === "b") {
         e.preventDefault();
         setSidebarOpen((v) => !v);
+      } else if (meta && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        /* 侧栏按钮上写着 ⌘N，但此前没有对应的键位绑定——界面承诺了一个
+           不存在的快捷键（按下去毫无反应，用户会以为是自己按错了）。
+           这里补上绑定，并让它与按钮遵守**同一条准入**：没有入口责任位权限时
+           不仅不开对话框，还要说明原因。快捷键绕过按钮的受阻态会比按钮本身
+           更糟——按钮至少看得出不可点，快捷键按下去没反应则无从判断。 */
+        if (newTaskAdmission.allowed) setNewTaskOpen(true);
+        else push({ tone: "warn", title: "无法新建任务", body: newTaskAdmission.reason });
       } else if (e.key === "Escape") {
         setPaletteOpen(false);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggleTheme]);
+  }, [toggleTheme, newTaskAdmission, push]);
 
   /* --- 阶段一：主控规划的修改与确认 ---------------------------------------- */
 
@@ -2330,6 +2365,9 @@ export default function App() {
           scmProviders={scmProviders}
           onValidateWorkflow={validateWorkflow}
           existingBranches={sessionList.map((session) => session.branch)}
+          /* 按选中编排判定的创建准入，与后端同源；选中的编排缺入口权限时
+             主按钮呈受阻态，而不是等提交才报错。 */
+          canCreateWith={canCreateWith}
         />
       )}
       <Toasts items={toasts} />
