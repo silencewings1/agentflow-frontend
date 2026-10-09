@@ -2382,6 +2382,16 @@
   line-height: 1.55;
 }
 
+/* 目录自身不可用（空目录 / 无人在职持 manage）比"你没有管理权"更严重：
+   后者等管理员即可，前者找谁都没用。用告警色把它与普通提示区分开，
+   否则两种置灰看起来一样，用户会持续尝试一件注定无效的事。 */
+.permNotice[data-tone="warn"] {
+  border-style: solid;
+  border-color: color-mix(in oklab, var(--danger, #d4574e) 45%, var(--line));
+  background: color-mix(in oklab, var(--danger, #d4574e) 8%, transparent);
+  color: var(--text-1);
+}
+
 .permAudit__empty,
 .permAdd__empty {
   margin: 0;

@@ -225,6 +225,27 @@ export interface AccountsDto {
   /** 账户级变更审计：创建 / 改名 / 改角色 / 停用 / 恢复。 */
   accountAudit: AccountAuditDto[];
   permRank: Record<NodePermDto, number>;
+  /**
+   * 目录自身的可用性（不是"当前身份能做什么"）。
+   *
+   * `actor.canManageAccounts` 回答"**我**能不能管"，界面据此置灰控件；
+   * 但"置灰"有两种相反成因——「我没有管理权」（找管理员即可）与
+   * 「**没有任何人有**管理权」（找谁都没用）。只凭前者时第二种情形
+   * 会退化成"一个静默置灰的界面"：用户反复点击、反复被拒，
+   * 而真正的原因在任何地方都看不到。
+   *
+   * 可选：后端字段是一次增量新增，旧后端不会返回它，
+   * 此时按"未知"处理（不显示额外提示），而不是假定目录有问题。
+   */
+  directory?: DirectoryHealthDto;
+}
+
+/** 目录可用性。`healthy=false` 时 `reason` 给出可执行的处置。 */
+export interface DirectoryHealthDto {
+  healthy: boolean;
+  reason: string | null;
+  /** 稳定标识，供界面按形态选择文案（无需解析自然语言）。 */
+  code: 'ok' | 'empty' | 'no-manager' | null;
 }
 
 export interface AccountInputDto {

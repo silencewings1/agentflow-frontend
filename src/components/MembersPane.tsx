@@ -181,6 +181,9 @@ export function MembersPane({
   }, [active, refs, grantIndex]);
 
   const canManage = actor?.canManageAccounts === true;
+  /* 目录可用性由后端判定（判据只有一份：空目录 / 无人在职持 manage）。
+     界面不自行推断——它看不到存储层的事实，自行推断只会给出第二个答案。 */
+  const directory = data?.directory;
 
   /** 统一的写操作包装：失败按服务端错误码如实呈现，绝不静默吞掉。 */
   const run = async (key: string, action: () => Promise<void>, onOk?: () => void) => {
@@ -267,6 +270,16 @@ export function MembersPane({
     <div className="split">
       {/* ------------ 左列：账户目录 ------------ */}
       <div className="split__list">
+        {/* 目录自身不可用时**优先**说这件事：它比"你没有管理权"更根本。
+            两种情形都会让控件置灰，但处置相反——"我没有管理权"要找管理员，
+            "没有任何人有管理权"找谁都没用、只能修存储。只显示后者时，
+            用户会反复点击、反复被拒，而真正的原因在任何地方都看不到。
+            后端 DTO 的 directory 字段给出判定与处置，这里只负责呈现。 */}
+        {directory !== undefined && !directory.healthy && (
+          <p className="permNotice" data-tone="warn" role="alert">
+            {directory.reason ?? "账户目录当前不可用。"}
+          </p>
+        )}
         {!canManage && (
           <p className="permNotice" role="note">
             当前账户
