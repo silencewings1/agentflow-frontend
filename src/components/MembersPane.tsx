@@ -402,6 +402,8 @@ export function MembersPane({
         <button
           className="memberNew"
           disabled={!canManage || busy === "create-account"}
+          {...(canManage ? {} : { "data-blocked": "true" })}
+          title={canManage ? "创建新账户并分配责任位" : "创建账户需要管理权限（在至少一个真实责任位上持有「可编排」）"}
           onClick={() => setCreating((value) => !value)}
         >
           <Icon.Plus size={15} />
@@ -508,8 +510,16 @@ export function MembersPane({
                    2. 已停用 → 恢复。
                    3. 可停用 → 停用。
 
+                  `data-blocked` 必须覆盖**两种**受阻来源，而不只是"不能停用自己"：
+                     · 身份受限（自己的账户）
+                     · 权限不足（`!canManage`）
+                  旧实现只给前者加标记，后者只是一个普通 `disabled` —— 同一个
+                  「前置条件未满足」在同一个仓库里有了两种渲染（对比模型配置面板的
+                  供应商登记按钮，那里两种来源都走 `data-blocked`）。两种渲染会让
+                  读者以为"灰着"和"虚线着"是两种不同的状态，而它们本来就是同一件事。
+
                   `title` 说明后果而不是复述动作名：停用不影响历史授权与审计，
-                  这是判断"能不能安全停用"的关键信息。 */}
+                  这是判断"能不能安全停用"的关键信息；权限不足时则直接说明缺什么。 */}
               {active.accountId === actor.accountId ? (
                 <button
                   className="btn btn--ghost btn--sm"
@@ -524,7 +534,12 @@ export function MembersPane({
                 <button
                   className="btn btn--ghost btn--sm"
                   disabled={!canManage || busy === `state-${active.accountId}`}
-                  title="停用后该账户不能登录；历史授权与审计保留"
+                  {...(canManage ? {} : { "data-blocked": "true" })}
+                  title={
+                    canManage
+                      ? "停用后该账户不能登录；历史授权与审计保留"
+                      : "停用账户需要管理权限（在至少一个真实责任位上持有「可编排」）"
+                  }
                   onClick={() =>
                     void run(
                       `state-${active.accountId}`,
@@ -543,7 +558,12 @@ export function MembersPane({
                 <button
                   className="btn btn--ghost btn--sm"
                   disabled={!canManage || busy === `state-${active.accountId}`}
-                  title="恢复后该账户可以重新登录；停用期间的授权不回滚"
+                  {...(canManage ? {} : { "data-blocked": "true" })}
+                  title={
+                    canManage
+                      ? "恢复后该账户可以重新登录；停用期间的授权不回滚"
+                      : "恢复账户需要管理权限（在至少一个真实责任位上持有「可编排」）"
+                  }
                   onClick={() =>
                     void run(
                       `state-${active.accountId}`,

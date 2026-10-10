@@ -1979,6 +1979,24 @@
   background: color-mix(in oklab, var(--accent) 5%, transparent);
 }
 
+/* 「新建账户」本身就以虚线边框表达"这是一个添加位"，因此受阻态不能再靠虚实区分
+   （那样两者看起来一样）。改为**去掉主色、压向底噪**：可点时为 accent 系、
+   受阻时为中性灰，且 hover 不再有任何强调。这与 .btn[data-blocked] 的表达一致
+   ——同一件事只应有一种视觉语言。 */
+.memberNew[data-blocked="true"],
+.memberNew:disabled {
+  color: var(--text-4);
+  border-color: var(--line);
+  cursor: not-allowed;
+}
+
+.memberNew[data-blocked="true"]:hover,
+.memberNew:disabled:hover {
+  color: var(--text-4);
+  border-color: var(--line);
+  background: transparent;
+}
+
 /* ---------------- 右列：详情与矩阵 ---------------- */
 
 .memberDetail {
