@@ -402,6 +402,7 @@ export default function App() {
 
      判据与后端同源，逐条对应：
        proposals / plans        → manage（编排权）
+       git 计划/确认远端写入     → run（交付角色执行 git 节点，见 §12.23.34）
        compile / work-specs /
        clarifications           → run（执行权）
        plan-decisions /
@@ -2079,10 +2080,10 @@ export default function App() {
     if (awaitingNode) {
       const isGitNode = awaitingNode.kind === "git";
       if (isGitNode && taskRuntime?.preparedDelivery && awaitingPreparedOperation === null) {
-        return gated("manage", { label: planningOperation ? "正在准备远端写入…" : "准备远端写入操作", disabled: planningOperation, onClick: () => void planGitOperation() });
+        return gated("run", { label: planningOperation ? "正在准备远端写入…" : "准备远端写入操作", disabled: planningOperation, onClick: () => void planGitOperation() });
       }
       if (isGitNode && awaitingPreparedOperation && awaitingPreparedOperation.status !== "committed") {
-        return gated("manage", {
+        return gated("run", {
           label: confirmingOperationId === awaitingPreparedOperation.operationId ? "确认中…" : "确认 MCP 功能分支写入",
           disabled: confirmingOperationId === awaitingPreparedOperation.operationId,
           onClick: () => void confirmGitOperation(awaitingPreparedOperation.operationId),

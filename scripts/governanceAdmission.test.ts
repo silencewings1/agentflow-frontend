@@ -38,6 +38,8 @@ const app = read("../src/App.tsx");
    档位口径由用户确认（「审查/判据/计划裁决=approve，澄清/规格/编译=run，
    方案/计划=manage」，见 §12.23.31）。任务级路由用「任一节点持有该档」判定；
    只有节点审查要求**被审节点**上持 approve（后端 URL 里带 nodeId）。 */
+/* git 写操作为 run 而不是 manage：判据来自种子授权 seedGrantsFor
+   （`node.kind === 'git'` → delivery → run）。见 §12.23.34。 */
 const EXPECTED: Array<{ route: string; level: "run" | "approve" | "manage"; byNode?: boolean }> = [
   { route: "work-specs", level: "run" },
   { route: "clarifications", level: "run" },
@@ -48,7 +50,7 @@ const EXPECTED: Array<{ route: string; level: "run" | "approve" | "manage"; byNo
   { route: "criterion-assessments", level: "approve" },
   { route: "evidence", level: "approve" },
   { route: "supervisor", level: "manage" },
-  { route: "git-operations", level: "manage" },
+  { route: "git-operations", level: "run" },
   { route: "cancel", level: "manage" },
   { route: "archive", level: "manage" },
   { route: "unarchive", level: "manage" },
@@ -151,5 +153,17 @@ assert.ok(
 const compileGate = app.match(/gated\("(\w+)", \{ label: govBusy === "compile"/);
 assert.ok(compileGate, "找不到 compilePlan 的 gated 调用");
 assert.equal(compileGate[1], "run", `compile 的前端档位是 ${compileGate[1]}，应为 run`);
+
+/* ⑥ 远端写入的两个分支必须是 run（交付角色执行 git 节点，§12.23.34）。
+   上一版只核对了后端档位，前端这两处**没有断言**：
+   注入实测把前端 git 档位从 run 改回 manage，守卫仍然全绿。
+   ——"只守住两份实现中的一份"等于没守住，因为失配恰恰发生在两份之间。 */
+const planGate = app.match(/gated\("(\w+)", \{ label: planningOperation/);
+assert.ok(planGate, "找不到 planGitOperation 的 gated 调用");
+assert.equal(planGate[1], "run", `远端写入（计划）的前端档位是 ${planGate[1]}，应为 run`);
+
+const confirmGate = app.match(/gated\("(\w+)", \{\s*label: confirmingOperationId/);
+assert.ok(confirmGate, "找不到 confirmGitOperation 的 gated 调用");
+assert.equal(confirmGate[1], "run", `远端写入（确认）的前端档位是 ${confirmGate[1]}，应为 run`);
 
 console.log(`治理动作准入守卫：${EXPECTED.length} 条后端路由档位一致、${gatedCalls.length} 处前端调用点已加准入。`);
