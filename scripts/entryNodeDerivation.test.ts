@@ -211,6 +211,43 @@ assert.notDeepEqual(
     + "说明该编排只有一个可推导节点或比对没有真正生效",
 );
 
+/* ⑧ 侧栏「新任务」入口必须判**任一条**编排可创建，而不是只看目录首条。
+   缺陷 #30：原实现是 canCreateWith(workflowCatalog[0].id)。目录里有多条编排时，
+   若首条恰好是本账户无权的（新发布的编排通常零授权），按钮会被置灰、NewTask
+   对话框根本打不开——而对话框内的 WorkflowPicker 本可让用户改选到有权的那条。
+   实测：李雯在 standard-code-change/requirements 持 run，但目录顺序为
+   [probe-second-flow, standard-code-change] 时侧栏锁死，服务端却对她放行
+   （返回 AF_CREDENTIAL_REF_INVALID = 权限已过、仅 SCM 挡住；郑川两编排都被
+   AF_PERMISSION_DENIED，反证权限判定先于 SCM）。
+
+   断言的是**判据覆盖全集**这一结构：newTaskAdmission 必须遍历 workflowCatalog
+   做 some/find，且不得再出现对 [0] 的单点判定。 */
+const admissionBlock = app.slice(
+  app.indexOf("const newTaskAdmission"),
+  app.indexOf("const newTaskAdmission") + 1600,
+);
+assert.ok(admissionBlock.length > 100, "未定位到 newTaskAdmission，本项会空转");
+assert.match(
+  admissionBlock,
+  /workflowCatalog\.map\(/,
+  "侧栏准入必须遍历全部编排（workflowCatalog.map），不能只判首条——"
+    + "否则首条无权时用户连对话框都打不开（缺陷 #30）",
+);
+assert.ok(
+  !/canCreateWith\(workflowCatalog\[0\]/.test(admissionBlock),
+  "侧栏准入不得退回对 workflowCatalog[0] 的单点判定（缺陷 #30）",
+);
+
+/* ⑨ 对话框的**默认编排**也要落在有权的那条：否则侧栏放行了，用户一进来
+   看到的仍是置灰的「创建任务」，还得自己展开选择器去找——问题只是从门口挪到屋里。
+   两份文件都要查：判据在 App，默认值在 NewTask。 */
+const newTaskSrc = readFileSync(new URL("../src/components/NewTask.tsx", import.meta.url), "utf8");
+assert.match(
+  newTaskSrc,
+  /workflows\.find\(\(item\) => canCreateWith\(item\.id\)\.allowed\)/,
+  "NewTask 的默认编排必须优先选本账户有权创建的那条（缺陷 #30 的另一半）",
+);
+
 console.log(
   "entryNodeDerivation.test: 入口责任位口径一致"
     + "（后端白名单 flow|approve、前端黑名单 !=fail 且经边种类全集复核为等价，"

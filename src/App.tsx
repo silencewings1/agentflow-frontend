@@ -391,12 +391,46 @@ export default function App() {
     [accountsData, workflowCatalog, apiLoad.status],
   );
 
-  /* 侧栏按钮只代表「新建任务」这个入口，此时尚未选定编排，用默认编排给出提示。
-     真正的准入以 NewTask 内选中的编排为准。 */
-  const newTaskAdmission = useMemo(
-    () => canCreateWith(workflowCatalog[0]?.id ?? ""),
-    [canCreateWith, workflowCatalog],
-  );
+  /* 侧栏按钮代表「新建任务」这个**入口**，此时尚未选定编排，因此判据必须是
+     *任一条编排上可创建*，而不是"首条编排上可创建"。
+
+     缺陷 #30：此前写的是 canCreateWith(workflowCatalog[0].id)。当目录里存在
+     多条编排、而首条恰好是本账户无权创建的那条时，按钮会被置灰、NewTask
+     对话框根本打不开——可对话框里的 WorkflowPicker 本来可以让用户改选到
+     自己有权的那条（NewTask 内部按**选中的**编排判定，见 NewTask.tsx 的
+     `canCreateWith(wf.id)`）。于是用户被锁在一个自己其实能完成的操作之外。
+
+     实测（真实后端，李雯在 standard-code-change/requirements 持 run）：
+       · 目录顺序 [probe-second-flow, standard-code-change]
+       · 侧栏受阻，提示「在『编排 probe-second-flow』的入口责任位上没有执行权限」
+       · 但服务端对同一账户在 standard-code-change 上**权限通过**
+         （返回 AF_CREDENTIAL_REF_INVALID —— SCM 门槛，说明权限判定已过；
+         郑川两编排都被 AF_PERMISSION_DENIED，反证权限判定先于 SCM）
+     新编排发布后其上通常**零授权**，所以任何一次「发布新编排」都会立刻
+     锁死所有人的「新任务」——这不是边缘情形。
+
+     受阻文案相应改为指向**所有**编排：不能只报首条，否则用户会去一条
+     根本没被判定过的编排上申请权限（与 §12.23.52 记的"理由错误比不提示更糟"同源）。 */
+  const newTaskAdmission = useMemo<{ allowed: boolean; reason: string }>(() => {
+    if (workflowCatalog.length === 0) return { allowed: false, reason: "编排目录尚未就绪。" };
+    const perWorkflow = workflowCatalog.map((wf) => canCreateWith(wf.id));
+    const open = perWorkflow.find((admission) => admission.allowed);
+    if (open !== undefined) return { allowed: true, reason: "" };
+    /* 全部编排都不可创建时，尽量给出**最贴近可行动**的那条理由：
+       优先呈现非「编排目录尚未就绪」这类过渡态以外的具体结论。
+       直接取首条即可——此时每条都受阻，报哪条都不构成误导，
+       但文案要说明"已逐条判定过"，避免用户以为只看了一条。 */
+    const first = perWorkflow[0]!;
+    /* 过渡态（目录未就绪）不能改写成"没有权限"——那会把"等一下"说成
+       "去申请权限"，方向完全相反。逐条判定都命中同一条过渡理由时原样透出。 */
+    if (perWorkflow.every((admission) => admission.reason === first.reason)) {
+      return { allowed: false, reason: first.reason };
+    }
+    return {
+      allowed: false,
+      reason: `当前账户在全部 ${workflowCatalog.length} 条编排的入口责任位上都没有执行权限，因此无法创建任务。需要创建时，请让在目标编排的入口责任位上持有「可执行」权限的责任人操作。`,
+    };
+  }, [canCreateWith, workflowCatalog]);
 
   /* 治理动作的责任位准入：与后端 handler 的分档逐条对应。
      后端在 2026-10 补齐了治理写路由的责任位闸门（见 §12.23.31 / §12.23.32），

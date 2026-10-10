@@ -71,7 +71,15 @@ export function NewTaskDialog({
      名字里的用户段取自**当前登录身份**（actor）：多用户下若用固定常量，
      所有人的默认分支都会顶着同一个人的名字，归属失真且易于撞名。 */
   const [targetBranch, setTargetBranch] = useState(() => defaultTargetBranch(existingBranches, new Date(), actor));
-  const [wf, setWf] = useState<Workflow>(workflows[0] ?? workflowTemplates[0]!);
+  /* 默认编排取**本账户有权创建的第一条**，而不是目录里的第一条。
+     缺陷 #30 的另一半：侧栏放行后对话框能打开了，但若仍默认选中第一条
+     （很可能是本账户无权的那条），用户一进来看到的就是置灰的「创建任务」，
+     还得自己展开编排选择器去找有权的那条——等于把问题从门口挪到屋里。
+     目录里第一条常常是无授权的（新发布的编排尚未发授权），因此这不是边缘情形。
+     惰性初始化与上面的 targetBranch 同理：只在挂载时算一次，之后由用户的选择说了算。 */
+  const [wf, setWf] = useState<Workflow>(() =>
+    workflows.find((item) => canCreateWith(item.id).allowed) ?? workflows[0] ?? workflowTemplates[0]!,
+  );
   const [serverValidation, setServerValidation] = useState<WorkflowValidation | null>(null);
   const [submitting, setSubmitting] = useState(false);
   /* 工作流是可选检查项而非必经步骤：默认折叠，保持创建是「一段描述 + 仓库/分支」的单屏动作 */
