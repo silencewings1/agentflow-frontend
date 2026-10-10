@@ -186,6 +186,34 @@ assert.ok(/seeded/.test(backendFn) && /seeded/.test(frontendFn),
   "空目录的说明必须指出 account_settings.singleton.seeded（否则运维不知道如何触发重新播种）");
 assert.ok(/node_grants/.test(backendFn) && /node_grants/.test(frontendFn),
   "无管理者的说明必须指出 node_grants（否则运维不知道该检查哪里）");
+/* (c2) 「改 seeded」这条处置必须同时给出**重启**这一步。
+   为什么：seeded 只能经**编辑存储文件**置为 false（经 API 无写入口，seedAccounts
+   只会把它写成 true），而 storage-json 的 unit 一旦打开就保持句柄、只在打开时读盘
+   （实测：同一已打开的 unit 再读仍是旧值，新 backend 才读到新值）。
+   因此运维照指令改完文件而不重启，编辑**完全无效**，实例继续以空目录运行、
+   每次写操作仍以 AF_ACTOR_UNKNOWN 失败——而指令没提重启。
+   相邻的 no-manager 分支写的是「…后重启」，同一个函数里两个分支措辞不一致，
+   正是这条判据要锁住的形状。 */
+/*   判据必须**只取 empty 分支那一段**：no-manager 分支本来就写着"…后重启"，
+     对整段做 /重启/ 判定会因相邻分支而恒真（本判据第一版就犯了这个错，
+     注入去掉 empty 分支的重启步骤后仍然通过）。
+     因此先按 `code: 'empty'` 定位到该分支的 reason 片段，再在其中找"重启"。 */
+const emptyBranchOf = (src: string): string => {
+  const at = src.indexOf("code: 'empty'") >= 0 ? src.indexOf("code: 'empty'") : src.indexOf('"empty"')
+  assert.ok(at >= 0, "必须能定位到 empty 分支（否则这条判据无从施加）")
+  const after = src.slice(at)
+  const next = after.indexOf("code: 'no-manager'")
+  return next >= 0 ? after.slice(0, next) : after.slice(0, 1200)
+}
+for (const [src, label] of [[backendFn, "后端"], [frontendFn, "前端 fixture"]] as const) {
+  const emptyBranch = emptyBranchOf(src)
+  assert.ok(/seeded/.test(emptyBranch), `${label}：empty 分支必须提到 seeded`)
+  assert.ok(
+    /重启/.test(emptyBranch),
+    `${label}：empty 分支的处置必须写明「重启进程」——seeded 只能经编辑存储文件修改，`
+    + "而存储 unit 只在打开时读一次该标记，不重启则编辑无效",
+  )
+}
 assert.ok(/self不|自救/.test(backendFn) && /自救/.test(frontendFn),
   "无管理者的说明必须点明「无法通过界面自救」，否则运维会反复尝试界面操作");
 

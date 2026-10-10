@@ -197,7 +197,7 @@ export function directoryHealthFor(
       healthy: false,
       code: "empty",
       reason:
-        "账户目录为空：没有任何已登记身份，因此任何写操作都无法通过身份校验，也无法创建第一个账户（创建本身就需要已登记身份）。这通常意味着存储文件被外部改坏；请把 account_settings.singleton.seeded 置为 false 触发重新播种，或从备份恢复 af_governance.json。",
+        "账户目录为空：没有任何已登记身份，因此任何写操作都无法通过身份校验，也无法创建第一个账户（创建本身就需要已登记身份）。这通常意味着存储文件被外部改坏；请把 account_settings.singleton.seeded 置为 false 后**重启进程**触发重新播种——存储 unit 只在打开时读一次该标记，不重启则编辑无效；或从备份恢复 af_governance.json。",
     };
   }
   const hasRealManager = accounts.some(
