@@ -109,6 +109,7 @@ export function SettingsOverlay({
   workflows,
   onRefreshAccounts,
   onCreateAccount,
+  onUpdateAccount,
   onSetAccountState,
   onSetGrant,
 }: {
@@ -137,6 +138,7 @@ export function SettingsOverlay({
   workflows: Workflow[];
   onRefreshAccounts: () => Promise<void>;
   onCreateAccount: (input: AccountInputDto) => Promise<void>;
+  onUpdateAccount: (accountId: string, input: Partial<AccountInputDto>) => Promise<void>;
   onSetAccountState: (accountId: string, state: AccountDto["state"]) => Promise<void>;
   onSetGrant: (input: {
     accountId: string;
@@ -213,6 +215,7 @@ export function SettingsOverlay({
                 onToast={onToast}
                 onRefresh={onRefreshAccounts}
                 onCreateAccount={onCreateAccount}
+                onUpdateAccount={onUpdateAccount}
                 onSetAccountState={onSetAccountState}
                 onSetGrant={onSetGrant}
               />

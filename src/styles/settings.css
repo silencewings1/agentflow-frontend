@@ -717,6 +717,31 @@
   gap: 12px;
 }
 
+/* 编辑表单：与「新建」用同一套 .form 骨架，只有两点不同。
+   1. 排布在详情列顶部而非左列列表里，因此给它一个上边距与**实线**描边：
+      实线表示"这是对已有事实的修改"，虚线（新建表单）表示"这是一件还没发生的事"。
+      形态差异先于颜色差异，与仓库既有的做法一致。
+   2. 登录标识是只读的，用 `data-fixed` 把"不可改"从"输入框恰好空着"
+      区分出来——只读框沿用 disabled 的视觉，但保留可选中文本供复制。 */
+.form--edit {
+  margin: 12px 0 2px;
+  border-style: solid;
+  border-color: var(--line-2);
+  background: var(--surface-2);
+}
+
+.form__row > input[data-fixed="true"] {
+  color: var(--text-3);
+  background: var(--surface-1);
+  cursor: not-allowed;
+}
+
+.form__note {
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--text-4);
+}
+
 .form__row--top {
   align-items: flex-start;
 }

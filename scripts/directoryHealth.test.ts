@@ -365,8 +365,44 @@ assert.match(
   "「收回」路径的通用文案应保留：它不是错文案，只是覆盖不了另一种成因",
 );
 
+/* ── 账户可修改（缺陷 #66：后端有能力、界面无入口）────────────────────
+   后端的 `PUT /accounts/:id`（`handler.ts:806`）与 `client.updateAccount`
+   早已存在且可用，但界面此前只有"新建账户"表单，没有任何修改入口。
+   后果不是"少个便利功能"：叠加**没有删除账户 API**（开放项 1）与
+   `POST /accounts` 的 handle 查重（命中即 409 AF_ACCOUNT_EXISTS，实测确认），
+   界面上把 `duty` 或 `role` 写错之后**永久错**——既改不回来，也删不掉，
+   连重建同名账户都被句柄唯一性挡住。
+
+   因此断言三件事，缺一条这个入口就名存实亡：
+   （a）界面确实有编辑入口（否则回到缺陷态）；
+   （b）它走的是 `PUT`（updateAccount），而不是复用了新建（那样会撞 409）；
+   （c）`handle` **不被**当作可改字段——它是授权与审计的定位键，
+       允许改会让历史审计里按 handle 记录的行产生歧义；且必须把理由写在界面上。 */
+const membersCode66 = membersPaneCode;
+/* 断言必须盯**调用点**，不能只盯标识符是否出现：
+   第一次写的是 `/onUpdateAccount/`，而该字符串在 props 解构与类型声明里也出现，
+   于是"把按钮改回新建、删掉真正的 PUT 调用"这种注入**不会**让它变红——
+   守卫看似在，实际不承重。改成必须匹配真实调用点 `onUpdateAccount(active.accountId`。 */
+assert.ok(
+  /onUpdateAccount\(active\.accountId/.test(membersCode66),
+  "成员面板必须真的调用 onUpdateAccount(active.accountId, …)：只检查标识符是否出现不够——"
+    + "它在 props 解构里也会出现，删掉真实调用仍会通过。缺这条则写错的 duty/role 永久无法修正",
+);
+assert.ok(
+  /updateAccount\(accountId, input\)/.test(readFileSync(resolve(here, "../src/api/client.ts"), "utf8")),
+  "client 必须提供 updateAccount 且走 PUT /accounts/:id",
+);
+assert.ok(
+  /active\.handle\}`\s+disabled/.test(membersCode66) || /data-fixed="true"/.test(membersCode66),
+  "编辑表单里的登录标识必须是只读的：handle 是授权与审计的定位键，放开修改会让历史审计产生歧义",
+);
+assert.ok(
+  /登录标识是授权与审计的定位键/.test(membersCode66),
+  "登录标识不可改的理由必须写在界面上（不能让输入框凭空消失或静默只读）",
+);
+
 console.log(
   "directoryHealth.test: 前端 fixture 与后端 directoryHealth 判据一致"
     + "（分支 empty/no-manager/ok 齐备、都按 state===active 过滤、只看 manage、"
-    + "不可用分支均给出可执行处置、健康分支 reason 为 null）",
+    + "不可用分支均给出可执行处置、健康分支 reason 为 null；账户可修改入口走 PUT、handle 只读）",
 );

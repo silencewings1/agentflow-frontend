@@ -703,6 +703,21 @@ export default function App() {
     setAccountsData(await afApi.createAccount(input));
   }, []);
 
+  /* 改已有账户的名称 / 职责 / 角色。
+
+     为什么补这个入口：后端的 `PUT /accounts/:id`（`handler.ts:806`）与
+     `client.updateAccount` **早就存在且可用**，但界面只有"新建账户"表单，
+     没有任何入口——于是界面上把 `duty` 或 `role` 写错之后**改不回来**：
+     既没有编辑入口，也**没有删除账户的 API**（见开放项 1），
+     而且 `POST /accounts` 会先按 handle 查重、命中即 `409 AF_ACCOUNT_EXISTS`
+     （实测确认），连"重建一个同名账户"这条路也是堵的。
+
+     这不是"多加一个功能"，而是把一处**能力不对等**补齐：后端具备、界面未暴露，
+     后果是用户在一个不可逆的地方留下永久错误。 */
+  const updateAccount = useCallback(async (accountId: string, input: Partial<AccountInputDto>) => {
+    setAccountsData(await afApi.updateAccount(accountId, input));
+  }, []);
+
   /* 权限被拒时把界面重新对齐到服务端事实。
 
      为什么必须有这一步：前端的写准入闸门（newTaskAdmission、canGovernanceAction、
@@ -2703,6 +2718,7 @@ export default function App() {
           workflows={apiLoad.status === "ready" ? workflowCatalog : EMPTY_WORKFLOWS}
           onRefreshAccounts={async () => { await loadAccounts(); }}
           onCreateAccount={createAccount}
+          onUpdateAccount={updateAccount}
           onSetAccountState={setAccountState}
           onSetGrant={setNodeGrant}
         />

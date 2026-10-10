@@ -96,6 +96,7 @@ export function MembersPane({
   onToast,
   onRefresh,
   onCreateAccount,
+  onUpdateAccount,
   onSetAccountState,
   onSetGrant,
 }: {
@@ -106,6 +107,7 @@ export function MembersPane({
   onToast: Toast;
   onRefresh: () => Promise<void>;
   onCreateAccount: (input: AccountInputDto) => Promise<void>;
+  onUpdateAccount: (accountId: string, input: Partial<AccountInputDto>) => Promise<void>;
   onSetAccountState: (accountId: string, state: AccountDto["state"]) => Promise<void>;
   onSetGrant: (input: {
     accountId: string;
@@ -122,6 +124,14 @@ export function MembersPane({
   const [draftRole, setDraftRole] = useState<AccountRoleDto>("development");
   const [draftDuty, setDraftDuty] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  /* 编辑已有账户的草稿。与"新建"分开持有，因为二者可以同时展开，
+     且编辑必须从**该账户的当前值**起步——若共用一份草稿，切账户时会带着
+     上一个账户的值，改完提交就把 A 的职责写到 B 身上了。
+     `editingId` 指明这份草稿属于哪个账户；与当前选中不一致时不渲染草稿。 */
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDuty, setEditDuty] = useState("");
+  const [editRole, setEditRole] = useState<AccountRoleDto>("development");
 
   /* 空数组回落必须是**稳定引用**：写成 `data?.accounts ?? []` 会在每次渲染
      新建一个数组，让下面所有 useMemo 的依赖每帧都变、缓存彻底失效。 */
@@ -531,6 +541,38 @@ export function MembersPane({
                 </p>
                 <em>{active.duty}</em>
               </div>
+              {/* 编辑入口：与「停用」并列但**排在前面**。
+                  排前面的理由不是重要性，而是**可逆性**——改名称/职责/角色可再次
+                  改回，而停用会改变账户的可登录性。把不可逆的放在更右边，
+                  减少误点代价。
+
+                  它补的是一处能力不对等：后端 `PUT /accounts/:id` 早已存在，
+                  而界面此前只能新建、不能修改；叠加"没有删除账户 API"
+                  （开放项 1）与 `POST /accounts` 的 handle 查重
+                  （命中即 409，实测确认），界面上把 duty 或 role 写错就**永久错**。 */}
+              <button
+                className="btn btn--ghost btn--sm"
+                disabled={!canManage}
+                {...(canManage ? {} : { "data-blocked": "true" })}
+                title={
+                  canManage
+                    ? "修改名称、职责说明与角色；登录标识不可改（它是授权与审计的定位键）"
+                    : "修改账户需要管理权限（在至少一个真实责任位上持有「可编排」）"
+                }
+                onClick={() => {
+                  if (editingId === active.accountId) {
+                    setEditingId(null);
+                    return;
+                  }
+                  /* 草稿从该账户当前值起步，避免"空表单保存成空值" */
+                  setEditName(active.name);
+                  setEditDuty(active.duty);
+                  setEditRole(active.role);
+                  setEditingId(active.accountId);
+                }}
+              >
+                {editingId === active.accountId ? "取消" : "编辑"}
+              </button>
               {/* 停用/恢复是**唯一**会改变账户可登录性的入口，因此它的三种情形
                   都必须显式呈现，不能靠"按钮消失"表达：
 
@@ -607,6 +649,82 @@ export function MembersPane({
                 </button>
               )}
             </header>
+
+            {/* 编辑表单：只在 `editingId` 等于当前选中账户时渲染。
+                这个判据（而不是一个布尔 `editing`）保证切账户时草稿不会串到
+                另一个账户上——用布尔量时，切到 B 而 `editing` 仍为 true，
+                表单会带着 A 的值出现，点保存就把 A 的职责写到 B 身上。
+
+                登录标识不提供编辑：它是授权与审计记录的定位键，
+                改动它会让历史审计里那些按 handle 记录的行产生歧义。
+                不可编辑时要把理由写在界面上，而不是让输入框凭空消失。 */}
+            {editingId === active.accountId && (
+              <form
+                className="form form--edit"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const name = editName.trim();
+                  const duty = editDuty.trim();
+                  /* 与新建同样的判据：`duty` 是"这个人负责什么"的落点，
+                     空值等于在每个账户上盖一条看起来像说明的免责声明。
+                     保存前先挡，而不是提交后被服务端拒。 */
+                  if (name.length === 0 || duty.length === 0) {
+                    onToast({ tone: "warn", title: "保存失败", body: "名称与职责说明都必须填写。" });
+                    return;
+                  }
+                  void run(
+                    `edit-${active.accountId}`,
+                    () =>
+                      onUpdateAccount(active.accountId, {
+                        name,
+                        duty,
+                        ...(editRole === active.role ? {} : { role: editRole }),
+                      }),
+                    () => {
+                      setEditingId(null);
+                      onToast({ tone: "ok", title: "已保存账户", body: `${name} 的资料已更新。` });
+                    },
+                  );
+                }}
+              >
+                <div className="form__row">
+                  <label>名称</label>
+                  <input value={editName} onChange={(event) => setEditName(event.target.value)} />
+                </div>
+                <div className="form__row">
+                  <label>职责说明</label>
+                  <input value={editDuty} onChange={(event) => setEditDuty(event.target.value)} />
+                </div>
+                <div className="form__row">
+                  <label>角色</label>
+                  <div className="permKinds">
+                    {ACCOUNT_ROLE_ORDER.map((role) => (
+                      <button
+                        type="button"
+                        key={role}
+                        className="permKind"
+                        data-on={editRole === role ? "true" : undefined}
+                        onClick={() => setEditRole(role)}
+                      >
+                        {ACCOUNT_ROLE_LABEL[role]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="form__row">
+                  <label>登录标识</label>
+                  <input value={active.handle} disabled readOnly data-fixed="true" />
+                  <em className="form__note">登录标识是授权与审计的定位键，不支持修改。</em>
+                </div>
+                <button
+                  className="btn btn--accent btn--sm"
+                  type="submit"
+                  disabled={busy === `edit-${active.accountId}`}
+                >
+                  {busy === `edit-${active.accountId}` ? "保存中…" : "保存修改"}
+                </button>
+              </form>
+            )}
 
             <div className="permLegend">
               {NODE_PERM_ORDER.map((perm) => (
