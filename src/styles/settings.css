@@ -890,7 +890,11 @@
    那样与非受阻态几乎同形，用户读不出"现在不能做"。
    改用 **--gold 虚框 + 斜线纹理**：--gold 的固定语义就是「受阻 / 待人工介入」
    （非错误，见 AGENTS.md §6.2），纹理是形态差异，对色觉障碍友好。
-   悬停不给出可交互反馈：受阻态不该看起来能点。 */
+
+   cursor 保持 pointer 而不是 not-allowed：这个按钮**确实响应点击**
+   （展开表单，让用户看到要填什么、以及为什么不能提交），真正被拦住的是
+   表单里的写入按钮。写 not-allowed 会让光标与行为互相否认——
+   实测踩过：按钮显示 not-allowed，点下去表单照常展开。 */
 .mpList__add[data-blocked="true"] {
   border-color: color-mix(in oklab, var(--gold) 55%, var(--line));
   border-style: dashed;
@@ -900,12 +904,11 @@
     transparent 0 4px,
     color-mix(in oklab, var(--gold) 14%, transparent) 4px 5px
   );
-  cursor: not-allowed;
 }
 
 .mpList__add[data-blocked="true"]:hover {
-  border-color: color-mix(in oklab, var(--gold) 55%, var(--line));
-  color: var(--text-2);
+  border-color: color-mix(in oklab, var(--gold) 75%, var(--line));
+  color: var(--text);
 }
 
 .mpAdd {

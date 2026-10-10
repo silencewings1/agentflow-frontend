@@ -935,10 +935,19 @@ function ModelsPane({
           {/* 只在「正在新建」时隐藏入口：form 非空只表示正在查看某个已登记供应商，
               不能据此隐藏新增入口，否则有任一供应商后永远无法再登记新的。 */}
           {creating ? null : (
-            /* 前置条件未满足时**照常可点但显式呈现受阻**（AGENTS.md §4.3）：
-               写成 disabled 会让"为什么不能点"无从得知，而模型配置是只有管理者
-               能改的平台级配置，非管理者需要知道该请谁来做，而不是面对一个灰按钮。 */
-            <button className="mpList__add" data-blocked={!canManage} onClick={startCreate}>
+            /* 前置条件未满足时**照常可点但显式呈现受阻**（AGENTS.md §4.3）。
+               这里的"可点"是有意的：展开表单本身无害且有用（用户能看到要填什么、
+               以及为什么现在不能提交），真正不可逆的是**写入**，而写入那一步
+               已在派发前拦住并在按钮上标了 data-blocked。
+               因此按钮上不能写 `cursor: not-allowed`——它确实响应点击。
+               标明受阻用的是 --gold 虚框 + 斜线纹理（形态差异），
+               理由挂在 title 上，点开后表单内的提示会再说一遍。 */
+            <button
+              className="mpList__add"
+              data-blocked={!canManage}
+              title={canManage ? undefined : "模型供应商是平台级配置：登记需要管理权限（在至少一个真实责任位上持有「可编排」）。展开后仍可查看字段，但无法提交。"}
+              onClick={startCreate}
+            >
               <Icon.Plus size={13} />
               登记供应商
             </button>
