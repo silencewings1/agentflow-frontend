@@ -809,7 +809,10 @@ export function MembersPane({
                     ))}
                   </div>
                 </div>
-                <div className="form__row">
+                {/* `form__row--fixed` 供窄屏媒体查询使用：这一行是"只读值 + 较长说明"的
+                    组合，同行放不下时应改为纵向堆叠，而不是把只读值压成 22px 宽
+                    （实测过：600px 视口下输入框被说明文字挤到比自身内容还窄）。 */}
+                <div className="form__row form__row--fixed">
                   <label>登录标识</label>
                   <input value={active.handle} disabled readOnly data-fixed="true" />
                   <em className="form__note">登录标识是授权与审计的定位键，不支持修改。</em>

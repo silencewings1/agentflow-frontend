@@ -36,6 +36,17 @@
   --ease-spring: cubic-bezier(0.34, 1.46, 0.5, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 
+  /* 过渡时长阶梯。历史上 trust.css / workflow.css 有 6 处写成 `var(--t-fast)`，
+     但该令牌从未定义、也没写 fallback，于是**整条 transition 声明失效**
+     （`transition: transform var(--t-fast)` 解析失败 ⇒ 属性突变、无过渡）。
+     不写 fallback 正是本仓库的要求（§九「令牌缺失时写 var(--x, fallback) 掩盖」被禁止），
+     所以正确做法是补齐令牌本身，而不是给使用处加兜底。
+     取值按既有动效节奏对齐：快速反馈 0.14s（悬停/箭头旋转）、
+     常规 0.22s（面板与描边）、缓慢 0.5s（主题切换）。 */
+  --t-fast: 0.14s;
+  --t-base: 0.22s;
+  --t-slow: 0.5s;
+
   --accent-h: 214;
   --accent-s: 92%;
 }

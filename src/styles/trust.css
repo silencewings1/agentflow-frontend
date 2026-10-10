@@ -1213,7 +1213,7 @@
   margin-left: auto;
   flex: none;
   font-size: 10px;
-  color: var(--text-5, var(--text-4));
+  color: var(--text-4);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1641,7 +1641,7 @@
   place-items: center;
   height: 14px;
   margin-left: 26px;
-  color: var(--text-5, var(--text-4));
+  color: var(--text-4);
 }
 
 .archLayer {

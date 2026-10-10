@@ -612,7 +612,11 @@
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background: var(--surface);
-  font-family: var(--mono);
+  /* 模型 id（如 `deepseek-chat`）是代码型标识，按 §6.3 应当用等宽字体。
+     原先写的是 `var(--mono)`——该令牌**从未定义**，且没写 fallback，
+     于是解析失败、字体静默继承父级，标识与正文用同一套字体
+     （表现为「等宽」这个设计意图完全没生效）。令牌真名是 `--font-mono`。 */
+  font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--text);
   cursor: pointer;
@@ -740,6 +744,54 @@
   font-style: normal;
   font-size: 10.5px;
   color: var(--text-4);
+  /* 说明文字不得把同行的输入框挤没。
+
+     `.form__row` 是 flex 且默认 `flex-shrink: 1`，因此这段较长的中文
+     会与输入框**争宽度**：视口收窄到 600px 时「登录标识」输入框被压到
+     22px——比它自己的内容还窄，看上去像个装饰块而不是一个可读的字段。
+     实测（1440→480）：151 / 151 / 293 / 177 / **22 / 22**。
+
+     两点约束：
+     1. 输入框是**信息载体**，说明文字是**辅助**：窄屏时优先牺牲辅助，
+        因此给输入框 `flex: none`（不参与压缩）、给说明 `flex: 1 1 auto`
+        并允许折行。
+     2. 说明文字自身的宽度上限用 `max-width` 表达而不是固定宽度——
+        固定宽度会在更窄的视口下反过来溢出容器。 */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 26ch;
+  overflow-wrap: anywhere;
+}
+
+/* 只读的「登录标识」必须**尽量完整可读**：它是授权与审计的定位键，
+   用户要能照着核对（handle 合法长度上限 200，见 handler.ts 的
+   `accountHandleSchema.max(200)`）。
+
+   注意这里不能用固定宽度（试过 `width: 15ch`）：`chenshuo@agentflow.dev`
+   就已经放不下，用户只能看到一个被截断的前缀——而这是**只读**值，
+   截断后没有任何办法看到全貌。因此改为"吃掉剩余空间"：
+   输入框 `flex: 1 1 auto` 增长，说明文字让位（它本身可折行、且有 max-width）。 */
+.form__row > input[data-fixed="true"] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 低于该宽度时改为纵向堆叠：同行已放不下"输入框 + 完整说明"，
+   继续并排只会把两者都压扁。堆叠后输入框恢复占满整行，说明落在其下。 */
+@media (max-width: 640px) {
+  .form__row--fixed {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .form__row--fixed > input[data-fixed="true"] {
+    width: 100%;
+  }
+
+  .form__row--fixed > .form__note {
+    max-width: none;
+  }
 }
 
 .form__row--top {
