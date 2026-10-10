@@ -220,12 +220,29 @@ assert.ok(
 /* 断言必须锚在 `return refs` 这个**取值来源**上，而不是范围里是否出现过 refs。
    第一版写成 /const assignable[\s\S]{0,400}refs/，结果注入"改成任意目标"后仍然全绿——
    因为 useMemo 的依赖数组 `[active, refs, grantIndex]` 里还有一个 refs。
-   那是依赖声明，不是取值来源；断言落在它上面就钉不住真正要防的事。 */
+   那是依赖声明，不是取值来源；断言落在它上面就钉不住真正要防的事。
+
+   第三版（本节修订）：成员面板改为"矩阵始终列出全部责任位"，
+   旧的两段式（已授权矩阵 + 未授权 chips）连同 `assignable` 一起删除。
+   取值来源因此移到 `nodeGroups`。
+   **并且新增一条独立断言**：授权入口不得对责任位做数量截断——
+   旧实现是 `.slice(0, 12)`，那意味着编排节点多于 12 个时有节点在界面上无法授权
+   （缺陷 #55）。仅断言"return refs"钉不住截断，因为 `.filter(...).slice(0,12)`
+   同样以 refs 结尾；必须另有一条针对 `.slice(` 的断言。 */
 assert.ok(
-  /const assignable[\s\S]{0,400}?return refs\b/.test(membersPane),
-  "授权入口（assignable）必须 `return refs`——这是「前端不过滤 realSlots 仍与后端等价」"
+  /const nodeGroups[\s\S]{0,600}?of refs\b/.test(membersPane),
+  "责任位矩阵必须遍历 `refs` 全集——这是「前端不过滤 realSlots 仍与后端等价」"
     + "的唯一依据。若授权入口改为接受任意 workflowId/nodeId，"
     + "必须在 client.ts 的 holdsManageGrant 补上 realSlots 过滤，否则演示模式与真实后端分叉",
+);
+assert.ok(
+  !/const nodeGroups[\s\S]{0,600}?\.slice\(/.test(membersPane),
+  "责任位矩阵不得对节点做数量截断：矩阵是界面上唯一的授权入口，"
+    + "截断会让被截掉的节点在界面上永远无法授权，而后端接受该写入（缺陷 #55）",
+);
+assert.ok(
+  /const assignable[\s\S]{0,400}?\.slice\(/.test(membersPane) === false,
+  "不得再引入被截断的授权入口（缺陷 #55 回归防线）",
 );
 assert.ok(
   /function nodeRefs[\s\S]{0,400}workflow\.nodes\.map/.test(membersPane),

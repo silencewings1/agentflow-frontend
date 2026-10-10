@@ -1869,16 +1869,17 @@
 .memberList {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin: 8px 0 14px;
+  gap: 3px;
+  margin: 5px 0 9px;
 }
 
 .memberRow {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  /* glyph | 姓名+标识 | 停用徽标 */
+  grid-template-columns: 26px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+  gap: 9px;
+  padding: 6px 9px;
   border-radius: var(--r-sm);
   border: 1px solid transparent;
   text-align: left;
@@ -1897,8 +1898,8 @@
 }
 
 .memberRow__glyph {
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   display: grid;
   place-items: center;
   border-radius: var(--r-sm);
@@ -1914,10 +1915,15 @@
 .memberRow__glyph[data-tint="plum"] { --layer: var(--plum); }
 .memberRow__glyph[data-tint="azure"] { --layer: var(--azure); }
 
+/* 账户行：姓名与登录标识**同一行**。
+   两行式排布（姓名一行、handle 一行）在 10 个账户下每行多占约 16px，
+   而它换来的信息量为零——handle 是窄体等宽、与姓名并排时本就一眼可分。
+   8 个角色组里有 5 组只含 1 个账户，两行式会让"分组标签 + 组间距"合计
+   超过账户行本身占据的高度，读者反而更难扫到人。 */
 .memberRow__body {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  align-items: baseline;
+  gap: 7px;
   min-width: 0;
 }
 
@@ -1925,6 +1931,7 @@
   font-size: var(--step-0);
   font-weight: 550;
   color: var(--text);
+  flex: none;
 }
 
 .memberRow__body i {
@@ -1933,7 +1940,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
+
+/* 曾有一个"窄屏才显示的角色徽标"，已删除：实测它在 900px 下 10/10 行
+   的文字都与该行正上方的分组标签完全相同 —— 因为窄屏只是把两列叠成一列，
+   分组标签依然渲染。一个只为重复信息而存在的元素，删掉比解释便宜。 */
 
 .memberRow__flag {
   font-size: var(--step--2);
@@ -1952,7 +1964,7 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 8px 12px;
+  padding: 7px 11px;
   border-radius: var(--r-sm);
   border: 1px dashed var(--line-2);
   color: var(--text-2);
@@ -2116,6 +2128,37 @@
   margin: 10px 0 6px;
 }
 
+/* 覆盖度摘要：把"分子/分母是什么"写在数字旁边。
+   只写「责任位覆盖 3」时读者会当成完成度，而这里的分母是**本套编排的全部责任位**，
+   与"这个人有多少权限"是两件事（见 App.tsx 侧栏那句「含仅可见」的同理注释）。 */
+.permSummary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin: 2px 0 10px;
+  font-size: var(--step--1);
+  color: var(--text-2);
+}
+
+.permSummary b {
+  font-family: var(--font-mono);
+  font-weight: 550;
+  font-size: var(--step-0);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.permSummary i {
+  font-style: normal;
+  color: var(--text-4);
+}
+
+.permSummary span {
+  font-size: var(--step--2);
+  color: var(--text-4);
+}
+
 .permMatrix {
   display: flex;
   flex-direction: column;
@@ -2128,10 +2171,13 @@
 /* 发丝分隔：间隙露出底色 */
 .permRow {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  /* 第三列是"收回"的固定位。给它固定宽度而不是让按钮随内容浮动的理由：
+     收回按钮若按内容宽度参与布局，各行会因节点名长短出现不同的右边界，
+     四列权限格就对不齐了——而矩阵的全部价值就在纵向对齐。 */
+  grid-template-columns: minmax(0, 1fr) auto 26px;
   align-items: center;
-  gap: 16px;
-  padding: 11px 16px;
+  gap: 14px;
+  padding: 9px 14px;
   background: var(--bg);
   transition: background 0.22s var(--ease-out);
 }
@@ -2142,6 +2188,46 @@
 
 .permRow:hover {
   background: color-mix(in oklab, var(--surface-2) 55%, var(--bg));
+}
+
+/* 收回入口：默认低对比，悬停行时才明显。
+   不做成常亮红按钮——矩阵里大部分行是正常授权，常亮红会把"收回"渲染成主操作，
+   而它其实是**后果更重**的那个（节点失去操作者，编排可能因此进不去）。 */
+.permRow__revoke {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-xs);
+  border: 1px solid transparent;
+  color: var(--text-4);
+  opacity: 0;
+  transition: opacity 0.2s var(--ease-out), color 0.2s var(--ease-out),
+    border-color 0.2s var(--ease-out), background 0.2s var(--ease-out);
+}
+
+.permRow:hover .permRow__revoke,
+.permRow__revoke:focus-visible {
+  opacity: 1;
+}
+
+/* 键盘与触屏没有"悬停"，因此焦点态与粗指针设备下必须常显：
+   藏在 hover 后面的操作在触屏上等于不存在。 */
+@media (hover: none) {
+  .permRow__revoke {
+    opacity: 1;
+  }
+}
+
+.permRow__revoke:hover {
+  color: var(--rose);
+  border-color: color-mix(in oklab, var(--rose) 38%, var(--line));
+  background: color-mix(in oklab, var(--rose) 8%, transparent);
+}
+
+.permRow__revoke:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 1px;
 }
 
 .permRow__node {
@@ -2182,21 +2268,29 @@
   gap: 8px;
 }
 
+/* 三种格子形态必须互相可辨，且**形态差异先于颜色差异**：
+     · 未授权   → 虚线边框、无底色          「这里空着，点了就授予」
+     · 已涵盖   → 无边框、该档位的稀释底色   「已被更高级别含住」
+     · 命中     → 实线边框、该档位的饱和底色 + ✓
+   矩阵里绝大多数格是空的，只用底色深浅区分时，色觉障碍读者与低对比环境都无法
+   分辨「这格没授权」与「这格是已授权档位的下级」——而这两件事的后果完全不同
+   （前者点了会写授权，后者点了会降档）。 */
 .permCell {
   width: 38px;
   height: 28px;
   display: grid;
   place-items: center;
   border-radius: var(--r-xs);
-  border: 1px solid var(--line-2);
+  border: 1px dashed var(--line-2);
   background: color-mix(in oklab, var(--surface-1) 70%, transparent);
   color: var(--bg);
   transition: background 0.2s var(--ease-out), border-color 0.2s var(--ease-out),
-    transform 0.2s var(--ease-spring);
+    border-style 0.2s var(--ease-out), transform 0.2s var(--ease-spring);
 }
 
 .permCell:hover {
   border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
+  border-style: solid;
   transform: translateY(-1px);
 }
 
@@ -2207,6 +2301,7 @@
 
 /* 命中格：按权限等级着色（视觉语义 = 图例） */
 .permCell[data-on="true"] {
+  border-style: solid;
   border-color: color-mix(in oklab, var(--swatch, var(--accent)) 55%, transparent);
   background: color-mix(in oklab, var(--swatch, var(--accent)) 78%, transparent);
 }
@@ -2216,9 +2311,15 @@
 .permCell[data-on="true"][data-perm="approve"] { --swatch: var(--sage); }
 .permCell[data-on="true"][data-perm="manage"] { --swatch: var(--plum); }
 
-/* 低于当前等级的格：染对应权限色的稀释版（色相准确、形态弱于命中） */
+/* 低于当前等级的格：染对应权限色的稀释版（色相准确、形态弱于命中）。
+   注意 `[data-below-perm]` 这一层选择器是**必须**的：它由 JSX 按格子自身的档位
+   写入，正是它让"已被当前等级涵盖的下级"能显示成"可执行级的下级""可裁决级的下级"。
+   早期版本只设 `data-below` 不设 `data-below-perm`，于是下面四条规则永不命中，
+   降级格与"完全未授权"在界面上看起来完全相同——而图例明写「高级含低级」，
+   读矩阵的人会据此误判自己已经覆盖了哪些档位。 */
 .permCell[data-below="true"] {
   border-color: transparent;
+  border-style: solid;
 }
 
 .permCell[data-below="true"][data-below-perm="view"] {
@@ -2237,6 +2338,10 @@
   background: color-mix(in oklab, var(--plum) 16%, transparent);
 }
 
+.permCell:hover[data-below="true"] {
+  border-color: color-mix(in oklab, var(--accent) 30%, transparent);
+}
+
 /* 非法组合：形态差异先于颜色差异 —— 直接禁用手势 */
 .permCell[data-illegal="true"] {
   border-style: dashed;
@@ -2251,40 +2356,9 @@
   border-color: var(--line);
 }
 
-/* 可授权节点 chips */
-
-.permAdd {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px 0 4px;
-}
-
-.permAdd__chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line-2);
-  background: color-mix(in oklab, var(--surface-1) 60%, transparent);
-  font-size: var(--step--1);
-  color: var(--text-2);
-  transition: border-color 0.2s var(--ease-out), color 0.2s var(--ease-out),
-    background 0.2s var(--ease-out);
-}
-
-.permAdd__chip i {
-  font-style: normal;
-  font-size: var(--step--2);
-  color: var(--text-4);
-}
-
-.permAdd__chip:hover {
-  color: var(--accent-text);
-  border-color: color-mix(in oklab, var(--accent) 36%, var(--line));
-  background: color-mix(in oklab, var(--accent) 6%, transparent);
-}
+/* 可授权节点 chips 的样式已移除：矩阵现在始终列出全部责任位，
+   不再有"把未授权节点加进矩阵"这一步，chips 组件随之删除（缺陷 #55 的修复）。
+   留一段说明而不是静默删掉，是为了让读者知道这里曾有过什么、为什么没有了。 */
 
 /* 审计记录 */
 
@@ -2375,14 +2449,19 @@
 }
 
 /* 覆盖通用 .split 的两列比例。通用比例（1fr | 268px）是为"窄侧栏"设计的，
-   但成员面板右列是授权矩阵：它要同时放下节点名、编排标识与四级权限格，
+   但成员面板右列是授权矩阵：它要同时放下节点名、编排标识、四级权限格与收回入口，
    268px 会把节点名挤成逐字换行、把 workflowId 折成四行——信息还在，
-   却读不出来。这里给右列一个按可用宽度伸缩的上限，并给左列设下限，
-   使账户名与登录标识始终单行可读。 */
+   却读不出来。反之左列太窄会把 handle 截断，而 handle **就是登录身份**，
+   截断它等于把"这个人是谁"变成"这个人是 chenshuo@agentflow.d…"。
+
+   因此左列的下限由**最长内容**决定，不是一个好看的比例：
+   实测「陈硕 chenshuo@agentflow.dev」单行需要 145px 的 handle + 26px 图标
+   + 9px 间距 + 18px 内边距 ≈ 275px，取 280px 作为下限（宁可略宽也不截断身份）。
+   上限不设死：宽屏下让余量按比例分配，矩阵仍拿到更大份额。 */
 .sheet__body[data-pane="members"] .split {
   height: 100%;
   align-items: stretch;
-  grid-template-columns: minmax(220px, 0.85fr) minmax(0, 1.35fr);
+  grid-template-columns: minmax(280px, 0.78fr) minmax(0, 1.22fr);
 }
 
 .sheet__body[data-pane="members"] .split__list {
@@ -2426,8 +2505,7 @@
   color: var(--text-1);
 }
 
-.permAudit__empty,
-.permAdd__empty {
+.permAudit__empty {
   margin: 0;
   padding: 10px 2px;
   color: var(--text-3);
@@ -2448,10 +2526,6 @@
   border-left: 2px solid color-mix(in oklab, var(--gold) 45%, transparent);
   border-radius: 0 var(--r-xs) var(--r-xs) 0;
   font-variant-numeric: tabular-nums;
-}
-
-.permAdd__empty {
-  padding: 2px;
 }
 
 /* 矩阵在写入期间整体降透明：让「正在提交」与「可以继续点」在视觉上互斥，

@@ -163,27 +163,38 @@ export function MembersPane({
     [grantIndex],
   );
 
-  /** 已授权的责任位，按编排分组 —— 矩阵只显示"这个人实际被分到了什么"。 */
-  const assigned = useMemo(() => {
-    if (!active) return [];
-    const mine = refs.filter((ref) => grantIndex.has(`${active.accountId}::${ref.workflowId}::${ref.nodeId}`));
+  /**
+   * 全部责任位，按编排分组 —— 矩阵**始终列出编排里的每一个节点**，
+   * 不论该账户是否已被授权。
+   *
+   * 为什么不做「已授权矩阵 + 未授权 chips」两段式（这是本面板曾经的形态）：
+   *
+   * 1. **授权入口被硬截断就够不着了**。旧实现的未授权列表是 `.slice(0, 12)`，
+   *    而它是界面上**唯一**的授权入口：一旦编排节点数超过 12，第 13 个及以后的
+   *    节点在界面上没有任何入口可被授权，而后端 `POST /grants` 是接受的。
+   *
+   *    诚实标注证据强度：**在当前种子下（3 套编排共 11 个责任位）这条截断
+   *    从未真正触发**（11 ≤ 12），因此它是一个**潜在缺陷**，不是已发生的故障。
+   *    定为缺陷的理由是它的触发条件由**编排规模**决定，而编排是用户可编辑的
+   *    （`workflows.ts` 的编辑函数就允许加节点）：种子大小不是安全边界，
+   *    「后端能做、界面做不到」这层性质与当前有几个节点无关。
+   *
+   * 2. **两段式让"没授权"与"没这个节点"看起来一样**。未授权节点进的是
+   *    底部的 chips，与矩阵不同构；读者要跨两个区块才能拼出"这个人在这套编排里
+   *    到底占哪些位、空着哪些位"。责任位是同一张表，就该用同一张表表达。
+   *
+   * 3. 编制变了（新增编排/节点）时矩阵自动跟着长，不需要用户先"把节点加进来"。
+   */
+  const nodeGroups = useMemo(() => {
     const byWorkflow = new Map<string, { workflowName: string; nodes: NodeRef[] }>();
-    for (const ref of mine) {
+    for (const ref of refs) {
       if (!byWorkflow.has(ref.workflowId)) {
         byWorkflow.set(ref.workflowId, { workflowName: ref.workflowName, nodes: [] });
       }
       byWorkflow.get(ref.workflowId)!.nodes.push(ref);
     }
     return [...byWorkflow.entries()].map(([workflowId, group]) => ({ workflowId, ...group }));
-  }, [active, refs, grantIndex]);
-
-  /** 尚未授予的责任位（"可授权节点"区）。 */
-  const assignable = useMemo(() => {
-    if (!active) return [];
-    return refs
-      .filter((ref) => !grantIndex.has(`${active.accountId}::${ref.workflowId}::${ref.nodeId}`))
-      .slice(0, 12);
-  }, [active, refs, grantIndex]);
+  }, [refs]);
 
   const canManage = actor?.canManageAccounts === true;
   /* 目录可用性由后端判定（判据只有一份：空目录 / 无人在职持 manage）。
@@ -222,14 +233,35 @@ export function MembersPane({
     }
   };
 
-  const cycle = (ref: NodeRef) => {
+  /**
+   * 直接设定责任位档位。
+   *
+   * 旧实现是"点任意一格就按 可见→可执行→可裁决→可编排→收回 循环"，
+   * 四个格子共用一个 `cycle()`。那有两条真实问题：
+   *
+   * 1. **格子看起来像选择器，行为却是步进器**。四个格子并排、每格一个权限名，
+   *    任何人都会认为"点第 3 格 = 设为可裁决"。实际点第 3 格可能是"降到第 2 档"
+   *    或"从可执行升到可裁决"，取决于当前值 —— 用户必须先在脑内算出当前位置，
+   *    再数一下要点几次。四格矩阵的全部价值就是"一眼选定"，循环把它抵消了。
+   * 2. **"收回"没有自己的位置**。它被藏在循环末尾，只能靠连点到达；
+   *    而"收回授权"与"调整档位"是**后果不同**的两件事（前者让节点失去操作者，
+   *    编排会因此进不去），不该由点击次数区分。
+   *
+   * 现在：点某格 = 设为该档；点当前已命中的格 = 收回。收回保留原有的一次确认语义，
+   * 通过单独按钮与明确的 toast 文案表达。
+   */
+  const setPerm = (ref: NodeRef, next: NodePermDto | null) => {
     if (!active) return;
     const current = grantFor(active.accountId, ref);
-    /* 四级循环 → 收回：loop 到 manage 再点一次就是"收回授权"。
-       把收回放在循环末尾而不是单独按钮，是因为它和升降级是同一件事的程度变化。 */
-    const ladder: (NodePermDto | null)[] = [...NODE_PERM_ORDER, null];
-    const next = current === null ? "view" : ladder[ladder.indexOf(current.perm) + 1] ?? null;
-    const label = next === null ? "收回授权" : current === null ? `授予「${NODE_PERM_LABEL[next]}」` : `调整为「${NODE_PERM_LABEL[next]}」`;
+    /* 无变化就不发请求：重复点同一格会产生一条 `reaffirm` 审计，
+       而审计表只增不删——"用户点重了"不该在治理事实上留下一条变更记录。 */
+    if (current?.perm === next) return;
+    const label =
+      next === null
+        ? "收回授权"
+        : current === null
+          ? `授予「${NODE_PERM_LABEL[next]}」`
+          : `调整为「${NODE_PERM_LABEL[next]}」`;
     void run(
       `${active.accountId}-${ref.workflowId}-${ref.nodeId}`,
       () => onSetGrant({
@@ -242,7 +274,9 @@ export function MembersPane({
       () => onToast({
         tone: next === null ? "warn" : "ok",
         title: label,
-        body: `${active.name} × ${ref.nodeName}（${ref.workflowName}）`,
+        body: next === null
+          ? `${active.name} × ${ref.nodeName}（${ref.workflowName}）· 该责任位已无操作者`
+          : `${active.name} × ${ref.nodeName}（${ref.workflowName}）`,
       }),
     );
   };
@@ -449,10 +483,33 @@ export function MembersPane({
                 </p>
                 <em>{active.duty}</em>
               </div>
-              {active.state === "active" && active.accountId !== actor.accountId ? (
+              {/* 停用/恢复是**唯一**会改变账户可登录性的入口，因此它的三种情形
+                  都必须显式呈现，不能靠"按钮消失"表达：
+
+                   1. 不能停用自己 —— 旧实现直接不渲染按钮。按钮凭空消失时，
+                      读者不知道是"我没有这个权限""这个人特殊"还是"界面出错"；
+                      而按本仓库 §4.3「前置条件未满足必须显式受阻，而不是照常可点」，
+                      正确做法是保留按钮但置为受阻并写明原因。
+                   2. 已停用 → 恢复。
+                   3. 可停用 → 停用。
+
+                  `title` 说明后果而不是复述动作名：停用不影响历史授权与审计，
+                  这是判断"能不能安全停用"的关键信息。 */}
+              {active.accountId === actor.accountId ? (
+                <button
+                  className="btn btn--ghost btn--sm"
+                  disabled
+                  aria-disabled="true"
+                  data-blocked="true"
+                  title="不能停用当前登录的账户"
+                >
+                  停用
+                </button>
+              ) : active.state === "active" ? (
                 <button
                   className="btn btn--ghost btn--sm"
                   disabled={!canManage || busy === `state-${active.accountId}`}
+                  title="停用后该账户不能登录；历史授权与审计保留"
                   onClick={() =>
                     void run(
                       `state-${active.accountId}`,
@@ -467,10 +524,11 @@ export function MembersPane({
                 >
                   停用
                 </button>
-              ) : active.state === "suspended" ? (
+              ) : (
                 <button
                   className="btn btn--ghost btn--sm"
                   disabled={!canManage || busy === `state-${active.accountId}`}
+                  title="恢复后该账户可以重新登录；停用期间的授权不回滚"
                   onClick={() =>
                     void run(
                       `state-${active.accountId}`,
@@ -481,7 +539,7 @@ export function MembersPane({
                 >
                   恢复
                 </button>
-              ) : null}
+              )}
             </header>
 
             <div className="permLegend">
@@ -492,9 +550,11 @@ export function MembersPane({
                 </span>
               ))}
               {/* 层级用**权限名**而不是代数表达：`0 < 1 < 2 < 3` 对用户没有意义，
-                  而「可见 < 可执行 < 可裁决 < 可编排」本身就是这套语义的完整说明。 */}
+                  而「可见 < 可执行 < 可裁决 < 可编排」本身就是这套语义的完整说明。
+                  交互说明必须同时写出"怎么授予"与"怎么收回"——只说前者时，
+                  收回授权这条路径只能靠试出来。 */}
               <span className="permLegend__hint">
-                点击调整 · 高级含低级（{NODE_PERM_ORDER.map((perm) => NODE_PERM_LABEL[perm]).join(" < ")}）
+                点格设定档位 · 高级含低级（{NODE_PERM_ORDER.map((perm) => NODE_PERM_LABEL[perm]).join(" < ")}）· 点行尾 ✕ 收回
               </span>
             </div>
 
@@ -506,83 +566,97 @@ export function MembersPane({
                 <p>编排目录尚未就绪，无法列出责任位。</p>
                 <em>责任位来自服务端冻结的编排事实；目录读回后这里会显示全部节点。</em>
               </div>
-            ) : assigned.length === 0 ? (
-              <div className="permEmpty">
-                <Icon.Nodes size={20} />
-                <p>该账户尚未被授予任何节点。</p>
-                <em>从下方「可授权节点」中选择起点 —— 没有操作者的节点不允许进入编排。</em>
-              </div>
             ) : (
-              assigned.map((group) => (
-                <section key={group.workflowId} className="permGroup">
-                  <SectionLabel text={group.workflowName} hint={`${group.nodes.length} 个节点`} />
-                  <div className="permMatrix" data-busy={busy !== null || undefined}>
-                    {group.nodes.map((ref) => {
-                      const current = grantFor(active.accountId, ref);
-                      const key = `${active.accountId}-${ref.workflowId}-${ref.nodeId}`;
-                      return (
-                        <div key={key} className="permRow" data-on={current ? "true" : undefined}>
-                          <div className="permRow__node">
-                            <b>{ref.nodeName}</b>
-                            {/* 行内不再重复 workflowId：它由分组标题承载，每行都相同，
-                                重复只会挤掉区分度更高的 nodeId（requirements-review
-                                这类长 id 会被截成 requirements-re…）。
-                                这里显示 nodeId 而非中文名，是因为授权键的后半段就是它，
-                                排查「这条授权落在哪个责任位」时要能与接口原样对上。 */}
-                            <i className="mono">{ref.nodeId}</i>
-                            {ref.gate && <i className="mono">门禁 · {ref.gate}</i>}
-                            {ref.approval && <i className="permRow__human">人工判定</i>}
+              <>
+                {/* 覆盖度必须先说清楚"分子分母是什么"。只说「已覆盖 3 个」时，
+                    读者会把它当成完成度；而这里的分母是**本套编排的全部责任位**，
+                    与"这个人有多少权限"是两件事。 */}
+                <p className="permSummary">
+                  责任位覆盖 <b>{refs.filter((ref) => grantFor(active.accountId, ref) !== null).length}</b>
+                  <i>/</i>
+                  {refs.length}
+                  <span>未授权的责任位在网格里以虚线格呈现，点击即可授予</span>
+                </p>
+                {nodeGroups.map((group) => (
+                  <section key={group.workflowId} className="permGroup">
+                    <SectionLabel
+                      text={group.workflowName}
+                      hint={`${group.nodes.filter((ref) => grantFor(active.accountId, ref) !== null).length}/${group.nodes.length} 已授权`}
+                    />
+                    <div className="permMatrix" data-busy={busy !== null || undefined}>
+                      {group.nodes.map((ref) => {
+                        const current = grantFor(active.accountId, ref);
+                        const key = `${active.accountId}-${ref.workflowId}-${ref.nodeId}`;
+                        return (
+                          <div key={key} className="permRow" data-on={current ? "true" : undefined}>
+                            <div className="permRow__node">
+                              <b>{ref.nodeName}</b>
+                              {/* 行内不再重复 workflowId：它由分组标题承载，每行都相同，
+                                  重复只会挤掉区分度更高的 nodeId（requirements-review
+                                  这类长 id 会被截成 requirements-re…）。
+                                  这里显示 nodeId 而非中文名，是因为授权键的后半段就是它，
+                                  排查「这条授权落在哪个责任位」时要能与接口原样对上。 */}
+                              <i className="mono">{ref.nodeId}</i>
+                              {ref.gate && <i className="mono">门禁 · {ref.gate}</i>}
+                              {ref.approval && <i className="permRow__human">人工判定</i>}
+                            </div>
+                            <div className="permRow__cells">
+                              {NODE_PERM_ORDER.map((perm) => {
+                                const on = current?.perm === perm;
+                                const below = current !== null && permRank(perm) < permRank(current.perm);
+                                return (
+                                  <button
+                                    key={perm}
+                                    className="permCell"
+                                    data-on={on ? "true" : undefined}
+                                    data-below={below && !on ? "true" : undefined}
+                                    /* `data-below-perm` 必须真实携带档位：CSS 用它给"已被当前
+                                       等级涵盖的下级"染上该档位的稀释色（四条规则见 settings.css）。
+                                       旧实现只设 `data-below` 而不设它，于是那四条规则永不命中，
+                                       降级格与"完全未授权"看起来一模一样——都只剩一个 `·`。
+                                       而图例明写「高级含低级」，读者据此读矩阵会读错。 */
+                                    {...(below && !on ? { "data-below-perm": perm } : {})}
+                                    data-perm={on ? perm : undefined}
+                                    disabled={!canManage || busy === key}
+                                    aria-label={
+                                      on
+                                        ? `${ref.nodeName} 当前为${NODE_PERM_LABEL[perm]}，点击收回授权`
+                                        : `${ref.nodeName} 设为${NODE_PERM_LABEL[perm]}`
+                                    }
+                                    title={
+                                      on
+                                        ? `${NODE_PERM_LABEL[perm]}（当前）· 点击收回`
+                                        : `设为${NODE_PERM_LABEL[perm]}`
+                                    }
+                                    onClick={() => setPerm(ref, perm)}
+                                  >
+                                    {on ? <Icon.Check size={12} /> : below ? <span className="mono">·</span> : null}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {/* 收回是**后果不同**的操作（节点会失去操作者），
+                                因此给它独立出口而不是藏在循环末尾。只在已授权时出现，
+                                避免未授权行挂一个无意义的按钮。 */}
+                            {current !== null && (
+                              <button
+                                className="permRow__revoke"
+                                disabled={!canManage || busy === key}
+                                onClick={() => setPerm(ref, null)}
+                                aria-label={`收回 ${ref.nodeName} 的授权`}
+                                title="收回该责任位的授权"
+                              >
+                                <Icon.X size={11} />
+                              </button>
+                            )}
                           </div>
-                          <div className="permRow__cells">
-                            {NODE_PERM_ORDER.map((perm) => {
-                              const on = current?.perm === perm;
-                              const below = current !== null && permRank(perm) < permRank(current.perm);
-                              return (
-                                <button
-                                  key={perm}
-                                  className="permCell"
-                                  data-on={on ? "true" : undefined}
-                                  data-below={below && !on ? "true" : undefined}
-                                  data-perm={on ? perm : undefined}
-                                  disabled={!canManage || busy === key}
-                                  aria-label={`${ref.nodeName} ${NODE_PERM_LABEL[perm]}`}
-                                  onClick={() => cycle(ref)}
-                                >
-                                  {on ? <Icon.Check size={12} /> : below ? <span className="mono">·</span> : null}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </section>
-              ))
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </>
             )}
-
-            <section className="permGroup">
-              <SectionLabel text="可授权节点" hint="点击加入矩阵" />
-              <div className="permAdd">
-                {assignable.length === 0 ? (
-                  <p className="permAdd__empty">全部责任位都已覆盖。</p>
-                ) : (
-                  assignable.map((ref) => (
-                    <button
-                      key={`${ref.workflowId}-${ref.nodeId}`}
-                      className="permAdd__chip"
-                      disabled={!canManage || busy !== null}
-                      onClick={() => cycle(ref)}
-                      title={`${ref.workflowName} · ${ref.nodeName}`}
-                    >
-                      <Icon.Plus size={11} />
-                      {ref.nodeName}
-                      <i className="mono">{ref.workflowName}</i>
-                    </button>
-                  ))
-                )}
-              </div>
-            </section>
 
             <section className="permGroup">
               <SectionLabel
