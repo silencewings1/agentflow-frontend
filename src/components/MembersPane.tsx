@@ -1009,15 +1009,26 @@ export function MembersPane({
                                     {...(below && !on ? { "data-below-perm": perm } : {})}
                                     data-perm={on ? perm : undefined}
                                     disabled={!canManage || busy === key}
+                                    /* 受阻时**不得**继续宣告"点击将发生什么"。
+                                       实测（非管理者身份）：格子虽然 `disabled`、
+                                       点下去什么都不发生，title 仍写着「设为可执行」
+                                       /「点击收回」——一个不会兑现的动作描述。
+                                       受阻时改为说明**为什么不能**（缺什么权限）。
+                                       这与同面板 编辑/停用 两个按钮的口径一致——
+                                       它们早已有 canManage 分支，矩阵这里漏了。 */
                                     aria-label={
-                                      on
-                                        ? `${ref.nodeName} 当前为${NODE_PERM_LABEL[perm]}，点击收回授权`
-                                        : `${ref.nodeName} 设为${NODE_PERM_LABEL[perm]}`
+                                      !canManage
+                                        ? `${ref.nodeName} · 调整授权需要管理权限`
+                                        : on
+                                          ? `${ref.nodeName} 当前为${NODE_PERM_LABEL[perm]}，点击收回授权`
+                                          : `${ref.nodeName} 设为${NODE_PERM_LABEL[perm]}`
                                     }
                                     title={
-                                      on
-                                        ? `${NODE_PERM_LABEL[perm]}（当前）· 点击收回`
-                                        : `设为${NODE_PERM_LABEL[perm]}`
+                                      !canManage
+                                        ? "调整授权需要管理权限（在至少一个真实责任位上持有「可编排」）"
+                                        : on
+                                          ? `${NODE_PERM_LABEL[perm]}（当前）· 点击收回`
+                                          : `设为${NODE_PERM_LABEL[perm]}`
                                     }
                                     onClick={() => setPerm(ref, perm)}
                                   >
@@ -1034,8 +1045,19 @@ export function MembersPane({
                                 className="permRow__revoke"
                                 disabled={!canManage || busy === key}
                                 onClick={() => setPerm(ref, null)}
-                                aria-label={`收回 ${ref.nodeName} 的授权`}
-                                title="收回该责任位的授权"
+                                /* 与矩阵格同一个口径：受阻时不描述动作，说明原因。
+                                   （该按钮在受阻态下另由 CSS 保持不可见，避免
+                                   `.permRow:hover` 把一个点不动的"危险操作"显形。） */
+                                aria-label={
+                                  canManage
+                                    ? `收回 ${ref.nodeName} 的授权`
+                                    : `${ref.nodeName} · 收回授权需要管理权限`
+                                }
+                                title={
+                                  canManage
+                                    ? "收回该责任位的授权"
+                                    : "收回授权需要管理权限（在至少一个真实责任位上持有「可编排」）"
+                                }
                               >
                                 <Icon.X size={11} />
                               </button>

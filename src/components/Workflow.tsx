@@ -772,6 +772,10 @@ export function WorkflowPicker({
                       className="tag"
                       data-on={node.role === r}
                       disabled={locked}
+                      /* 受阻时必须说明**为什么**：实测冻结编排下这 6 个角色标签
+                         全部 disabled 且 title 为 null，读者点不动却得不到任何解释。
+                         文案指向可执行的出路（复制为新编排），而不只是宣告"不行"。 */
+                      title={locked ? "编排已冻结，角色不可改；如需改动请复制为新编排" : undefined}
                       onClick={() => changeRole(r)}
                     >
                       {roleLabel[r]}
@@ -790,6 +794,7 @@ export function WorkflowPicker({
                         className="profilePick__item"
                         data-on={selectedProfile?.profileId === profile.profileId}
                         disabled={locked}
+                        title={locked ? "编排已冻结，智能体不可改；如需改动请复制为新编排" : undefined}
                         onClick={() => onChange(patchNode(value, node.id, {
                           kind: "ai",
                           agentProfileRef: { profileId: profile.profileId, profileVersion: profile.profileVersion },
@@ -948,7 +953,21 @@ export function WorkflowPicker({
                 <option value="fail">失败回退</option>
                 <option value="approve">人工审批</option>
               </select>
-              <button className="btn btn--outline btn--sm" disabled={locked || edgeFrom === edgeTo} onClick={() => onChange(addWorkflowEdge(value, edgeFrom, edgeTo, edgeKind, edgeKind === "fail" ? "定向返工" : undefined))}>
+              <button
+                className="btn btn--outline btn--sm"
+                disabled={locked || edgeFrom === edgeTo}
+                /* 两种受阻成因处置不同，必须分别说明：编排冻结（去复制新编排）
+                   vs 起终点相同（换一个终点）。实测此前 title 为 null，
+                   读者只看到按钮变灰却不知道为什么。 */
+                title={
+                  locked
+                    ? "编排已冻结，不可加边；如需改动请复制为新编排"
+                    : edgeFrom === edgeTo
+                      ? "边的起点与终点不能相同"
+                      : undefined
+                }
+                onClick={() => onChange(addWorkflowEdge(value, edgeFrom, edgeTo, edgeKind, edgeKind === "fail" ? "定向返工" : undefined))}
+              >
                 <Icon.Plus size={12} /> 添加边
               </button>
             </div>

@@ -667,6 +667,70 @@
   min-width: 0;
 }
 
+/* ------------------------------------------------------------------ *
+ * 受阻控件的统一表达：disabled ≠ 看起来还能点
+ *
+ * `disabled` 只影响点击派发，**不影响渲染**。而本仓库有若干控件本身是"标签/
+ * 卡片"形态（`.tag`、`.profilePick__item`、`.flagBtn`、`.iconBtn`），它们的
+ * 常态样式**本来就是强调色 + 指针**，于是"被禁用"与"可用"在屏幕上完全一致。
+ *
+ * 实测两处（真实后端 + 无头浏览器）：
+ *   ① 成员与权限矩阵·非管理者身份：44 个 `.permCell` 全部 `disabled`，却仍是
+ *      `cursor: pointer`，悬停时边框转 accent 并 `translateY(-1px)` 抬起；
+ *      收回按钮被 `.permRow:hover` 提到 opacity 1 并染上 rose（"危险操作"的红）。
+ *      点下去：无请求、无提示、什么也不发生。
+ *   ② 新建任务·冻结编排：32 个控件（`.tag` 角色标签、`.profilePick__item` 智能体
+ *      卡片等）全部 `disabled`，全部 `opacity: 1` + `cursor: pointer`，
+ *      且**没有任何 title/aria 说明为什么不能点**。面板上写明「展开只用于查看
+ *      节点分工与失败回退」，界面却给出一整屏看起来可点的控件，点击后静默无反应。
+ *
+ * 这正是前端 AGENTS.md §4.3 禁止的形态。比"可点然后报错"更糟：报错至少还说明
+ * 了原因，而这里连"被拒绝"都没有发生。
+ *
+ * 判据：**受阻必须同时改掉三件事——指针、强调色、悬停反馈**。只改一件都不够：
+ * 只换指针，悬停仍会变色的控件看起来像"正在加载"；只去强调色，指针仍暗示可点。
+ * 因此这条规则集中定义一次，全仓同名类共享，避免各处再补一遍（补漏就是这次的成因）。
+ * ------------------------------------------------------------------ */
+.tag:disabled,
+.flagBtn:disabled,
+.iconBtn:disabled,
+.profilePick__item:disabled,
+.choicePick__item:disabled {
+  cursor: not-allowed;
+  /* 压向底噪：保留形状与文字（读者要靠它们看清"这个编排里有什么"），
+     但不再使用任何强调色——强调色在本仓库的固定含义是"可操作/当前"。 */
+  opacity: 0.55;
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--text-4);
+}
+
+/* 悬停不得再有任何反馈：hover 有响应会让"受阻"与"可用"在下一次交互里再次混同。 */
+.tag:disabled:hover,
+.flagBtn:disabled:hover,
+.iconBtn:disabled:hover,
+.profilePick__item:disabled:hover {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--text-4);
+}
+
+/* 选中/已应用状态（`data-on`）在受阻时要保住**信息量**：
+   冻结编排里的角色标签正是靠 `data-on` 告诉读者"这个节点当前承担哪个角色"，
+   压掉它就把"查看节点分工"这件事一起压没了。
+   因此这里只去掉强调**色**、留下强调**形**——用中性描边 + 加粗表达"当前"，
+   与 §6.3「形态差异先于颜色差异」一致。 */
+.tag:disabled[data-on="true"],
+.flagBtn:disabled[data-on="true"],
+.profilePick__item:disabled[data-on="true"] {
+  opacity: 0.8;
+  border-color: var(--line-strong);
+  border-width: 1px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-weight: 600;
+}
+
 .tag {
   display: inline-flex;
   align-items: center;
@@ -2371,6 +2435,23 @@
   opacity: 1;
 }
 
+/* 受阻的收回按钮**不得**随悬停显形。
+
+   `.permRow:hover` 会把它提到 opacity 1，再叠 `.permRow__revoke:hover` 的
+   rose 描边与红底——实测（非管理者身份）它就此变成一个常显的、看起来可点的
+   "危险操作"按钮，而 `disabled` 让它点下去什么都不发生。
+   藏起来比"显形但不可点"更诚实：该行此刻**没有**可用的收回操作，
+   界面就不该给出这个手势。键盘用户仍能聚焦到它并读出 aria-label，
+   因此无障碍路径不丢信息（只是不再用鼠标悬停诱导一次无效点击）。 */
+.permRow:hover .permRow__revoke:disabled,
+.permRow__revoke:disabled:hover {
+  opacity: 0;
+  color: var(--text-4);
+  border-color: transparent;
+  background: transparent;
+  cursor: not-allowed;
+}
+
 /* 键盘与触屏没有"悬停"，因此焦点态与粗指针设备下必须常显：
    藏在 hover 后面的操作在触屏上等于不存在。 */
 @media (hover: none) {
@@ -2452,6 +2533,45 @@
   border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
   border-style: solid;
   transform: translateY(-1px);
+}
+
+/* 受阻态（缺少管理权限 / 正在提交）。
+
+   为什么必须显式写：`.permCell` 与 `.permRow__revoke` 原先**没有**任何
+   `:disabled` 规则，而 disabled 只影响点击派发、不影响渲染。实测（非管理者
+   身份）受阻的格子仍然是 `cursor: pointer`、悬停时边框变成 accent 色并
+   `translateY(-1px)` 抬起；收回按钮更是被 `.permRow:hover` 提到 opacity 1
+   并染上 rose 色（"危险操作"的红）。也就是说：**它看起来完全可用，点下去
+   毫无反应**——既没有请求、也没有提示、什么也不发生。
+
+   这正是前端 AGENTS.md §4.3 最直接禁止的形态（"前置条件未满足的不可逆操作
+   不得看起来可用"），而且比"可点然后报错"更糟：报错至少还告诉用户为什么。
+
+   手法与全仓统一口径一致（`.btn:disabled` 用 opacity + 不再强调，
+   `.memberNew:disabled` 用中性色 + `cursor: not-allowed`）：
+   压向底噪、换掉指针、并**取消一切 hover 强调**——hover 仍然有反馈会让
+   "受阻"与"可用"在下一次交互里再次混同。 */
+.permCell:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.permCell:disabled:hover {
+  border-color: var(--line-2);
+  border-style: dashed;
+  transform: none;
+}
+
+/* 已授权/被涵盖的格子即便受阻也要保住它的**信息量**：那几档是被当前等级
+   涵盖的下级（图例明写「高级含低级」），读者要靠它读矩阵。
+   因此受阻时只压指针与不透明度，不减信息。 */
+.permCell:disabled[data-on="true"],
+.permCell:disabled[data-below="true"] {
+  opacity: 0.62;
+}
+
+.permCell:disabled[data-below="true"]:hover {
+  border-color: transparent;
 }
 
 .permCell:focus-visible {
