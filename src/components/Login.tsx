@@ -67,6 +67,21 @@ export function Login({
 
   const suspended = accounts.filter((account) => account.state === "suspended");
 
+  /* 「另有」的名单必须**排除当前身份**。
+     上方那一句已经写过「当前身份「李雯」已停用，不能登录。」，
+     若这里仍把她算进名单，就会得到：
+
+         当前身份「李雯」已停用，不能登录。…
+         另有 6 个账户已停用（李雯、王勖、…）
+
+     两个问题叠在一起：措辞上「另有」指的是"除已提到的之外"，
+     而她正是已提到的那个，语义自相矛盾；计数上"另有 6 个"实际只有 5 个。
+     读者想弄清"还有谁也停用了"，第一个看到的却是自己。
+     这类错误与 §七之四十八 同族：**数字与措辞断言了一个没算过的事实**。 */
+  const otherSuspended = actor?.state === "suspended"
+    ? suspended.filter((account) => account.accountId !== actor.accountId)
+    : suspended;
+
   /* 账户角色 → 图标：角色决定它可被指派到哪类节点，用图标让这件事可扫视。
      这里刻意按角色而非按账户配图标，角色是责任位的属性，不是个人的装饰。 */
   const glyphOf = (role: AccountDto["role"]): IconName =>
@@ -167,10 +182,12 @@ export function Login({
           </p>
         )}
 
-        {suspended.length > 0 && (
+        {otherSuspended.length > 0 && (
           <p className="login__foot login__foot--suspended">
-            另有 {suspended.length} 个账户已停用（
-            {suspended.map((account) => account.name).join("、")}
+            {/* 名单纯为「另有」时要说明它是"除当前身份之外"；否则当停用者只有自己时，
+                这段会整块消失（正确——没有"另有"），而若有别人则计数必须对得上。 */}
+            另有 {otherSuspended.length} 个账户已停用（
+            {otherSuspended.map((account) => account.name).join("、")}
             ），其历史授权与审计仍可查询，但不能登录。
           </p>
         )}
