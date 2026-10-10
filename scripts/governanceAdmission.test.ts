@@ -36,6 +36,7 @@ const app = read("../src/App.tsx");
 /* 模型配置的准入呈现住在 Settings.tsx，不在 App.tsx —— 平台级路由的受阻态
    只有在这个文件里才看得到。 */
 const settings = read("../src/components/Settings.tsx");
+const sidebar = read("../src/components/Sidebar.tsx");
 
 /* ── 登记表：后端路由 → 档位 ──────────────────────────────────────────
    档位口径由用户确认（「审查/判据/计划裁决=approve，澄清/规格/编译=run，
@@ -237,6 +238,38 @@ assert.ok(
 assert.ok(
   /if \(!canManage\) \{[\s\S]{0,220}return;/.test(settings),
   "模型配置的写操作没有在派发前拦住无管理权的身份 —— 用户会白填一整张表单",
+);
+
+/* ⑧ 会话列表的行内动作（取消运行 / 归档 / 恢复）必须有准入呈现。
+   后端这三条路由要求 manage；界面此前**没有**对应呈现：零授权身份
+   照样能点，走完二次确认才收到 403 —— AGENTS.md §4.3 明令禁止的形态。
+   同一文件里 newTaskAdmission 早就做对了，行内动作漏了（§12.23.49）。
+
+   判据绑定到**具体元素**而不是"文件里出现过某字符串"：
+   本仓库已因 includes 式的宽松判据吃过亏（§12.23.41），
+   因此这里要求 data-blocked 与说明原因的 title 同时出现在
+   `.sess__act` 那一个按钮上。 */
+assert.ok(
+  /canManageSession/.test(sidebar),
+  "Sidebar 没有接收 canManageSession —— 行内动作的准入判据缺失（§12.23.49）",
+);
+assert.ok(
+  /className="sess__act"[\s\S]{0,600}?data-blocked=\{!canManageSession/.test(sidebar),
+  "会话行内动作按钮缺 data-blocked 受阻态；AGENTS.md §4.3 要求前置条件未满足时显式呈现受阻",
+);
+assert.ok(
+  /canManageSession\(s\.workflow\)\.allowed\s*\n?\s*\?\s*actionLabel\(s\)/.test(sidebar),
+  "行内动作按钮的 title 必须在受阻时改说原因 —— 只置灰不说原因，用户会以为是界面故障",
+);
+/* 准入必须在二次确认**之前**：放在之后会先问「确定取消？」再 403。 */
+assert.ok(
+  /const runAction = \(s: Session\) => \{[\s\S]{0,320}?if \(!canManageSession\(s\.workflow\)\.allowed\) return;[\s\S]{0,120}?window\.confirm/.test(sidebar),
+  "准入必须拦在 window.confirm 之前 —— 否则用户先被问「确定取消？」再收到 403",
+);
+/* 判据源在 App 侧，与 canGovernanceAction 同源（都在 App.tsx 里按 grant 判）。 */
+assert.ok(
+  /canManageSession = useCallback\([\s\S]{0,900}?permRank\(grant\.perm\) >= permRank\("manage"\)/.test(app),
+  "App.tsx 的 canManageSession 判据与后端档位不同源（应判 manage）",
 );
 
 console.log(`治理动作准入守卫：${EXPECTED.length} 条后端路由档位一致、${gatedCalls.length} 处前端调用点已加准入、平台级 4 条路由与前端受阻态已核对。`);
