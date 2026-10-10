@@ -1937,10 +1937,17 @@ export default function App() {
     } catch (error: unknown) {
       const failure = apiFailure(error, "无法生成 SCM operation");
       push({ tone: "warn", title: "SCM operation 生成失败", body: describeError(failure.code, failure.message) });
+      /* 被拒后重读账户目录：`canGovernanceAction` 的判据是 `accountsData.actor`，
+         而它只在登录/切换/显式重试时刷新。会话中途被降权时，治理按钮会继续
+         显示为可用（各按钮的 allowed 由 canGovernanceAction 判定），用户点下去
+         才被后端拒。只把错误显示出来是不够的——界面会停在一个**持续错误**的
+         状态：按钮一直可点、一直报错，而没有任何东西说明"你的权限已经没了"。
+         触发码与 App.tsx 既有的 `realignAfterDenial` 保持一致。 */
+      await realignFromError(error);
     } finally {
       setPlanningOperation(false);
     }
-  }, [activeId, fetchTaskRuntime, push, scmProviders, taskRuntime]);
+  }, [activeId, fetchTaskRuntime, push, scmProviders, taskRuntime, realignFromError]);
 
   const freezeWorkSpec = useCallback(async (draft: WorkSpecDraftInput) => {
     if (!activeId || !active) return;
@@ -1999,8 +2006,15 @@ export default function App() {
       const failure = apiFailure(error, "无法保存 WorkSpec");
       setGovernanceLoad({ status: "error", ...failure });
       push({ tone: "warn", title: "WorkSpec 冻结失败", body: describeError(failure.code, failure.message) });
+      /* 被拒后重读账户目录：`canGovernanceAction` 的判据是 `accountsData.actor`，
+         而它只在登录/切换/显式重试时刷新。会话中途被降权时，治理按钮会继续
+         显示为可用（各按钮的 allowed 由 canGovernanceAction 判定），用户点下去
+         才被后端拒。只把错误显示出来是不够的——界面会停在一个**持续错误**的
+         状态：按钮一直可点、一直报错，而没有任何东西说明"你的权限已经没了"。
+         触发码与 App.tsx 既有的 `realignAfterDenial` 保持一致。 */
+      await realignFromError(error);
     }
-  }, [active, activeId, fetchGovernance, fetchTaskRuntime, push, scmProviders, taskRuntime]);
+  }, [active, activeId, fetchGovernance, fetchTaskRuntime, push, scmProviders, taskRuntime, realignFromError]);
 
   const createWorkSpecRevision = useCallback(() => {
     if (!governance.workSpec) return;
@@ -2044,10 +2058,17 @@ export default function App() {
       const failure = apiFailure(error, "无法提交 Requirements 澄清");
       setGovernanceLoad({ status: "error", ...failure });
       push({ tone: "warn", title: "澄清提交失败", body: describeError(failure.code, failure.message) });
+      /* 被拒后重读账户目录：`canGovernanceAction` 的判据是 `accountsData.actor`，
+         而它只在登录/切换/显式重试时刷新。会话中途被降权时，治理按钮会继续
+         显示为可用（各按钮的 allowed 由 canGovernanceAction 判定），用户点下去
+         才被后端拒。只把错误显示出来是不够的——界面会停在一个**持续错误**的
+         状态：按钮一直可点、一直报错，而没有任何东西说明"你的权限已经没了"。
+         触发码与 App.tsx 既有的 `realignAfterDenial` 保持一致。 */
+      await realignFromError(error);
     } finally {
       setClarificationSubmitting(false);
     }
-  }, [activeId, fetchGovernance, fetchTaskRuntime, governance.workSpec, push, taskRuntime?.revision]);
+  }, [activeId, fetchGovernance, fetchTaskRuntime, governance.workSpec, push, taskRuntime?.revision, realignFromError]);
 
   /**
    * 人工审阅一个闸门节点：提修改意见（revise）或放行（approve）。
@@ -2089,10 +2110,17 @@ export default function App() {
       const failure = apiFailure(error, "无法提交人工审阅");
       setGovernanceLoad({ status: "error", ...failure });
       push({ tone: "warn", title: "审阅提交失败", body: describeError(failure.code, failure.message) });
+      /* 被拒后重读账户目录：`canGovernanceAction` 的判据是 `accountsData.actor`，
+         而它只在登录/切换/显式重试时刷新。会话中途被降权时，治理按钮会继续
+         显示为可用（各按钮的 allowed 由 canGovernanceAction 判定），用户点下去
+         才被后端拒。只把错误显示出来是不够的——界面会停在一个**持续错误**的
+         状态：按钮一直可点、一直报错，而没有任何东西说明"你的权限已经没了"。
+         触发码与 App.tsx 既有的 `realignAfterDenial` 保持一致。 */
+      await realignFromError(error);
     } finally {
       setReviewSubmitting(false);
     }
-  }, [activeId, fetchGovernance, fetchTaskRuntime, push, taskRuntime]);
+  }, [activeId, fetchGovernance, fetchTaskRuntime, push, taskRuntime, realignFromError]);
 
   const requestProposal = useCallback(async () => {
     if (!activeId || !governance.workSpec) return;
@@ -2105,8 +2133,15 @@ export default function App() {
     } catch (error: unknown) {
       const failure = apiFailure(error, "无法生成 Supervisor Proposal");
       push({ tone: "warn", title: "Proposal 生成失败", body: describeError(failure.code, failure.message) });
+      /* 被拒后重读账户目录：`canGovernanceAction` 的判据是 `accountsData.actor`，
+         而它只在登录/切换/显式重试时刷新。会话中途被降权时，治理按钮会继续
+         显示为可用（各按钮的 allowed 由 canGovernanceAction 判定），用户点下去
+         才被后端拒。只把错误显示出来是不够的——界面会停在一个**持续错误**的
+         状态：按钮一直可点、一直报错，而没有任何东西说明"你的权限已经没了"。
+         触发码与 App.tsx 既有的 `realignAfterDenial` 保持一致。 */
+      await realignFromError(error);
     }
-  }, [activeId, fetchGovernance, governance.workSpec, push]);
+  }, [activeId, fetchGovernance, governance.workSpec, push, realignFromError]);
 
   const compilePlan = useCallback(async () => {
     if (!activeId || !governance.proposal) return;
@@ -2117,8 +2152,15 @@ export default function App() {
     } catch (error: unknown) {
       const failure = apiFailure(error, "无法运行 Plan Compiler");
       push({ tone: "warn", title: "Compiler 拒绝", body: describeError(failure.code, failure.message) });
+      /* 被拒后重读账户目录：`canGovernanceAction` 的判据是 `accountsData.actor`，
+         而它只在登录/切换/显式重试时刷新。会话中途被降权时，治理按钮会继续
+         显示为可用（各按钮的 allowed 由 canGovernanceAction 判定），用户点下去
+         才被后端拒。只把错误显示出来是不够的——界面会停在一个**持续错误**的
+         状态：按钮一直可点、一直报错，而没有任何东西说明"你的权限已经没了"。
+         触发码与 App.tsx 既有的 `realignAfterDenial` 保持一致。 */
+      await realignFromError(error);
     }
-  }, [activeId, fetchGovernance, governance.proposal, push]);
+  }, [activeId, fetchGovernance, governance.proposal, push, realignFromError]);
 
   const decidePlan = useCallback(async (decision: "approved" | "rejected") => {
     if (!activeId || !governance.plan || !governance.proposal) return;
@@ -2129,8 +2171,15 @@ export default function App() {
     } catch (error: unknown) {
       const failure = apiFailure(error, "无法记录 PlanDecision");
       push({ tone: "warn", title: "计划决策失败", body: describeError(failure.code, failure.message) });
+      /* 被拒后重读账户目录：`canGovernanceAction` 的判据是 `accountsData.actor`，
+         而它只在登录/切换/显式重试时刷新。会话中途被降权时，治理按钮会继续
+         显示为可用（各按钮的 allowed 由 canGovernanceAction 判定），用户点下去
+         才被后端拒。只把错误显示出来是不够的——界面会停在一个**持续错误**的
+         状态：按钮一直可点、一直报错，而没有任何东西说明"你的权限已经没了"。
+         触发码与 App.tsx 既有的 `realignAfterDenial` 保持一致。 */
+      await realignFromError(error);
     }
-  }, [activeId, fetchGovernance, governance.plan, governance.proposal, push, taskRuntime]);
+  }, [activeId, fetchGovernance, governance.plan, governance.proposal, push, taskRuntime, realignFromError]);
 
   /* --- 常驻治理动作条的派生值 --------------------------------------------
      判据与 GovernanceView 逐条对齐：任务聚合是控制动作的权威，
