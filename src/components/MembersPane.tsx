@@ -189,6 +189,15 @@ export function MembersPane({
      而审计表只增不删，超过上限是必然事件。 */
   const auditTotal = data?.auditTotal ?? audit.length;
   const accountAuditTotal = data?.accountAuditTotal ?? accountAudit.length;
+  /* 界面实际渲染的审计条数。
+     必须是**具名常量**并被所有相关文案引用：原先渲染用 `slice(0, 8)`、
+     而截断说明里写死了「仅显示最新 50 条」（那是**服务端页大小**，
+     与服务端返回的 50 条一致，却与界面渲染的 8 条不一致）。
+     后果是同一屏上自相矛盾——小节标题写「共 227 条，显示最新 8 条」，
+     紧下方脚注写「此处仅显示最新 50 条」。读者无法判断到底显示了几条，
+     而"显示了多少"正是本面板要回答的核心问题（留痕优先）。
+     标题与脚注引用同一个常量后，这种失配在结构上不可能再发生。 */
+  const AUDIT_ROWS_SHOWN = 8;
 
   /* 选中项的回落：账户被停用或服务端目录变化时，避免右列指向一个不存在的账户。
      这是渲染期的纯派生，不用 effect —— 用 effect 会多渲染一帧空态。 */
@@ -1075,8 +1084,8 @@ export function MembersPane({
               <SectionLabel
                 text="账户变更记录"
                 hint={
-                  accountAuditTotal > 8
-                    ? `共 ${accountAuditTotal} 条，显示最新 ${Math.min(8, accountAudit.length)} 条`
+                  accountAuditTotal > AUDIT_ROWS_SHOWN
+                    ? `共 ${accountAuditTotal} 条，显示最新 ${Math.min(AUDIT_ROWS_SHOWN, accountAudit.length)} 条`
                     : "谁在何时被创建、改动或停用"
                 }
               />
@@ -1084,7 +1093,7 @@ export function MembersPane({
                 {accountAudit.length === 0 ? (
                   <p className="permAudit__empty">尚无账户变更。</p>
                 ) : (
-                  accountAudit.slice(0, 8).map((row) => (
+                  accountAudit.slice(0, AUDIT_ROWS_SHOWN).map((row) => (
                     <AccountAuditRow key={row.auditId} row={row} accounts={accounts} />
                   ))
                 )}
@@ -1105,12 +1114,12 @@ export function MembersPane({
                   "需要时能查到"，于是不再对缺失的部分提出要求。 */}
               {accountAuditTotal > accountAudit.length ? (
                 <p className="permAudit__truncated">
-                  目录共 {accountAuditTotal} 条账户变更，此处仅显示最新 {accountAudit.length} 条；
+                  目录共 {accountAuditTotal} 条账户变更，此处仅显示最新 {Math.min(AUDIT_ROWS_SHOWN, accountAudit.length)} 条；
                   更早的记录仍保存在治理存储中，但当前版本没有读取入口（界面与 API 均未开放）。
                 </p>
-              ) : accountAuditTotal > 8 ? (
+              ) : accountAuditTotal > AUDIT_ROWS_SHOWN ? (
                 <p className="permAudit__truncated">
-                  本页显示最新 8 条（共 {accountAuditTotal} 条）。
+                  本页显示最新 {AUDIT_ROWS_SHOWN} 条（共 {accountAuditTotal} 条）。
                 </p>
               ) : null}
             </section>
@@ -1119,8 +1128,8 @@ export function MembersPane({
               <SectionLabel
                 text="授权变更记录"
                 hint={
-                  auditTotal > 8
-                    ? `共 ${auditTotal} 条，显示最新 ${Math.min(8, audit.length)} 条`
+                  auditTotal > AUDIT_ROWS_SHOWN
+                    ? `共 ${auditTotal} 条，显示最新 ${Math.min(AUDIT_ROWS_SHOWN, audit.length)} 条`
                     : "与证据链三元组呼应"
                 }
               />
@@ -1128,18 +1137,18 @@ export function MembersPane({
                 {audit.length === 0 ? (
                   <p className="permAudit__empty">尚无授权变更。</p>
                 ) : (
-                  audit.slice(0, 8).map((row) => (
+                  audit.slice(0, AUDIT_ROWS_SHOWN).map((row) => (
                     <AuditRow key={row.auditId} row={row} accounts={accounts} />
                   ))
                 )}
               </div>
               {auditTotal > audit.length ? (
                 <p className="permAudit__truncated">
-                  目录共 {auditTotal} 条授权变更，此处仅显示最新 {audit.length} 条；
+                  目录共 {auditTotal} 条授权变更，此处仅显示最新 {Math.min(AUDIT_ROWS_SHOWN, audit.length)} 条；
                   更早的记录仍保存在治理存储中，但当前版本没有读取入口（界面与 API 均未开放）。
                 </p>
-              ) : auditTotal > 8 ? (
-                <p className="permAudit__truncated">本页显示最新 8 条（共 {auditTotal} 条）。</p>
+              ) : auditTotal > AUDIT_ROWS_SHOWN ? (
+                <p className="permAudit__truncated">本页显示最新 {AUDIT_ROWS_SHOWN} 条（共 {auditTotal} 条）。</p>
               ) : null}
             </section>
 
