@@ -58,6 +58,33 @@ interface NodeRef {
  * 用演示模板渲染矩阵会显示一套不存在的节点，并把授权写到没有对应责任位的
  * 键上——界面看着正常，实际一条授权都不生效。
  */
+/* 登录标识的**字符集**规则，与后端同源（handler.ts 的 accountHandleSchema）。
+
+   为什么这条规则存在，以及为什么它必须在界面上主动说出来：
+   handle 是身份键，经由 `x-af-actor` 请求头传递，而 HTTP 头字段值只能是
+   ISO-8859-1（浏览器强制）。实测浏览器构造 `{'x-af-actor': '中文标识@…'}`
+   会**直接抛 TypeError**，于是那个账户在登录页有个完全正常的按钮，
+   点下去却没有任何反应；失败还被包装成 AF_NETWORK_ERROR，界面显示
+   「无法连接 AF API，请确认后端已启动并检查网络」——把用户引向一个
+   并不存在的问题。更隐蔽的是重音字符：同一个 `café` 由浏览器发（按
+   latin-1 编码）能登录，由 curl 发（按 UTF-8 编码）就变成乱码而匿名，
+   即"我是谁"取决于客户端用什么编码发头。
+
+   因此这里不只是"校验一下"，而是**把一条从界面看不出来的规则显式呈现**：
+   用户输入中文时界面本来毫无异样，只有等到该账户登录失败才会暴露。
+   返回 null 表示没有问题。 */
+function handleRuleNote(handle: string): string | null {
+  const trimmed = handle.trim();
+  if (trimmed.length === 0) return null;
+  if (!/^[\x20-\x7e]+$/.test(trimmed)) {
+    return "登录标识只能是 ASCII 字符（字母、数字与 . _ % + -）：它会作为请求头传递，中文等字符会导致该账户无法登录。中文姓名请填在「名称」里。";
+  }
+  if (!/^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(trimmed)) {
+    return "登录标识需形如 name@domain（例如 zhangqi@agentflow.dev）。";
+  }
+  return null;
+}
+
 function nodeRefs(workflows: Workflow[]): NodeRef[] {
   return workflows.flatMap((workflow) =>
     workflow.nodes.map((node) => ({
@@ -387,6 +414,17 @@ export function MembersPane({
       onToast({ tone: "warn", title: "创建账户失败", body: "名称、登录标识与职责说明都必须填写。" });
       return;
     }
+    /* 字符集必须与后端同源校验。
+       后端（handler.ts 的 accountHandleSchema）已经会以 400 拒绝，但等到
+       那一步才说话，用户只看到一句「请求参数不合法」——他不知道是哪个字
+       不合法、更不知道为什么。而这条规则**从界面上看不出来**：
+       输入「张三@agentflow.dev」时一切正常，直到该账户登录时才发现
+       （详见 handleRuleNote 的说明）。因此这里先说清楚，再让后端兜底。 */
+    const handleProblem = handleRuleNote(handle);
+    if (handleProblem !== null) {
+      onToast({ tone: "warn", title: "创建账户失败", body: handleProblem });
+      return;
+    }
     void run(
       "create-account",
       () => onCreateAccount({ name, handle, role: draftRole, duty }),
@@ -510,6 +548,13 @@ export function MembersPane({
                 onChange={(event) => setDraftHandle(event.target.value)}
                 placeholder="如：zhangqi@agentflow.dev"
               />
+              {/* 字符集提示常驻在输入框旁，而不是等提交被后端驳回才说。
+                  理由是这条规则**看不出来**：用户输入「张三@agentflow.dev」
+                  时界面毫无异样，直到点登录才发现登不进去。
+                  见 handleRuleNote 的说明。 */}
+              {handleRuleNote(draftHandle) !== null && (
+                <em className="form__note" data-tone="warn">{handleRuleNote(draftHandle)}</em>
+              )}
             </div>
             <div className="form__row">
               <label>职责说明</label>
