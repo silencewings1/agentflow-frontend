@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon, type IconName } from "./Icons";
 import {
   ACCOUNT_ROLE_LABEL,
@@ -144,6 +144,21 @@ export function MembersPane({
   );
 
   const refs = useMemo(() => nodeRefs(workflows), [workflows]);
+
+  /* 切换账户时把右列滚回顶部。
+     不这么做会有一种很难归因的体验问题：右列（身份头 + 图例 + 11 行矩阵 + 两份审计）
+     比视口高，用户滚到下方后点左列的另一个账户，**右列保持原滚动位置**
+     ——于是他看到的仍是几行长得差不多的矩阵行，而新账户的身份头（名字、职务、
+     停用/恢复按钮）在视口之上。用户会得出「点了没反应」的结论，
+     尽管数据其实已经换对了。实测：切换前 scrollTop 1257，切换后仍 1257。
+
+     用 useEffect 而不是在 onClick 里设置，是为了让「选中项变化」这个事实
+     本身驱动复位：无论变化来自点击、键盘、还是数据刷新导致的 active 改变，
+     行为都一致。 */
+  const detailRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    detailRef.current?.scrollTo({ top: 0 });
+  }, [active?.accountId]);
 
   /* 授权索引：把 O(节点数 × 授权数) 的线性查找换成一次建表。
      编排有几十个节点、授权有几十条时这不是优化问题，而是每帧几十次遍历。
@@ -450,7 +465,7 @@ export function MembersPane({
       </div>
 
       {/* ------------ 右列：节点授权矩阵 ------------ */}
-      <div className="split__detail memberDetail">
+      <div className="split__detail memberDetail" ref={detailRef}>
         {active === undefined ? (
           <div className="permEmpty">
             <Icon.Agent size={20} />
