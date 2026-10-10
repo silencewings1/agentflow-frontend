@@ -120,6 +120,26 @@ assert.ok(
   "multiUserDisabled 不得用宽松真值判断：无 details（瞬时故障）时必须是 false，否则会把故障当成降级放行",
 );
 
+/* 缺陷 #69：被停用跳回登录页时，必须有地方**说出原因**。
+
+   `AF_ACCOUNT_SUSPENDED` 的补偿动作是 loadAccounts()，它把 actor.state 刷成
+   suspended，于是主界面那一支提前 return；而 `<Toasts>` 在那个 return **之后**。
+   结果是用户点了保存、被拒、然后一声不响回到登录页——既不知道操作失败，
+   也不知道为什么被登出。这不属于"同码多因"，但同属"错误必须有出口"这条判据，
+   因此放在同一份守卫里。
+
+   断言方式：切出「登录分支」（从 2434 那条提前 return 到它对应的 return 结束），
+   要求其中出现 `<Toasts`。只数全文 `<Toasts` 出现次数是不够的——
+   主界面那一个永远在，删掉登录页这个也不会红。 */
+const loginBranchStart = app.indexOf('accountsData.actor.state === "suspended"');
+assert.ok(loginBranchStart > -1, "找不到登录分支的判据（actor.state === \"suspended\"）");
+const loginBranch = app.slice(loginBranchStart, app.indexOf("\n  }", loginBranchStart) + 4);
+assert.ok(
+  /<Toasts\s+items=\{toasts\}\s*\/>/.test(loginBranch),
+  "登录分支必须渲染 <Toasts>：被停用跳回登录页时若不渲染提示，"
+    + "用户既看不到刚才那次操作失败，也不知道自己为什么被登出（缺陷 #69）",
+);
+
 console.log(
   "errorRouting.test: 同码多因分流一致（AF_ACCOUNTS_UNAVAILABLE→details.multiUserEnabled、"
     + "AF_PERMISSION_DENIED→details.reason；后端标识与前端字面量逐字一致）",

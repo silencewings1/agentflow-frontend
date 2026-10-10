@@ -2433,19 +2433,34 @@ export default function App() {
      注意判据是**后端的声明**而非"目录读不到"——后者仍走登录页（fail closed）。 */
   if (!multiUserDisabled && (accountsData === null || accountsData.actor.anonymous || accountsData.actor.state === "suspended")) {
     return (
-      <Login
-        accounts={accountsData?.accounts ?? []}
-        loading={accountsLoading}
-        error={accountsError}
-        retryable={accountsRetryable}
-        actor={accountsData?.actor ?? null}
-        /* 目录的成因与恢复步骤只有后端知道（empty vs no-manager 处置不同），
-           传下去让登录页在无可选账户时给出**可执行**的指引，而不是
-           一律"请联系责任人"——那个责任人在 empty 状态下并不存在。 */
-        directory={accountsData?.directory ?? null}
-        onLogin={(handle) => void login(handle)}
-        onRetry={() => void loadAccounts()}
-      />
+      <>
+        <Login
+          accounts={accountsData?.accounts ?? []}
+          loading={accountsLoading}
+          error={accountsError}
+          retryable={accountsRetryable}
+          actor={accountsData?.actor ?? null}
+          /* 目录的成因与恢复步骤只有后端知道（empty vs no-manager 处置不同），
+             传下去让登录页在无可选账户时给出**可执行**的指引，而不是
+             一律"请联系责任人"——那个责任人在 empty 状态下并不存在。 */
+          directory={accountsData?.directory ?? null}
+          onLogin={(handle) => void login(handle)}
+          onRetry={() => void loadAccounts()}
+        />
+        {/* 登录页也必须承载轻提示，否则"被停用"这件事**完全没有出口**。
+
+           为什么这个 `<Toasts>` 不能只留在主界面：`AF_ACCOUNT_SUSPENDED` 的
+           补偿动作是 `loadAccounts()`，它把 `actor.state` 刷成 `suspended`，
+           于是这一整支提前 return —— 而主界面的 `<Toasts>` 在那个 return **之后**。
+           结果是：用户点了保存、被拒、然后一声不响地回到登录页，
+           既不知道刚才那次操作失败了，也不知道自己为什么被登出。
+
+           这与 AGENTS.md §4.3「任何会造成不可逆后果的操作，在前置条件未满足时
+           必须显式呈现受阻，而不是照常可点然后报错」是同一条判据的另一面：
+           这里不是"照常可点"，而是**报了错却没人听得见**。
+           toast 状态本来就在本组件（`toasts`），把它渲染出来即可。 */}
+        <Toasts items={toasts} />
+      </>
     );
   }
 
