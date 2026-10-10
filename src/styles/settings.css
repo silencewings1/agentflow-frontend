@@ -2012,13 +2012,27 @@
   /* 独立滚动由 .sheet__body[data-pane="members"] .memberDetail 控制 */
 }
 
+/* 三列：图标 | 身份文本 | 操作按钮。
+   第三列是**必需**的：面板改版时给这个 header 加了「停用/恢复」按钮，但列定义
+   一直停在两列（`44px minmax(0,1fr)`），于是按钮作为第三个 grid item 自动流到
+   第 2 行的第 1 列 —— 也就是那个 44px 的图标列。实测按钮 x=221 / w=44，
+   与图标同列，文字被挤成竖排的「停」/「用」两行。
+   用 `auto` 而不是固定宽度：按钮宽度随文案（停用 / 恢复）变化，写死会再次错位。 */
 .memberHead {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-columns: 44px minmax(0, 1fr) auto;
   gap: 14px;
   align-items: start;
   padding: 4px 4px 18px;
   border-bottom: 1px solid var(--line);
+}
+
+/* 按钮与身份文本首行对齐（而不是与整个文本块居中），
+   并禁止在窄列里折行——两个字竖排会读成两个独立的词。 */
+.memberHead > .btn {
+  align-self: start;
+  margin-top: 2px;
+  white-space: nowrap;
 }
 
 .memberHead__glyph {
