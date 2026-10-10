@@ -391,6 +391,56 @@ export default function App() {
     () => canCreateWith(workflowCatalog[0]?.id ?? ""),
     [canCreateWith, workflowCatalog],
   );
+
+  /* 治理动作的责任位准入：与后端 handler 的分档逐条对应。
+     后端在 2026-10 补齐了治理写路由的责任位闸门（见 §12.23.31 / §12.23.32），
+     在此之前这些路由只校验「是不是已登记账户」，因此界面**不需要**按权限
+     置灰它们。补齐之后，一个能创建任务（入口节点持 run）却不持 manage/
+     approve 的账户，会看到一串照常可点、点了必然 403 的按钮——
+     这正是 AGENTS.md §4.3 禁止的呈现：**前置条件未满足的不可逆操作
+     不得看起来可用**。
+
+     判据与后端同源，逐条对应：
+       proposals / plans        → manage（编排权）
+       compile / work-specs /
+       clarifications           → run（执行权）
+       plan-decisions /
+       nodes/:nodeId/review /
+       criterion-assessments /
+       evidence/materialize     → approve（裁决权）
+     任务级路由用「该编排上任一节点持有该档」判定，与后端
+     assertNodePermission 的缺省语义一致；只有节点审查要求**被审节点**
+     上持 approve（后端 URL 里带 nodeId）。 */
+  const canGovernanceAction = useCallback(
+    (required: "run" | "approve" | "manage", nodeId?: string): { allowed: boolean; reason: string } => {
+      const actor = accountsData?.actor ?? null;
+      /* 目录不可用时不做判定：此时界面拿不到授权事实，判定只会给出错误结论。
+         放行由后端兜底（它一定会拒），界面不额外撒谎。 */
+      if (actor === null || actor.accountId === null) return { allowed: true, reason: "" };
+      if (actor.state === "suspended") return { allowed: false, reason: "账户已停用，无法执行治理动作。" };
+      const workflowId = taskRuntime?.workflow?.workflowId;
+      if (workflowId === undefined) return { allowed: true, reason: "" };
+      const grants = accountsData?.grants ?? [];
+      const allowed = grants.some(
+        (grant) =>
+          grant.accountId === actor.accountId &&
+          grant.workflowId === workflowId &&
+          (nodeId === undefined || grant.nodeId === nodeId) &&
+          permRank(grant.perm) >= permRank(required),
+      );
+      const tier = { run: "可执行", approve: "可裁决", manage: "可编排" }[required];
+      return allowed
+        ? { allowed: true, reason: "" }
+        : {
+            allowed: false,
+            reason: nodeId === undefined
+              ? `当前账户在该编排的任一责任位上都没有「${tier}」权限，无法执行此治理动作。`
+              : `当前账户在责任位「${nodeId}」上没有「${tier}」权限，无法裁决该节点。`,
+          };
+    },
+    [accountsData, taskRuntime?.workflow?.workflowId],
+  );
+
   const [accountsError, setAccountsError] = useState<string | null>(null);
   /* 目录不可用是否**可能**通过重试解决。后端用 details.multiUserEnabled 自证成因：
      声明未启用（false）时重试永远不会成功，因此界面不该给"重试"按钮。 */
@@ -2003,8 +2053,24 @@ export default function App() {
 
   /* 下一步动作只出一个主按钮：顺序即治理链路 WorkSpec → Proposal → Compiler
      → PlanDecision → RunIntent → 人工检查点。没有可做的动作时返回 null。 */
-  const primaryAction = useMemo((): { label: string; disabled: boolean; onClick: () => void } | null => {
+  const primaryAction = useMemo((): { label: string; disabled: boolean; onClick: () => void; blocked: string | null } | null => {
     const disabled = govBusy !== null || runActive;
+    /* 把「权限准入」套在每个动作外层：受阻时按钮置灰并由 govHint 说出原因，
+       而不是照常可点、点了报 403（AGENTS.md §4.3）。
+       写成包装函数而不是在每个分支里各写一遍：分支有 8 个，
+       逐条写就会漏（§679 的失效模式在界面侧的重演）。 */
+    const gated = (
+      required: "run" | "approve" | "manage",
+      action: { label: string; disabled: boolean; onClick: () => void },
+      nodeId?: string,
+    ) => {
+      const admission = canGovernanceAction(required, nodeId);
+      return {
+        ...action,
+        disabled: action.disabled || !admission.allowed,
+        blocked: admission.allowed ? null : admission.reason,
+      };
+    };
     /* 终态任务没有「下一步治理动作」：留着禁用按钮只会让人以为漏点了什么。
        返回 null，让动作条只保留状态与「治理事实」入口。 */
     if (["completed", "cancelled", "failed"].includes(String(taskRuntime?.status))) return null;
@@ -2013,41 +2079,42 @@ export default function App() {
     if (awaitingNode) {
       const isGitNode = awaitingNode.kind === "git";
       if (isGitNode && taskRuntime?.preparedDelivery && awaitingPreparedOperation === null) {
-        return { label: planningOperation ? "正在准备远端写入…" : "准备远端写入操作", disabled: planningOperation, onClick: () => void planGitOperation() };
+        return gated("manage", { label: planningOperation ? "正在准备远端写入…" : "准备远端写入操作", disabled: planningOperation, onClick: () => void planGitOperation() });
       }
       if (isGitNode && awaitingPreparedOperation && awaitingPreparedOperation.status !== "committed") {
-        return {
+        return gated("manage", {
           label: confirmingOperationId === awaitingPreparedOperation.operationId ? "确认中…" : "确认 MCP 功能分支写入",
           disabled: confirmingOperationId === awaitingPreparedOperation.operationId,
           onClick: () => void confirmGitOperation(awaitingPreparedOperation.operationId),
-        };
+        });
       }
-      return {
+      /* 节点审查要求**该节点**上的 approve（后端 URL 带 nodeId，判定也落在该节点）。 */
+      return gated("approve", {
         label: approvingNodeId === awaitingNode.nodeId ? "批准并继续中…" : "批准并继续",
         disabled: approvingNodeId === awaitingNode.nodeId,
         onClick: () => void approveAndContinueTask(awaitingNode.nodeId),
-      };
+      }, awaitingNode.nodeId);
     }
     if (!governance.workSpec) return null;
     if (!governance.proposal) {
-      return { label: govBusy === "proposal" ? "正在生成方案…" : "生成执行方案", disabled, onClick: () => void requestProposal() };
+      return gated("manage", { label: govBusy === "proposal" ? "正在生成方案…" : "生成执行方案", disabled, onClick: () => void requestProposal() });
     }
     if (!governance.compilationReport) {
-      return { label: govBusy === "compile" ? "正在检查执行计划…" : "检查执行计划", disabled, onClick: () => void compilePlan() };
+      return gated("run", { label: govBusy === "compile" ? "正在检查执行计划…" : "检查执行计划", disabled, onClick: () => void compilePlan() });
     }
     if (governance.compilationReport.outcome === "rejected") return null;
     if (governance.plan && !governance.planDecision) {
-      return { label: govBusy === "decision" ? "正在提交审批…" : "批准执行计划", disabled, onClick: () => void decidePlan("approved") };
+      return gated("approve", { label: govBusy === "decision" ? "正在提交审批…" : "批准执行计划", disabled, onClick: () => void decidePlan("approved") });
     }
     if (governance.planDecision?.decision === "approved") {
-      return {
+      return gated("run", {
         label: govBusy === "run" ? "正在提交运行请求…" : "开始执行任务",
         disabled: govBusy !== null || controlBlocked || runActive || ["completed", "cancelled"].includes(String(taskRuntime?.status)),
         onClick: () => void startLiveTask(),
-      };
+      });
     }
     return null;
-  }, [approveAndContinueTask, approvingNodeId, awaitingNode, awaitingPreparedOperation, compilePlan, confirmGitOperation, confirmingOperationId, controlBlocked, decidePlan, govBusy, governance.compilationReport, governance.plan, governance.planDecision, governance.proposal, governance.workSpec, planGitOperation, planningOperation, requestProposal, runActive, startLiveTask, taskRuntime?.preparedDelivery, taskRuntime?.status]);
+  }, [approveAndContinueTask, approvingNodeId, awaitingNode, awaitingPreparedOperation, canGovernanceAction, compilePlan, confirmGitOperation, confirmingOperationId, controlBlocked, decidePlan, govBusy, governance.compilationReport, governance.plan, governance.planDecision, governance.proposal, governance.workSpec, planGitOperation, planningOperation, requestProposal, runActive, startLiveTask, taskRuntime?.preparedDelivery, taskRuntime?.status]);
 
   /* 折叠事实被展开时，动作条的「治理事实」入口滚到它，一次点击到位 */
   const openFacts = useCallback(() => {
@@ -2097,6 +2164,11 @@ export default function App() {
 
   /* 动作条右侧的后果说明：说清「为什么现在不能点 / 该点哪个」 */
   const govHint = (() => {
+    /* 权限受阻必须排在最前：它是"这一整条推进链都做不了"的原因，
+       而下面的提示都在解释"下一步该做什么"——对一个无权做的人说下一步毫无意义。
+       且受阻理由要**可见**（这里是常驻提示位），不能只留 title 悬浮提示：
+       触屏与键盘用户看不到 title，而 §4.3 要求受阻是「显式呈现」。 */
+    if (primaryAction?.blocked) return primaryAction.blocked;
     if (taskRuntime?.status === "completed") return "任务已完成；交付物、门禁与证据已归档，可在「治理事实」中复核。";
     if (taskRuntime?.status === "cancelled") return "任务已取消；历史事实与审计轨迹保留，可归档或恢复显示。";
     if (taskRuntime?.status === "failed") return "任务已失败；失败原因与已通过的门禁结论保留在「治理事实」中。";
@@ -2245,7 +2317,13 @@ export default function App() {
               </div>
               <div className="govBar__actions">
                 {primaryAction && (
-                  <button className="btn btn--accent btn--sm" disabled={primaryAction.disabled} onClick={primaryAction.onClick}>
+                  <button
+                    className="btn btn--accent btn--sm"
+                    disabled={primaryAction.disabled}
+                    data-blocked={primaryAction.blocked !== null}
+                    title={primaryAction.blocked ?? undefined}
+                    onClick={primaryAction.onClick}
+                  >
                     {primaryAction.label}
                   </button>
                 )}
