@@ -442,6 +442,45 @@ export default function App() {
     [accountsData, taskRuntime?.workflow?.workflowId],
   );
 
+  /* 会话列表里「取消运行 / 归档 / 恢复」的准入结论。
+     后端对这三条路由要求 **manage**（handler.ts：`guard(segments[1]!, 'manage')`
+     覆盖 cancel 与 archive/unarchive），但界面此前**没有对应呈现**：
+     零授权身份照样能点「取消运行」，走完二次确认才收到 403 ——
+     正是 AGENTS.md §4.3 禁止的「照常可点然后报错」。
+
+     判据与 canGovernanceAction 同源（该编排的**任一**责任位持 manage），
+     差别只在于按**每条会话自己的编排**判定，而不是用「当前打开任务的编排」：
+     一个会话上的 manage 不代表另一个会话上也有，
+     用当前任务的编排去判整张列表会误放行。
+
+     两处与服务端对齐的约定：
+       · 目录/身份不可用时**不**置阻（`allowed: true`）：拿不到授权事实时
+         判定只会给出错误结论，放行由后端兜底（它一定会拒），界面不额外撒谎。
+       · 停用账户明确置阻（后端返回 403 AF_ACCOUNT_SUSPENDED）。 */
+  const canManageSession = useCallback(
+    (workflowId: string): { allowed: boolean; reason: string } => {
+      const actor = accountsData?.actor ?? null;
+      if (actor === null || actor.accountId === null) return { allowed: true, reason: "" };
+      if (actor.state === "suspended") {
+        return { allowed: false, reason: "账户已停用，无法取消或归档任务。" };
+      }
+      const grants = accountsData?.grants ?? [];
+      const allowed = grants.some(
+        (grant) =>
+          grant.accountId === actor.accountId &&
+          grant.workflowId === workflowId &&
+          permRank(grant.perm) >= permRank("manage"),
+      );
+      return allowed
+        ? { allowed: true, reason: "" }
+        : {
+            allowed: false,
+            reason: "取消与归档是编排级动作，需要在该编排的任一责任位上持有「可编排」权限。",
+          };
+    },
+    [accountsData],
+  );
+
   const [accountsError, setAccountsError] = useState<string | null>(null);
   /* 目录不可用是否**可能**通过重试解决。后端用 details.multiUserEnabled 自证成因：
      声明未启用（false）时重试永远不会成功，因此界面不该给"重试"按钮。 */
@@ -2264,6 +2303,10 @@ export default function App() {
         onUnarchive={unarchiveTask}
         onNew={() => setNewTaskOpen(true)}
         newTaskAdmission={newTaskAdmission}
+        /* 逐会话的准入结论：判定留在 App（唯一状态中心），
+           Sidebar 只负责呈现 —— 与 newTaskAdmission 同一约定，
+           避免两处各写一份判据而漂移。 */
+        canManageSession={canManageSession}
       />
 
       <main className="main">

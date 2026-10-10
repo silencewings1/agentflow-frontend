@@ -26,6 +26,7 @@ export function Sidebar({
   onUnarchive,
   onNew,
   newTaskAdmission,
+  canManageSession,
 }: {
   sessions: Session[];
   activeId: string;
@@ -39,6 +40,10 @@ export function Sidebar({
   /* 新建任务的准入结论：由 App 用与后端同源的判据算出后传入。
      界面只负责呈现——判定逻辑不在这里另写一份，否则两处口径会漂移。 */
   newTaskAdmission: { allowed: boolean; reason: string };
+  /* 逐会话的「取消运行 / 归档 / 恢复」准入结论，同样由 App 判定后传入。
+     后端这三条路由要求 manage（handler.ts 的 guard(…, 'manage')）；
+     不在这里另写一份判据的原因同上。 */
+  canManageSession: (workflowId: string) => { allowed: boolean; reason: string };
 }) {
   const [q, setQ] = useState("");
 
@@ -59,6 +64,10 @@ export function Sidebar({
   /* 每个会话只暴露一个与状态匹配的动作：非终态=取消运行，
      终态未归档=归档，终态已归档=恢复。确认前不产生任何副作用。 */
   const runAction = (s: Session) => {
+    /* 准入先于二次确认：没有 manage 时连确认框都不该弹。
+       若把准入放在确认之后，用户会先被问「确定取消？」再收到 403 ——
+       不但多一步无用操作，还会让人以为自己有权、只是系统出错。 */
+    if (!canManageSession(s.workflow).allowed) return;
     if (s.archived) {
       if (!window.confirm("恢复后该任务会重新出现在默认列表中，确定恢复？")) return;
       onUnarchive(s.id);
@@ -172,8 +181,16 @@ export function Sidebar({
                   <button
                     className="sess__act"
                     data-action={actionKind(s)}
+                    /* 受阻态用 data-blocked 表达（AGENTS.md §6.3），
+                       并在 title 里说明**为什么**受阻：
+                       只置灰不说原因，用户会以为是界面故障。 */
+                    data-blocked={!canManageSession(s.workflow).allowed}
                     aria-label={actionLabel(s)}
-                    title={actionLabel(s)}
+                    title={
+                      canManageSession(s.workflow).allowed
+                        ? actionLabel(s)
+                        : canManageSession(s.workflow).reason
+                    }
                     onClick={(e) => {
                       e.stopPropagation();
                       runAction(s);

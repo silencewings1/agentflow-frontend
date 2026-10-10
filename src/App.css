@@ -515,6 +515,23 @@
   background: color-mix(in oklab, var(--sage) 10%, transparent);
 }
 
+/* 受阻态（无 manage 权限）：取消/归档是编排级动作，缺权时不可执行。
+   用 --gold 而非 --rose —— 这是「待人工介入 / 受阻」，不是「出错了」。
+   形态差异先于颜色差异：虚线边框替代实线，且**取消全部 hover 反馈**，
+   因为悬停反馈会暗示「可以点」。 */
+.sess__act[data-blocked="true"] {
+  color: var(--gold);
+  border: 1px dashed color-mix(in oklab, var(--gold) 45%, transparent);
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.sess__act[data-blocked="true"]:hover {
+  color: var(--gold);
+  border-color: color-mix(in oklab, var(--gold) 45%, transparent);
+  background: transparent;
+}
+
 /* 已归档：只降低呈现权重，不隐藏任何事实；「已归档」pill 明确说明它不是删除。 */
 .sess[data-archived="true"] {
   opacity: 0.55;
