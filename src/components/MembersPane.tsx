@@ -223,7 +223,32 @@ export function MembersPane({
    */
   const directoryUnhealthy = directory !== undefined && !directory.healthy;
 
-  /** 统一的写操作包装：失败按服务端错误码如实呈现，绝不静默吞掉。 */
+  /**
+   * 统一的写操作包装：失败按服务端错误码如实呈现，绝不静默吞掉。
+   *
+   * **被拒后必须把界面重新对齐到服务端事实**（不只是弹提示）。
+   * 缺这一步会产生一个会持续存在的错误界面：用户在面板打开期间被降权或停用
+   * （多用户里这随时会发生——别人改了你的授权，或撤回了目录），面板上那份
+   * `actor` / `grants` 仍是打开时读到的旧值，于是 44 个权限格继续可点、
+   * 「新建账户」继续可点，用户点下去才被后端拒。
+   *
+   * 实测（周林持 manage×11 → 后端把 11 条全降 view → **不刷新页面**）：
+   *   修复前：`staleCellsEnabled: 44`、`newBtnDisabled: false`，
+   *           点格子后弹「操作未生效…缺少该操作所需的权限」，
+   *           **但界面不改**：再点第 4 格仍然发出请求、仍然只弹同一条提示。
+   *           用户会一直点、一直被拒，且没有任何东西告诉他"你的权限已经没了"。
+   *   修复后：同一次被拒后重读目录，`actor.canManageAccounts` 变 false，
+   *           44 格转为受阻态并给出「当前账户没有「可编排」权限」的常驻说明。
+   *
+   * 这里与 AGENTS.md §4.3「前置条件未满足时必须显式呈现受阻，而不是照常可点
+   * 然后报错」是同一处置：§4.3 管的是**已知**前置条件，本处管的是**前置条件在
+   * 会话中途变了**因而界面还不知道。两者都要求界面最终呈现受阻，而不是停在
+   * "可以点、点了报错"。
+   *
+   * 触发条件与 App.tsx 的 `realignAfterDenial` 保持一致（只看这两个码）：
+   * 重读是"被拒"的补偿动作，不是无差别的失败重试——`AF_ACCOUNT_HANDLE_TAKEN`
+   * 之类与身份无关的失败重读目录没有意义，只会让界面闪一下。
+   */
   const run = async (key: string, action: () => Promise<void>, onOk?: () => void) => {
     setBusy(key);
     try {
@@ -243,6 +268,12 @@ export function MembersPane({
            这里漏掉就形成"同一个码在两条路径上给出两种处置"。 */
         body: errorText(apiError?.code, apiError?.message ?? "未知错误", apiError?.details),
       });
+      if (apiError?.code === "AF_PERMISSION_DENIED" || apiError?.code === "AF_ACCOUNT_SUSPENDED") {
+        /* 重读失败不再弹第二条提示：用户刚看到"操作未生效"，再叠一条
+           "读取失败"只会让他分不清哪一条才是要处理的问题；
+           而重读本身是补偿动作，失败时界面保持现状即可（下一次操作会再触发）。 */
+        await onRefresh().catch(() => undefined);
+      }
     } finally {
       setBusy(null);
     }
