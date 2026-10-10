@@ -2426,6 +2426,9 @@ export default function App() {
                     busyAction={govBusy}
                     onReconcileOperation={(operationId) => void reconcileGitOperation(operationId)}
                     reconcilingOperationId={reconcilingOperationId}
+                    /* 治理动作条的准入判据：与后端同源（见 canGovernanceAction）。
+                       判定留在 App，GovernanceView 只负责呈现受阻态。 */
+                    canGovernanceAction={canGovernanceAction}
                   />
                 ) : null}
                 controls={

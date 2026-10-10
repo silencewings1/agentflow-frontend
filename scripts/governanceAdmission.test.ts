@@ -37,6 +37,7 @@ const app = read("../src/App.tsx");
    只有在这个文件里才看得到。 */
 const settings = read("../src/components/Settings.tsx");
 const sidebar = read("../src/components/Sidebar.tsx");
+const govView = read("../src/components/GovernanceView.tsx");
 
 /* ── 登记表：后端路由 → 档位 ──────────────────────────────────────────
    档位口径由用户确认（「审查/判据/计划裁决=approve，澄清/规格/编译=run，
@@ -270,6 +271,76 @@ assert.ok(
 assert.ok(
   /canManageSession = useCallback\([\s\S]{0,900}?permRank\(grant\.perm\) >= permRank\("manage"\)/.test(app),
   "App.tsx 的 canManageSession 判据与后端档位不同源（应判 manage）",
+);
+
+/* ⑨ GovernanceView（主治理面板）的治理动作条必须有准入。
+   该组件此前**完全不知道身份**（accountId/grants 出现 0 次），所有 disabled
+   只判 busyAction/runActive，从不判权限——零授权身份看到的是可点的亮色按钮，
+   点下去才收到 403（§12.23.50）。App 侧对应 useCallback 内部也没有准入，
+   两层都漏，因此这里两层都要求。
+
+   判据绑定到**按钮上的 data-blocked**，不是"文件里出现过 can("。
+   本仓库已因 includes 式宽松判据吃过亏（§12.23.41）。 */
+assert.ok(
+  /canGovernanceAction\?:/.test(govView),
+  "GovernanceView 没有接收 canGovernanceAction —— 主治理面板缺准入判据（§12.23.50）",
+);
+assert.ok(
+  /const can = \(required: "run" \| "approve" \| "manage", nodeId\?: string\) =>[\s\S]{0,200}?canGovernanceAction\?\.\(required, nodeId\) \?\? \{ allowed: true, reason: "" \}/.test(govView),
+  "GovernanceView 的 can() 助手缺失或未按「未传则允许」处理（fixture 路径无账户目录，硬判会锁死演示界面）",
+);
+/* 五个治理动作按钮逐个要求 data-blocked，且档位要和后端 guard 一致。
+
+   实现说明：按 `<button` 切分，把每个按钮标签**整体**取出后在标签内部断言，
+   而不是用「距离窗口 + 正则」。上一版用 `className="btn..."[\s\S]{0,320}?...`
+   这种窗口式正则，经模板字符串与 shell heredoc 两层转义后行为依赖书写方式，
+   判据本身很脆（且窗口式判据会跨按钮匹配，把相邻按钮的准入算成本按钮的）。
+   按标签切分既精确又不依赖转义细节。 */
+/* 注意不能按第一个 ">" 截断：标签里有 `title={cond ? undefined : reason}`
+   这类表达式，"?" 后面并不产生 ">"，但 `onClick={() => onFn("approved")}`
+   里的 "=>" 会产生 —— 按首个 ">" 切会把标签截断在 onClick 之前，
+   导致 onPlanDecision 匹配不到（本项初版就栽在这里）。
+      改为按 "<button" 切分、再取到下一个 "</button>" 之前。 */
+const buttons = govView
+  .split("<button")
+  .slice(1)
+  .map((chunk) => chunk.slice(0, chunk.indexOf("</button>")));
+assert.ok(buttons.length > 0, "GovernanceView 里没有解析到任何 <button> —— 解析方式失效，本项会空转");
+
+for (const [marker, tier] of [
+  ["onCreateWorkSpecRevision", "manage"], ["onRequestProposal", "manage"],
+  ["onCompile", "run"], ["onPlanDecision", "approve"], ["onRun", "run"],
+] as const) {
+  /* 只按「标签内出现了该回调名」筛选：onClick 有 ON{fn}、ON={onFn}、
+     ON={() => onFn("approved")} 三种写法，写死某一种会漏
+     （onPlanDecision 正是箭头包装形式）。 */
+  const own = buttons.filter((tag) => tag.includes(marker));
+  assert.equal(
+    own.length, 1,
+    `未唯一匹配到治理动作按钮 ${marker}（找到 ${own.length} 个）—— 按钮结构变了，请同步本项`,
+  );
+  assert.ok(
+    own[0]!.includes('data-blocked={!can("' + tier + '").allowed}'),
+    `治理动作按钮 ${marker} 的受阻态档位不是 ${tier}（后端 guard 要求该档）`,
+  );
+}
+
+/* 审阅/澄清按钮同样要求。审阅必须绑定**被审节点**（后端 URL 带 nodeId）。 */
+assert.ok(
+  /const gateAdmission = admission\?\.\("approve", targetNodeId\)/.test(govView),
+  "审阅按钮的准入必须绑定被审节点 targetNodeId —— 传 review 节点自身会与后端判据错位",
+);
+assert.ok(
+  (govView.match(/data-blocked=\{!gateAdmission\.allowed\}/g) ?? []).length === 2,
+  "两个审阅按钮（提意见/确认通过）都应带 data-blocked={!gateAdmission.allowed}",
+);
+assert.ok(
+  /const gate = admission\?\.\("run"\) \?\? \{ allowed: true, reason: "" \}/.test(govView),
+  "澄清按钮的准入档位应为 run（后端 /clarifications 要求 run）",
+);
+assert.ok(
+  /data-blocked=\{!gate\.allowed\}/.test(govView),
+  "澄清按钮缺 data-blocked 受阻态",
 );
 
 console.log(`治理动作准入守卫：${EXPECTED.length} 条后端路由档位一致、${gatedCalls.length} 处前端调用点已加准入、平台级 4 条路由与前端受阻态已核对。`);

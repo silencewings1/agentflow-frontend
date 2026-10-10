@@ -77,6 +77,12 @@ export interface GovernanceViewProps {
   /** 对 unknown/failed 的 SCM 写入做显式对账：只查询远端事实，不重放写操作。 */
   onReconcileOperation?: (operationId: string) => void;
   reconcilingOperationId?: string | null;
+  /** 治理动作的准入判据：由 App 用与后端同源的判据算出后传入。
+      界面只负责呈现——判定逻辑不在这里另写一份，否则两处口径会漂移
+      （与 Sidebar 的 newTaskAdmission / canManageSession 同一约定）。
+      缺省（未传）按「允许」处理：本面板也用于 fixture 演示，
+      那条路径上没有账户目录，硬判只会给出错误结论。 */
+  canGovernanceAction?: (required: "run" | "approve" | "manage", nodeId?: string) => { allowed: boolean; reason: string };
 }
 
 const taskLabels: Record<string, string> = {
@@ -181,9 +187,11 @@ function isRequirementsQuestionBlocking(item: Record<string, unknown>): boolean 
   return item.blocking === true && !isLikelyInferableQuestion(String(item.question ?? ""));
 }
 
-function RequirementsQuestionCard({ attempts, onAnswer, busy, apiMode, taskStatus }: { attempts: AttemptDetailDto[]; onAnswer?: GovernanceViewProps["onAnswerRequirements"]; busy?: boolean; apiMode: "http" | "fixture"; taskStatus?: string }) {
+function RequirementsQuestionCard({ attempts, onAnswer, busy, apiMode, taskStatus, admission }: { attempts: AttemptDetailDto[]; onAnswer?: GovernanceViewProps["onAnswerRequirements"]; busy?: boolean; apiMode: "http" | "fixture"; taskStatus?: string; admission?: GovernanceViewProps["canGovernanceAction"] }) {
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [reason, setReason] = useState("");
+  /* 回答澄清会创建新的 WorkSpec revision（后端要求 run 档）。 */
+  const gate = admission?.("run") ?? { allowed: true, reason: "" };
   // 澄清提交后 requirements 节点会被重置、任务回到 created，但历史 attempt
   // 仍作为审计证据留在列表里。只有任务确实停在等待人工时才展示问题卡片，
   // 否则会一直显示已经回答过的旧问题。
@@ -198,7 +206,7 @@ function RequirementsQuestionCard({ attempts, onAnswer, busy, apiMode, taskStatu
     const blocking = isRequirementsQuestionBlocking(item);
     const inferred = !blocking && (item.blocking === true || item.resolutionStatus === "inferred" || item.resolutionStatus === "assumed");
     return <article key={`${String(item.id ?? "question")}-${index}`} data-tone={blocking ? "warn" : "info"}><span className="govQuestions__badge">{blocking ? "需要确认" : inferred ? "可自动推断" : "说明"}</span><p>{question || "未提供问题文本"}</p>{blocking ? <textarea value={answers[index] ?? ""} onChange={(event) => setAnswers((current) => ({ ...current, [index]: event.target.value }))} placeholder="填写确认结果，例如：允许写入 feature/demo 分支" rows={2} /> : null}<small>{blocking ? "回答后会生成新的 WorkSpec revision；旧 attempt 保留为审计证据。" : "平台将按当前 WorkSpec 默认策略处理，不影响继续执行。"}</small></article>;
-  })}{blockingQuestions.length > 0 && <div className="govQuestions__actions">{apiMode === "fixture" ? <p className="govHint govHint--warn">当前是 FIXTURE · TEST DOUBLE；回答不会写入治理事实，请切换到 HTTP AF API 后提交。</p> : <><label><span>本次确认说明</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="说明你确认了哪些边界，以及为什么" rows={2} /></label><button className="btn btn--accent btn--sm" disabled={!onAnswer || busy || !reason.trim() || blockingQuestions.some(({ index }) => !(answers[index] ?? "").trim())} onClick={() => onAnswer?.({ sourceAttemptId: attempt!.attemptId, answers: blockingQuestions.map(({ raw, index }) => { const item = raw as Record<string, unknown>; return { ...(typeof item.id === "string" ? { questionId: item.id } : {}), question: String(item.question ?? ""), answer: (answers[index] ?? "").trim(), ...(typeof item.category === "string" && ["external-write", "authorization", "acceptance-conflict", "scope", "security"].includes(item.category) ? { category: item.category as ClarificationAnswerDto["category"] } : {}) }; }), reason: reason.trim() })}>{busy ? "提交并创建新 revision…" : "回答并重新规划"}</button></>}</div>}</div>;
+  })}{blockingQuestions.length > 0 && <div className="govQuestions__actions">{apiMode === "fixture" ? <p className="govHint govHint--warn">当前是 FIXTURE · TEST DOUBLE；回答不会写入治理事实，请切换到 HTTP AF API 后提交。</p> : <><label><span>本次确认说明</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="说明你确认了哪些边界，以及为什么" rows={2} /></label><button className="btn btn--accent btn--sm" data-blocked={!gate.allowed} title={gate.allowed ? undefined : gate.reason} disabled={!onAnswer || busy || !gate.allowed || !reason.trim() || blockingQuestions.some(({ index }) => !(answers[index] ?? "").trim())} onClick={() => onAnswer?.({ sourceAttemptId: attempt!.attemptId, answers: blockingQuestions.map(({ raw, index }) => { const item = raw as Record<string, unknown>; return { ...(typeof item.id === "string" ? { questionId: item.id } : {}), question: String(item.question ?? ""), answer: (answers[index] ?? "").trim(), ...(typeof item.category === "string" && ["external-write", "authorization", "acceptance-conflict", "scope", "security"].includes(item.category) ? { category: item.category as ClarificationAnswerDto["category"] } : {}) }; }), reason: reason.trim() })}>{busy ? "提交并创建新 revision…" : "回答并重新规划"}</button></>}</div>}</div>;
 }
 
 
@@ -209,7 +217,7 @@ function RequirementsQuestionCard({ attempts, onAnswer, busy, apiMode, taskStatu
  * 这里是人对产出表达意见、结果重跑该节点。两者可以先后发生。
  */
 function NodeReviewCard({
-  gates, attempts, onReview, busy, apiMode, feedbacks,
+  gates, attempts, onReview, busy, apiMode, feedbacks, admission,
 }: {
   /** 等待人工审阅的闸门节点（由 App 从 taskRuntime.nodes 派生）。 */
   gates: Array<{ nodeId: string }>;
@@ -218,6 +226,7 @@ function NodeReviewCard({
   busy?: boolean;
   apiMode: "http" | "fixture";
   feedbacks: NodeReviewFeedbackDto[];
+  admission?: GovernanceViewProps["canGovernanceAction"];
 }) {
   const [comments, setComments] = useState<Record<string, string>>({});
   if (gates.length === 0) return null;
@@ -230,6 +239,10 @@ function NodeReviewCard({
         const sourceAttemptId = target?.attemptId ?? history[history.length - 1]?.sourceAttemptId ?? "";
         const round = history.filter((item) => item.decision === "revise").length + 1;
         const comment = comments[gate.nodeId] ?? "";
+        /* 审阅要求**被审节点**上持 approve —— 后端 URL 里带 nodeId，
+           判据是 assertNodePermission(..., nodeId: 该节点)。
+           这里传 targetNodeId 与后端对齐（不是 review 节点自身）。 */
+        const gateAdmission = admission?.("approve", targetNodeId) ?? { allowed: true, reason: "" };
         return (
           <div key={gate.nodeId}>
             <div className="govQuestions__head">
@@ -265,14 +278,18 @@ function NodeReviewCard({
                 <>
                   <button
                     className="btn btn--outline btn--sm"
-                    disabled={!onReview || busy || comment.trim().length === 0 || sourceAttemptId.length === 0}
+                    data-blocked={!gateAdmission.allowed}
+                    title={gateAdmission.allowed ? undefined : gateAdmission.reason}
+                    disabled={!onReview || busy || !gateAdmission.allowed || comment.trim().length === 0 || sourceAttemptId.length === 0}
                     onClick={() => onReview?.({ reviewNodeId: gate.nodeId, targetNodeId, sourceAttemptId, decision: "revise", comment: comment.trim() })}
                   >
                     {busy ? "提交中…" : "提交修改意见并重跑"}
                   </button>
                   <button
                     className="btn btn--accent btn--sm"
-                    disabled={!onReview || busy || sourceAttemptId.length === 0}
+                    data-blocked={!gateAdmission.allowed}
+                    title={gateAdmission.allowed ? undefined : gateAdmission.reason}
+                    disabled={!onReview || busy || !gateAdmission.allowed || sourceAttemptId.length === 0}
                     onClick={() => onReview?.({ reviewNodeId: gate.nodeId, targetNodeId, sourceAttemptId, decision: "approve", comment: "" })}
                   >
                     确认通过并推进
@@ -565,6 +582,7 @@ export function GovernanceView({
   busyAction,
   onReconcileOperation,
   reconcilingOperationId,
+  canGovernanceAction,
 }: GovernanceViewProps) {
   const effectiveRunMode = runMode ?? runIntent?.runMode;
   const currentStatus = runIntent?.status ?? taskStatus;
@@ -573,6 +591,12 @@ export function GovernanceView({
   // authority: never expose a new RunIntent while a gate/reconcile block is
   // active, even if the old intent is merely yielded.
   const controlBlocked = ["awaiting_human", "blocked_unavailable", "needs_reconcile"].includes(String(taskStatus));
+  /* 治理动作的档位准入。档位取自 handler.ts 的 guard：
+     生成方案/创建契约版本=manage，检查执行计划/开始执行=run，批准执行计划=approve。
+     缺省（未传 admission）按允许处理——fixture 演示路径没有账户目录，
+     硬判只会给出错误结论（与 App 侧 canGovernanceAction 的取向一致）。 */
+  const can = (required: "run" | "approve" | "manage", nodeId?: string) =>
+    canGovernanceAction?.(required, nodeId) ?? { allowed: true, reason: "" };
   const runActive = ["queued", "claimed", "running", "yielded"].includes(String(runIntent?.status));
   const currentEvidence = useMemo(() => evidenceMatrix?.rows ?? [], [evidenceMatrix]);
   /* 正文解析只在 DTO 变化时执行一次；返回 null 即渲染降级态，
@@ -596,21 +620,21 @@ export function GovernanceView({
 
       <div className="govActions">
         {!workSpec && onFreezeWorkSpec && <span className="govHint">先完成 WorkSpec，服务端才会生成规划事实。</span>}
-        {workSpec && onCreateWorkSpecRevision && <button className="btn btn--ghost btn--sm" disabled={busyAction !== null || runActive} onClick={onCreateWorkSpecRevision}>创建任务契约新版本</button>}
-        {workSpec && !proposal && onRequestProposal && <button className="btn btn--accent btn--sm" disabled={busyAction !== null || runActive} onClick={onRequestProposal}>{busyAction === "proposal" ? "正在生成方案…" : "生成执行方案"}</button>}
-        {proposal && !compilationReport && onCompile && <button className="btn btn--accent btn--sm" disabled={busyAction !== null || runActive} onClick={onCompile}>{busyAction === "compile" ? "正在检查执行计划…" : "检查执行计划"}</button>}
+        {workSpec && onCreateWorkSpecRevision && <button className="btn btn--ghost btn--sm" data-blocked={!can("manage").allowed} title={can("manage").allowed ? undefined : can("manage").reason} disabled={busyAction !== null || runActive || !can("manage").allowed} onClick={onCreateWorkSpecRevision}>创建任务契约新版本</button>}
+        {workSpec && !proposal && onRequestProposal && <button className="btn btn--accent btn--sm" data-blocked={!can("manage").allowed} title={can("manage").allowed ? undefined : can("manage").reason} disabled={busyAction !== null || runActive || !can("manage").allowed} onClick={onRequestProposal}>{busyAction === "proposal" ? "正在生成方案…" : "生成执行方案"}</button>}
+        {proposal && !compilationReport && onCompile && <button className="btn btn--accent btn--sm" data-blocked={!can("run").allowed} title={can("run").allowed ? undefined : can("run").reason} disabled={busyAction !== null || runActive || !can("run").allowed} onClick={onCompile}>{busyAction === "compile" ? "正在检查执行计划…" : "检查执行计划"}</button>}
         {compilationReport?.outcome === "rejected" && <span className="govHint govHint--warn">Compiler 已拒绝当前 revision；先创建新 revision 修正 WorkSpec，再重新请求 Proposal。</span>}
-        {plan && !planDecision && onPlanDecision && <button className="btn btn--accent btn--sm" disabled={busyAction !== null || runActive} onClick={() => onPlanDecision("approved")}>{busyAction === "decision" ? "正在提交审批…" : "批准执行计划"}</button>}
+        {plan && !planDecision && onPlanDecision && <button className="btn btn--accent btn--sm" data-blocked={!can("approve").allowed} title={can("approve").allowed ? undefined : can("approve").reason} disabled={busyAction !== null || runActive || !can("approve").allowed} onClick={() => onPlanDecision("approved")}>{busyAction === "decision" ? "正在提交审批…" : "批准执行计划"}</button>}
         {plan && !planDecision && <span className="govHint govHint--warn">批准前请先读完下方「Execution Plan 与 PlanDecision」中的计划正文。</span>}
         {controlBlocked && <span className="govHint govHint--warn">当前任务处于 {statusLabel(String(taskStatus))}，请先完成澄清、能力恢复或对账，暂不能开始执行。</span>}
         {runActive && !controlBlocked && <span className="govHint govHint--info">运行请求已提交，后台正在执行；请等待节点状态刷新后再操作。</span>}
-        {planDecision?.decision === "approved" && onRun && <button className="btn btn--accent btn--sm" disabled={busyAction !== null || controlBlocked || runActive || ["completed", "cancelled"].includes(String(taskStatus))} onClick={onRun}>{busyAction === "run" ? "正在提交运行请求…" : "开始执行任务"}</button>}
+        {planDecision?.decision === "approved" && onRun && <button className="btn btn--accent btn--sm" data-blocked={!can("run").allowed} title={can("run").allowed ? undefined : can("run").reason} disabled={busyAction !== null || controlBlocked || runActive || !can("run").allowed || ["completed", "cancelled"].includes(String(taskStatus))} onClick={onRun}>{busyAction === "run" ? "正在提交运行请求…" : "开始执行任务"}</button>}
       </div>
 
       <RequirementsGateHint gates={gates} taskStatus={taskStatus ?? currentStatus} />
-      <RequirementsQuestionCard attempts={attempts} onAnswer={onAnswerRequirements} busy={busyAction === "clarification"} apiMode={apiMode} taskStatus={taskStatus ?? currentStatus} />
+      <RequirementsQuestionCard attempts={attempts} onAnswer={onAnswerRequirements} busy={busyAction === "clarification"} apiMode={apiMode} taskStatus={taskStatus ?? currentStatus} admission={canGovernanceAction} />
 
-      <NodeReviewCard gates={reviewGates} attempts={attempts} onReview={onReviewNode} busy={reviewSubmitting === true} apiMode={apiMode} feedbacks={reviewFeedbacks} />
+      <NodeReviewCard gates={reviewGates} attempts={attempts} onReview={onReviewNode} busy={reviewSubmitting === true} apiMode={apiMode} feedbacks={reviewFeedbacks}  admission={canGovernanceAction} />
 
       <div className="govGrid">
         <Section title="WorkSpec" kicker="唯一入口">
