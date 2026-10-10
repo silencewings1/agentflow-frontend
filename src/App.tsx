@@ -681,6 +681,29 @@ export default function App() {
     setAccountsData(await afApi.createAccount(input));
   }, []);
 
+  /* 权限被拒时把界面重新对齐到服务端事实。
+
+     为什么必须有这一步：前端的写准入闸门（newTaskAdmission、canGovernanceAction、
+     canManageSession…）判的都是**登录时读到的授权快照**，此后不再重读——账户目录
+     没有任何轮询（只有任务运行时与 trace 有）。于是管理员在「成员与权限」里收回
+     某人的 run 之后，那个人**已打开的标签页仍然显示按钮可点**，直到手动刷新。
+
+     服务端是安全的（实测收回后立刻 AF_PERMISSION_DENIED，不会越权成功），
+     但界面在撒谎：用户点下去、填完表、提交时才被拒。这与 AGENTS.md §4.3
+     「前置条件未满足时必须显式呈现受阻，而不是照常可点然后报错」直接冲突。
+     作者已经在授权格子冲突（AF_GRANT_CONFLICT）时做过同样的重新对齐，
+     这里只是把同一处置推广到「权限被拒」这一类。
+
+     只重读、不给提示是不够的：用户看到的是"按钮突然灰了"，需要知道原因，
+     因此调用方仍要 push 文案，这里只负责让事实回到界面。 */
+  const realignAfterDenial = useCallback(
+    async (apiError: AfApiError | undefined): Promise<void> => {
+      if (apiError?.code !== "AF_PERMISSION_DENIED" && apiError?.code !== "AF_ACCOUNT_SUSPENDED") return;
+      await loadAccounts();
+    },
+    [loadAccounts],
+  );
+
   const setAccountState = useCallback(async (accountId: string, state: AccountDto["state"]) => {
     const next = await afApi.setAccountState(accountId, state);
     setAccountsData(next);
@@ -1371,6 +1394,9 @@ export default function App() {
       } catch (error: unknown) {
         const apiError = error instanceof AfApiError ? error : undefined;
         push({ tone: "warn", title: "任务创建失败", body: describeError(apiError?.code, apiError?.message) });
+        /* 被拒可能只是界面手里的授权快照过期了（管理员刚收回）。重读之后
+           按钮会如实变灰，用户不必再点第二次才发现。 */
+        await realignAfterDenial(apiError);
         return;
       }
       timers.current.forEach(clearTimeout);
@@ -1464,9 +1490,10 @@ export default function App() {
     void afApi.startTask(activeId).then(async () => {
       await fetchTaskRuntime(activeId);
       if (afApi.mode === "http") await loadBootstrap();
-    }).catch((error: unknown) => {
+    }).catch(async (error: unknown) => {
         const apiError = error instanceof AfApiError ? error : undefined;
         push({ tone: "warn", title: "任务启动失败", body: describeError(apiError?.code, apiError?.message) });
+        await realignAfterDenial(apiError);
     });
     if (afApi.mode === "http") {
       return;
@@ -1689,7 +1716,8 @@ export default function App() {
       }
     } catch (error: unknown) {
       const apiError = error instanceof AfApiError ? error : undefined;
-      push({ tone: "warn", title: "审批失败", body: describeError(apiError?.code, apiError?.message) });
+      push({ tone: "warn", title: "审批失败", body: describeError(apiError?.code, apiError?.message) })
+      await realignAfterDenial(apiError);
     }
   }, [activeId, fetchTaskRuntime, push]);
 
@@ -1838,7 +1866,8 @@ export default function App() {
       if (activeId) await fetchTaskRuntime(activeId);
     } catch (error: unknown) {
       const apiError = error instanceof AfApiError ? error : undefined;
-      push({ tone: "warn", title: "Git operation 确认失败", body: describeError(apiError?.code, apiError?.message) });
+      push({ tone: "warn", title: "Git operation 确认失败", body: describeError(apiError?.code, apiError?.message) })
+      await realignAfterDenial(apiError);
     } finally {
       setConfirmingOperationId(null);
     }
@@ -1861,7 +1890,8 @@ export default function App() {
       if (activeId) await fetchTaskRuntime(activeId);
     } catch (error: unknown) {
       const apiError = error instanceof AfApiError ? error : undefined;
-      push({ tone: "warn", title: "对账失败", body: describeError(apiError?.code, apiError?.message) });
+      push({ tone: "warn", title: "对账失败", body: describeError(apiError?.code, apiError?.message) })
+      await realignAfterDenial(apiError);
     } finally {
       setReconcilingOperationId(null);
     }

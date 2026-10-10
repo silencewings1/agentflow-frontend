@@ -379,4 +379,31 @@ assert.ok(
   }
 }
 
+/* ⑪ 权限被拒之后必须把界面重新对齐到服务端事实。
+
+   前置闸门判的都是**登录时读到的授权快照**，而账户目录没有轮询
+   （只有任务运行时与 trace 有轮询）。管理员在「成员与权限」里收回某人的 run 后，
+   那个人已打开的标签页仍显示按钮可点，直到手动刷新——实测确认：
+   服务端立刻 AF_PERMISSION_DENIED（不会越权），但界面在撒谎，
+   与 AGENTS.md §4.3「不得照常可点然后报错」冲突。
+
+   判据：App 里必须存在 realignAfterDenial，且它要覆盖
+   AF_PERMISSION_DENIED / AF_ACCOUNT_SUSPENDED 两个码；
+   并至少被接入到「任务创建失败」这条路径上（本轮实测触达的那条）。 */
+assert.match(
+  app,
+  /const realignAfterDenial = useCallback/,
+  "缺少 realignAfterDenial：权限被拒后界面不会重新对齐（陈旧快照会让按钮一直可点）",
+);
+const realignBlock = app.slice(app.indexOf("const realignAfterDenial"), app.indexOf("const realignAfterDenial") + 900);
+assert.match(realignBlock, /AF_PERMISSION_DENIED/, "realignAfterDenial 必须覆盖 AF_PERMISSION_DENIED");
+assert.match(realignBlock, /AF_ACCOUNT_SUSPENDED/, "realignAfterDenial 必须覆盖 AF_ACCOUNT_SUSPENDED");
+assert.match(realignBlock, /await loadAccounts\(\)/, "realignAfterDenial 必须真正重读账户目录");
+
+const realignCalls = (app.match(/await realignAfterDenial\(apiError\)/g) ?? []).length;
+assert.ok(
+  realignCalls >= 4,
+  `realignAfterDenial 的接入点只有 ${realignCalls} 处，应覆盖任务创建/启动/审批/SCM 等写失败路径`,
+);
+
 console.log(`治理动作准入守卫：${EXPECTED.length} 条后端路由档位一致、${gatedCalls.length} 处前端调用点已加准入、平台级 4 条路由与前端受阻态已核对。`);
