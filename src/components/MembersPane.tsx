@@ -744,11 +744,22 @@ export function MembersPane({
               </div>
               {/* 截断必须说出来。审计表只增不删，因此这不是边界情况：
                   不说明时「只显示了 8 条」与「一共只有 8 条」长得完全一样，
-                  而本项目的主张是留痕优先——把一页当成全部等于在治理事实上说假话。 */}
+                  而本项目的主张是留痕优先——把一页当成全部等于在治理事实上说假话。
+
+                  此处**不得**再承诺"可经 API 读取"。旧文案写的是
+                  「更早的记录仍保留在治理存储中，可经 API 读取」，但实测：
+                  `GET /accounts` 恒返回 50 条，`?limit` / `?offset` / `?cursor` /
+                  `?page` / `?since` 全部无效（仍 50 条），`/accounts/audit`、
+                  `/audits` 等一律 `AF_ROUTE_NOT_FOUND` —— **当前没有任何读取入口**。
+
+                  "保留在治理存储中"这一半是真的（持久化文件里 `grant_audit` 实存
+                  141 条，`account_audit` 7 条，跨重启仍在）；"可经 API 读取"这一半
+                  是假的。承诺一件做不到的事，比不承诺更坏：它会让读者以为
+                  "需要时能查到"，于是不再对缺失的部分提出要求。 */}
               {accountAuditTotal > accountAudit.length ? (
                 <p className="permAudit__truncated">
-                  目录共 {accountAuditTotal} 条账户变更，此处仅显示服务端返回的最新 {accountAudit.length} 条；
-                  更早的记录仍保留在治理存储中，可经 API 读取。
+                  目录共 {accountAuditTotal} 条账户变更，此处仅显示最新 {accountAudit.length} 条；
+                  更早的记录仍保存在治理存储中，但当前版本没有读取入口（界面与 API 均未开放）。
                 </p>
               ) : accountAuditTotal > 8 ? (
                 <p className="permAudit__truncated">
@@ -777,8 +788,8 @@ export function MembersPane({
               </div>
               {auditTotal > audit.length ? (
                 <p className="permAudit__truncated">
-                  目录共 {auditTotal} 条授权变更，此处仅显示服务端返回的最新 {audit.length} 条；
-                  更早的记录仍保留在治理存储中，可经 API 读取。
+                  目录共 {auditTotal} 条授权变更，此处仅显示最新 {audit.length} 条；
+                  更早的记录仍保存在治理存储中，但当前版本没有读取入口（界面与 API 均未开放）。
                 </p>
               ) : auditTotal > 8 ? (
                 <p className="permAudit__truncated">本页显示最新 8 条（共 {auditTotal} 条）。</p>

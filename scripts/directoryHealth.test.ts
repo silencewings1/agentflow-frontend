@@ -298,6 +298,27 @@ assert.match(
   /directoryUnhealthy/,
   "MembersPane 应把「目录不可用」提成一个判据（两种成因都算），用于与权限提示互斥",
 );
+
+/* 截断说明**不得**承诺一个不存在的读取入口。
+   旧文案写「更早的记录仍保留在治理存储中，可经 API 读取」——前半句属实
+   （持久化文件里 grant_audit 实存 141 条、account_audit 7 条），
+   后半句是假的：实测 GET /accounts 恒返回 50 条，?limit / ?offset / ?cursor /
+   ?page / ?since 全部无效（仍 50 条），/accounts/audit、/audits 等一律
+   AF_ROUTE_NOT_FOUND —— 当前没有任何读取入口。
+
+   为什么要守：一个做不到的承诺比不承诺更坏。读者会以为"需要时能查到"，
+   于是不再对缺失的部分提出要求；而这条文案正是出现在"留痕优先"这件事上。
+   将来若真的加了读取端点，这条断言会变红，提醒把文案改回去——
+   那正是它该做的事（断言的是"不做假承诺"，不是"永远不许有端点"）。 */
+const membersPaneCode = membersPane.replace(/\/\*[\s\S]*?\*\//g, "");
+assert.ok(
+  !/可经\s*API\s*读取/.test(membersPaneCode),
+  "审计截断说明不得承诺「可经 API 读取」：当前没有任何端点能读到第 51 条及更早的审计记录",
+);
+assert.ok(
+  /没有读取入口/.test(membersPane),
+  "审计截断说明必须如实指出更早的记录当前没有读取入口",
+);
 /* 判据必须由 directory.healthy 推导，不能恒 false。
    第一版只断言 /directoryUnhealthy/ 出现——注入 `= false` 后仍全绿，
    因为判断"字段名有没有出现"钉不住"取值从哪来"（与 workflowLabels.test.ts
