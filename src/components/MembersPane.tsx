@@ -40,6 +40,21 @@ import type { Workflow, WfNode } from "../data/workflows";
 
 type Toast = (t: { tone: "ok" | "warn" | "info"; title: string; body: string }) => void;
 
+/**
+ * 目录为 `null` 时的成因。**必须是显式的判别式，不能靠 `data === null` 猜。**
+ *
+ * 两种成因的正确处置相反（见 `AccountsService.unavailable()`）：
+ * - `disabled`：实例**声明**未启用多用户，重试永远不会成功，要找部署方；
+ * - `transient`：目录暂时读不到（组装漏配 / 初始化失败），属瞬时故障，重试有意义。
+ *
+ * 后端已用 `details.multiUserEnabled` 自证是哪一种，这里只负责把它翻成
+ * 读者能据此行动的一句话。此前面板只写「账户目录尚未加载」，读者无法分辨
+ * "稍等一下就好"与"这台实例永远不会好"——处置相反的两件事说成同一句话。
+ */
+export type AccountsUnavailable =
+  | { kind: "disabled"; message: string }
+  | { kind: "transient"; message: string };
+
 /** 编排节点 → 可授权的责任位。审批节点由审查/交付角色承担，与 assignableAccounts 同义。 */
 interface NodeRef {
   workflowId: string;
@@ -118,6 +133,7 @@ const ACCOUNT_STATE_LABEL: Record<AccountDto["state"], string> = {
 
 export function MembersPane({
   data,
+  unavailable = null,
   actor,
   workflows,
   onToast,
@@ -128,6 +144,8 @@ export function MembersPane({
   onSetGrant,
 }: {
   data: AccountsDto | null;
+  /** `data === null` 的成因；未提供时退回中性的"尚未加载"。 */
+  unavailable?: AccountsUnavailable | null;
   actor: ActorDto | null;
   /** 实时编排目录：责任位矩阵的唯一节点来源（见 nodeRefs 的说明）。 */
   workflows: Workflow[];
@@ -509,11 +527,27 @@ export function MembersPane({
   };
 
   if (data === null || actor === null) {
+    /* 两种成因分开说，因为处置相反。
+       `disabled` 不得显示"重试"暗示——重试永远不会成功；
+       `transient` 要明确告诉读者"稍后重试有用"，否则他会以为这是永久状态。 */
+    const disabled = unavailable?.kind === "disabled";
+    const title = data !== null
+      ? "当前身份未登记，无法判定权限。"
+      : disabled
+        ? "本实例未启用多用户。"
+        : "账户目录暂时不可用。";
+    const detail = unavailable?.message
+      ?? (disabled
+        ? "实例已声明不使用多用户，因此不存在账户与授权概念；重试不会改变结果。"
+        : "多用户能力由 AF API 的 /accounts 提供，目录读不到时无法判定权限。");
     return (
-      <div className="permEmpty">
+      <div className="permEmpty" data-unavailable={unavailable?.kind ?? "unknown"}>
         <Icon.Agent size={20} />
-        <p>账户目录尚未加载。</p>
-        <em>多用户能力由 AF API 的 /accounts 提供；实例未启用时该面板降级为不可用。</em>
+        <p>{title}</p>
+        <em>{detail}</em>
+        {disabled && (
+          <em>需要启用多用户时，请由部署方在启动配置中打开该能力。</em>
+        )}
       </div>
     );
   }

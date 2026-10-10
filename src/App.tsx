@@ -2718,6 +2718,18 @@ export default function App() {
           onPane={setSettingsPane}
           onClose={() => setSettingsPane(null)}
           onToast={push}
+          /* 目录为 null 时把**成因**一并传下去。只传 null 的话，面板只能笼统说
+             "尚未加载"，而"实例声明未启用"（永久）与"瞬时读不到"（可重试）
+             的处置相反——说成同一句话会让读者做错动作：前者去重试，后者去等。 */
+          accountsUnavailable={
+            accountsData !== null
+              ? null
+              : multiUserDisabled
+                ? { kind: "disabled", message: accountsError ?? "" }
+                : accountsError !== null
+                  ? { kind: "transient", message: accountsError }
+                  : null
+          }
           connectionLayer={connectionLayer}
           connectionLayerError={connectionLayerError}
           environment={environment}

@@ -10,6 +10,7 @@ import {
   type ArchLayer,
 } from "../data/settings";
 import { MembersPane } from "./MembersPane";
+import type { AccountsUnavailable } from "./MembersPane";
 import type { Workflow } from "../data/workflows";
 import {
   AfApiError,
@@ -106,6 +107,7 @@ export function SettingsOverlay({
   environmentError,
   onRefreshPosture,
   accounts,
+  accountsUnavailable,
   actor,
   workflows,
   onRefreshAccounts,
@@ -135,6 +137,10 @@ export function SettingsOverlay({
   onRefreshPosture: () => Promise<void>;
   /* 多用户：账户目录与授权由 App 持有，面板只渲染与派发（§三 状态只放 App）。 */
   accounts: AccountsDto | null;
+  /* `accounts === null` 时**为什么**为 null。少了它，面板只能笼统说"尚未加载"，
+     把"实例已声明未启用多用户"（永久、要找部署方）与"网络/服务瞬时故障"
+     （可重试）说成同一句话——而这两者的正确处置相反。 */
+  accountsUnavailable: AccountsUnavailable | null;
   actor: ActorDto | null;
   workflows: Workflow[];
   onRefreshAccounts: () => Promise<AccountsDto | null>;
@@ -212,6 +218,7 @@ export function SettingsOverlay({
             {pane === "members" && (
               <MembersPane
                 data={accounts}
+                unavailable={accountsUnavailable}
                 actor={actor}
                 workflows={workflows}
                 onToast={onToast}
