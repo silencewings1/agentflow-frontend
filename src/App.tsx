@@ -1478,7 +1478,7 @@ export default function App() {
     },
     /* realignAfterDenial 必须在这里：任务创建被 AF_PERMISSION_DENIED 拒掉时
        要重读账户目录，否则界面会一直显示一个已经失效的「可创建」结论。 */
-    [fetchGovernance, fetchTaskRuntime, loadBootstrap, push, realignAfterDenial],
+    [fetchGovernance, fetchTaskRuntime, loadBootstrap, push, realignFromError],
   );
 
   /** 用户确认规划 → 正式推进流水线（原 startTask 尾部的推进逻辑迁移至此） */
@@ -1524,7 +1524,7 @@ export default function App() {
       title: `规划已确认 · 按「${wf.name}」启动`,
       body: `${wf.nodes.length} 个节点 · ${wf.edges.filter((e) => e.kind === "fail").length} 条失败回退边`,
     });
-  }, [planEvent, workflow, activeId, runTurn, push, loadBootstrap, fetchTaskRuntime, realignAfterDenial]);
+  }, [planEvent, workflow, activeId, runTurn, push, loadBootstrap, fetchTaskRuntime, realignFromError]);
 
   /* 取消/归档/恢复都先落服务端事实，再以服务端返回的列表为准刷新界面。
      本地只读缓存绝不伪造删除：调用失败时列表保持不变，并如实提示错误码。 */
@@ -1582,7 +1582,7 @@ export default function App() {
       fallbackFromHidden(refreshed, id, false);
       push({ tone: "ok", title: "运行已取消", body: "该任务已终止；已完成的节点事实与证据仍然保留。" });
     },
-    [fallbackFromHidden, fetchGovernance, fetchTaskRuntime, loadBootstrap, push],
+    [fallbackFromHidden, fetchGovernance, fetchTaskRuntime, loadBootstrap, push, realignAfterDenial],
   );
 
   const setArchived = useCallback(
@@ -1605,7 +1605,7 @@ export default function App() {
           : { tone: "ok", title: "已恢复", body: "该任务已重新出现在默认列表中。" },
       );
     },
-    [fallbackFromHidden, loadBootstrap, push, showArchived],
+    [fallbackFromHidden, loadBootstrap, push, showArchived, realignAfterDenial],
   );
 
   const archiveTask = useCallback((id: string) => void setArchived(id, true), [setArchived]);
@@ -1732,7 +1732,7 @@ export default function App() {
       push({ tone: "warn", title: "审批失败", body: describeError(apiError?.code, apiError?.message) })
       await realignFromError(error);
     }
-  }, [activeId, fetchTaskRuntime, push, realignAfterDenial]);
+  }, [activeId, fetchTaskRuntime, push, realignFromError]);
 
   const stop = useCallback(() => {
     timers.current.forEach(clearTimeout);
@@ -1884,7 +1884,7 @@ export default function App() {
     } finally {
       setConfirmingOperationId(null);
     }
-  }, [activeId, fetchTaskRuntime, push, realignAfterDenial]);
+  }, [activeId, fetchTaskRuntime, push, realignFromError]);
 
   /* unknown/failed 状态的唯一出路是显式对账（reconcile），而不是重放写操作。
      reconcile 只查询远端事实来收敛状态，绝不重放原写入 —— 这是写链悬挂后
@@ -1908,7 +1908,7 @@ export default function App() {
     } finally {
       setReconcilingOperationId(null);
     }
-  }, [activeId, fetchTaskRuntime, push, realignAfterDenial]);
+  }, [activeId, fetchTaskRuntime, push, realignFromError]);
 
   const planGitOperation = useCallback(async () => {
     if (!activeId || !taskRuntime?.preparedDelivery) return;
