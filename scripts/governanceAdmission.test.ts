@@ -400,10 +400,33 @@ assert.match(realignBlock, /AF_PERMISSION_DENIED/, "realignAfterDenial 必须覆
 assert.match(realignBlock, /AF_ACCOUNT_SUSPENDED/, "realignAfterDenial 必须覆盖 AF_ACCOUNT_SUSPENDED");
 assert.match(realignBlock, /await loadAccounts\(\)/, "realignAfterDenial 必须真正重读账户目录");
 
-const realignCalls = (app.match(/await realignAfterDenial\(apiError\)/g) ?? []).length;
+/* 接入点有两种形态，都要认：
+   · realignFromError(error)      —— catch 拿到原始 error 的地方
+   · realignAfterDenial(<code>)   —— 已经用 apiFailure 归一过 code 的地方
+   只认其中一种会把另一种算漏（本轮重构后就出现过：守卫报"接入点 0 处"，
+   而实际接入是完整的——是判据写窄了，不是实现漏了）。 */
+/* realignFromError 本身也必须存在：只数调用点是不够的——
+   本轮注入实测过这个漏洞：删掉它的**定义**后，调用点仍在（5 处），
+   于是旧判据算出 5+2=7 ≥ 5 照旧通过，**假绿**。
+   （真正拦住它的是 tsc，不是本守卫；但守卫的职责就是断言接线，
+   不能把这件事外包给类型检查。） */
+assert.match(
+  app,
+  /const realignFromError = useCallback/,
+  "缺少 realignFromError：catch 侧无法把原始 error 归一成码并重读目录",
+);
+
+/* 两种接入形态**各自**设下限，不要用求和：求和会让一种形态的缺失
+   被另一种的富余吸收掉（注入实测：删掉 2 处 byCode 后 5+0 仍 ≥5 → 假绿）。 */
+const fromError = (app.match(/await realignFromError\(error\)/g) ?? []).length;
+const byCode = (app.match(/await realignAfterDenial\(failure\.code\)/g) ?? []).length;
 assert.ok(
-  realignCalls >= 4,
-  `realignAfterDenial 的接入点只有 ${realignCalls} 处，应覆盖任务创建/启动/审批/SCM 等写失败路径`,
+  fromError >= 4,
+  `realignFromError(error) 接入点只有 ${fromError} 处，应覆盖任务创建/启动/审批/SCM/对账`,
+);
+assert.ok(
+  byCode >= 2,
+  `realignAfterDenial(failure.code) 接入点只有 ${byCode} 处，应覆盖取消运行与归档/恢复`,
 );
 
 console.log(`治理动作准入守卫：${EXPECTED.length} 条后端路由档位一致、${gatedCalls.length} 处前端调用点已加准入、平台级 4 条路由与前端受阻态已核对。`);

@@ -697,11 +697,20 @@ export default function App() {
      只重读、不给提示是不够的：用户看到的是"按钮突然灰了"，需要知道原因，
      因此调用方仍要 push 文案，这里只负责让事实回到界面。 */
   const realignAfterDenial = useCallback(
-    async (apiError: AfApiError | undefined): Promise<void> => {
-      if (apiError?.code !== "AF_PERMISSION_DENIED" && apiError?.code !== "AF_ACCOUNT_SUSPENDED") return;
+    async (code: string | undefined): Promise<void> => {
+      if (code !== "AF_PERMISSION_DENIED" && code !== "AF_ACCOUNT_SUSPENDED") return;
       await loadAccounts();
     },
     [loadAccounts],
+  );
+
+  /** 从任意 catch 的错误对象取码并重读目录。取不到码时什么都不做——
+      重读是"被拒"的补偿动作，不是无差别的失败重试。 */
+  const realignFromError = useCallback(
+    async (error: unknown): Promise<void> => {
+      await realignAfterDenial(error instanceof AfApiError ? error.code : undefined);
+    },
+    [realignAfterDenial],
   );
 
   const setAccountState = useCallback(async (accountId: string, state: AccountDto["state"]) => {
@@ -1396,7 +1405,7 @@ export default function App() {
         push({ tone: "warn", title: "任务创建失败", body: describeError(apiError?.code, apiError?.message) });
         /* 被拒可能只是界面手里的授权快照过期了（管理员刚收回）。重读之后
            按钮会如实变灰，用户不必再点第二次才发现。 */
-        await realignAfterDenial(apiError);
+        await realignFromError(error);
         return;
       }
       timers.current.forEach(clearTimeout);
@@ -1495,7 +1504,7 @@ export default function App() {
     }).catch(async (error: unknown) => {
         const apiError = error instanceof AfApiError ? error : undefined;
         push({ tone: "warn", title: "任务启动失败", body: describeError(apiError?.code, apiError?.message) });
-        await realignAfterDenial(apiError);
+        await realignFromError(error);
     });
     if (afApi.mode === "http") {
       return;
@@ -1561,6 +1570,7 @@ export default function App() {
       } catch (error: unknown) {
         const failure = apiFailure(error, "无法取消运行");
         push({ tone: "warn", title: "取消运行失败", body: describeError(failure.code, failure.message) });
+        await realignAfterDenial(failure.code);
         return;
       }
       const [refreshed] = await Promise.all([
@@ -1582,6 +1592,7 @@ export default function App() {
       } catch (error: unknown) {
         const failure = apiFailure(error, archived ? "无法归档任务" : "无法恢复任务");
         push({ tone: "warn", title: archived ? "归档失败" : "恢复失败", body: describeError(failure.code, failure.message) });
+        await realignAfterDenial(failure.code);
         return;
       }
       const refreshed = await loadBootstrap();
@@ -1719,7 +1730,7 @@ export default function App() {
     } catch (error: unknown) {
       const apiError = error instanceof AfApiError ? error : undefined;
       push({ tone: "warn", title: "审批失败", body: describeError(apiError?.code, apiError?.message) })
-      await realignAfterDenial(apiError);
+      await realignFromError(error);
     }
   }, [activeId, fetchTaskRuntime, push, realignAfterDenial]);
 
@@ -1869,7 +1880,7 @@ export default function App() {
     } catch (error: unknown) {
       const apiError = error instanceof AfApiError ? error : undefined;
       push({ tone: "warn", title: "Git operation 确认失败", body: describeError(apiError?.code, apiError?.message) })
-      await realignAfterDenial(apiError);
+      await realignFromError(error);
     } finally {
       setConfirmingOperationId(null);
     }
@@ -1893,7 +1904,7 @@ export default function App() {
     } catch (error: unknown) {
       const apiError = error instanceof AfApiError ? error : undefined;
       push({ tone: "warn", title: "对账失败", body: describeError(apiError?.code, apiError?.message) })
-      await realignAfterDenial(apiError);
+      await realignFromError(error);
     } finally {
       setReconcilingOperationId(null);
     }
