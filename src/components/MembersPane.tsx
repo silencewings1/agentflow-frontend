@@ -139,6 +139,13 @@ export function MembersPane({
      它与草稿是同一份快照，必须一起固化——草稿说"我基于这份内容修改"，
      这个时间戳说"我基于这个版本修改"，两者脱节就没有意义。 */
   const [editBase, setEditBase] = useState<number | null>(null);
+  /* 打开表单那一刻三个字段的值。它与 `editBase` 是同一份快照的两个侧面：
+     `editBase` 说"我基于哪个**版本**修改"，这个快照说"我基于哪些**值**修改"。
+     冲突后要用它做**三方合并**（基准 / 我的草稿 / 对方的新值），判断用户
+     到底动过哪个字段——没有它就只能整体覆盖草稿，那会抹掉用户正在输入的内容。 */
+  const [editSnapshot, setEditSnapshot] = useState<{
+    name: string; duty: string; role: AccountRoleDto;
+  } | null>(null);
 
   /* 空数组回落必须是**稳定引用**：写成 `data?.accounts ?? []` 会在每次渲染
      新建一个数组，让下面所有 useMemo 的依赖每帧都变、缓存彻底失效。 */
@@ -590,6 +597,10 @@ export function MembersPane({
                 onClick={() => {
                   if (editingId === active.accountId) {
                     setEditingId(null);
+                    /* 取消时清掉基准快照：它只对"这一次编辑"有意义，
+                       留着会让下一次打开表单时用旧基准做三方合并。 */
+                    setEditBase(null);
+                    setEditSnapshot(null);
                     return;
                   }
                   /* 草稿从该账户当前值起步，避免"空表单保存成空值" */
@@ -598,6 +609,7 @@ export function MembersPane({
                   setEditRole(active.role);
                   /* 与草稿同一份快照：这个时间戳就是"用户看到的版本" */
                   setEditBase(Date.parse(active.updatedAt));
+                  setEditSnapshot({ name: active.name, duty: active.duty, role: active.role });
                   setEditingId(active.accountId);
                 }}
               >
@@ -721,6 +733,7 @@ export function MembersPane({
                     () => {
                       setEditingId(null);
                       setEditBase(null);
+                      setEditSnapshot(null);
                       onToast({ tone: "ok", title: "已保存账户", body: `${name} 的资料已更新。` });
                     },
                     (code, fresh) => {
@@ -739,12 +752,35 @@ export function MembersPane({
                       const next = fresh?.accounts.find((a) => a.accountId === active.accountId);
                       if (next === undefined) return;
                       setEditBase(Date.parse(next.updatedAt));
-                      /* 也把草稿里那几个字段更新成对方的新值——否则用户会
-                         "用新基线提交旧内容"，把对方刚改的值再退回去一次，
-                         那就把刚修掉的覆盖问题换个形式又做了一遍。 */
-                      setEditName(next.name);
-                      setEditDuty(next.duty);
-                      setEditRole(next.role);
+                      /* 冲突后按**三方合并**（基准 / 我的草稿 / 对方的新值）逐字段处置，
+                         而不是把草稿整体替换成对方的值：
+
+                           · 用户**没动过**这个字段 ⇒ 采用对方的新值。
+                             否则用户会用新基线提交旧内容，把对方刚改的值再退回去一次
+                             ——把刚修掉的覆盖问题换个形式又做了一遍。
+                           · 用户**动过**这个字段 ⇒ 保留用户的输入。
+                             他的意图必须被尊重，不能被对方的值抹掉。
+
+                         为什么必须区分这两者：早先的写法是无条件
+                         `setEditName(next.name)` 等，"只刷新基线"和"顺手对齐草稿"
+                         混在一起做，结果把用户已经输入的内容一并覆盖了。
+                         用户随后保存 → 表单内容恰好等于服务端现值 → 服务端按
+                         no-op 短路返回 ok → 界面弹出「已保存」，
+                         而**用户实际什么都没改到**（实测：改的是一处也不改的假成功）。 */
+                      const keep = (mine: string, base: string, theirs: string) =>
+                        mine.trim() === base.trim() ? theirs : mine;
+                      const snap = editSnapshot;
+                      if (snap !== null) {
+                        setEditName(keep(editName, snap.name, next.name));
+                        setEditDuty(keep(editDuty, snap.duty, next.duty));
+                        setEditRole(editRole === snap.role ? next.role : editRole);
+                      } else {
+                        /* 拿不到快照（理论上不该发生）时退回"只刷新基线、不动草稿"：
+                           宁可让用户下次保存时被再拒一次，也不能猜他改过什么。 */
+                        setEditName(next.name);
+                        setEditDuty(next.duty);
+                        setEditRole(next.role);
+                      }
                     },
                   );
                 }}

@@ -140,6 +140,39 @@ assert.ok(
     + "用户既看不到刚才那次操作失败，也不知道自己为什么被登出（缺陷 #69）",
 );
 
+/* 缺陷 #70：冲突后的基线刷新必须做**三方合并**，不能整体覆盖草稿。
+
+   冲突补偿如果写成无条件 `setEditName(next.name)` 之类，就会把用户**正在输入**
+   的内容一并抹掉。用户随后保存 → 表单内容恰好等于服务端现值 → 服务端按 no-op
+   短路返回 ok → 界面弹「已保存」，而用户实际什么都没改到。实测过这个假成功：
+   toast 是 ok、审计里没有任何 name 变更。
+
+   正确做法是逐字段比对（基准快照 / 我的草稿 / 对方的新值）：
+   用户没动过的字段采用对方值，用户动过的字段保留用户输入。
+   两条方向都要守，删掉任一支都会退化成一种错。 */
+const MEMBERS_PANE_PATH = resolve(here, "../src/components/MembersPane.tsx");
+const membersPaneSrc = readFileSync(MEMBERS_PANE_PATH, "utf8");
+/* 只取冲突补偿那一段（从 AF_ACCOUNT_CONFLICT 判定到闭合），
+   不整文件匹配：`editName` 之类的标识符在别处也出现，
+   整文件匹配会让"删掉合并逻辑"照样通过（不承重的守卫）。 */
+/* 锚在**补偿分支的判定语句**上（`if (code !== "AF_ACCOUNT_CONFLICT") return;`），
+   而不是全文件第一个匹配——第一个匹配是 `run` 里的重读码列表，
+   离合并逻辑有 17k 字符，按它切片会切到空区间、守卫静默失效。 */
+const conflictIdx = membersPaneSrc.indexOf('if (code !== "AF_ACCOUNT_CONFLICT") return;');
+assert.ok(conflictIdx > -1, "找不到 AF_ACCOUNT_CONFLICT 的补偿分支");
+const mergeBlock = membersPaneSrc.slice(conflictIdx, conflictIdx + 4000);
+assert.ok(
+  /mine\.trim\(\) === base\.trim\(\) \? theirs : mine/.test(mergeBlock),
+  "冲突后的草稿刷新必须逐字段判断用户是否改过（三方合并）："
+    + "无条件采用对方值会抹掉用户正在输入的内容，随后保存会因 no-op 短路"
+    + "返回 ok，产生「什么都没改到却提示已保存」的假成功（缺陷 #70）",
+);
+/* 反向也要守：拿不到基准快照时不得猜用户改过什么。 */
+assert.ok(
+  /editSnapshot[\s\S]{0,900}?else \{/.test(mergeBlock),
+  "缺少基准快照时必须退回「只刷新基线、不动草稿」，不能猜用户改过哪些字段",
+);
+
 console.log(
   "errorRouting.test: 同码多因分流一致（AF_ACCOUNTS_UNAVAILABLE→details.multiUserEnabled、"
     + "AF_PERMISSION_DENIED→details.reason；后端标识与前端字面量逐字一致）",
