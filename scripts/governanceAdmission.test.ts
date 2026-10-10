@@ -174,15 +174,52 @@ assert.equal(confirmGate[1], "run", `远端写入（确认）的前端档位是 
    §12.23.37 的两条缺陷（`POST /workflows` 与 `/model-providers`）都长在轴外，
    历轮扫描全绿却漏掉它们：**扫描范围本身就决定了能看见什么**。
    这里不再只扫任务级，而是把平台级那两条也钉住。 */
-for (const [route, marker] of [
-  ["POST /workflows", "guardWorkflowWrite"],
-  ["POST /model-providers", "guardPlatformWrite"],
-  ["PUT /model-providers", "guardPlatformWrite"],
-  ["DELETE /model-providers", "guardPlatformWrite"],
+/* 判据必须**绑定到具体路由块**，不能只查 `handler.includes(marker)`。
+   上一版就是 includes：只要文件里**任何地方**出现过 `guardPlatformWrite`
+   （包括定义处、另一条路由、甚至注释），四条断言就全绿。
+   注入实测：把 `POST /model-providers` 的闸门调用删掉，检查 ⑦ 仍然通过
+   —— 守卫报告"平台级 4 条路由已核对"，而被核对的那一条其实已经没了。
+   这与 §12.23.37 发现的老问题同源：**判据的范围决定它能看见什么**。
+   现在按方法定位块、在块内找该路由与它的闸门调用，缺一即红。 */
+const methodBlocks: Array<[string, string, string]> = [
+  ["POST", "if (method === 'POST') {", "if (method === 'PUT') {"],
+  ["PUT", "if (method === 'PUT') {", "if (method === 'DELETE') {"],
+  /* DELETE 是最后一个方法块，没有后继方法标记可作结束边界，
+     用它唯一拥有的 `writeNotFound(res, 'route not found: ' + method ...` 收尾
+     （该文本在文件里只出现在方法块内的兜底分支中）。 */
+  ["DELETE", "if (method === 'DELETE') {", "function queryWindow("],
+];
+function blockFor(method: string, routeNeedle: string): string {
+  const [m, startMarker, endMarker] = methodBlocks.find((b) => b[0] === method) ?? [];
+  assert.ok(m !== undefined, `找不到 ${method} 块标记`);
+  const start = handler.indexOf(startMarker!);
+  const end = handler.indexOf(endMarker!);
+  assert.ok(start > -1 && end > start, `找不到 ${method} 块`);
+  const block = handler.slice(start, end);
+  /* 路由块是 method 块内以 `if (` 起头的段落。
+     注意**同一路由名可能出现在多个块里**：`segments[0] === 'workflows'`
+     既有 `/workflows/validate`（有意不设闸门，纯校验）也有 `/workflows`（要闸门）。
+     因此取"包含 routeNeedle 的**全部**块"，再要求其中**至少一个**含 marker，
+     而不是取第一个匹配块 —— 取第一个会撞上 validate 块，误报闸门缺失。
+     反过来，若所有含该路由名的块都没有 marker，那才是真的缺失。 */
+  const parts = block.split(/\n    if \(/).slice(1);
+  const hits = parts.filter((part) => part.includes(routeNeedle));
+  assert.ok(hits.length > 0, `${method} ${routeNeedle} 找不到对应的路由块（路由可能被改名或删除）`);
+  return hits.join('\n    if (');
+}
+/* routeNeedle 用**源码里的判定文本**（`segments[0] === 'workflows'`），
+   不是 URL 写法：URL 是 `POST /workflows`，源码里是 `segments[0] === 'workflows'`。
+   用 URL 去匹配源码永远匹配不上——上一版若直接这么写就会静默漏检。 */
+for (const [method, routeNeedle, marker] of [
+  ["POST", "segments[0] === 'workflows'", "guardWorkflowWrite"],
+  ["POST", "segments[0] === 'model-providers'", "guardPlatformWrite"],
+  ["PUT", "segments[0] === 'model-providers'", "guardPlatformWrite"],
+  ["DELETE", "segments[0] === 'model-providers'", "guardPlatformWrite"],
 ] as const) {
+  const block = blockFor(method, routeNeedle);
   assert.ok(
-    handler.includes(marker),
-    `后端找不到 ${marker}；${route} 的平台级闸门可能被移除（§12.23.37）`,
+    block.includes(marker),
+    `${method} ${routeNeedle} 的路由块里找不到 ${marker} —— 平台级闸门被移除或挪走了（§12.23.37）`,
   );
 }
 /* 前端必须用**同一个判据**呈现受阻，否则界面事实与服务端不一致：
