@@ -266,6 +266,22 @@ export interface AccountInputDto {
   state?: AccountStateDto;
 }
 
+/**
+ * 账户更新的入参：可改字段 + 乐观并发前置条件。
+ *
+ * `expectedUpdatedAt` 传的是**界面上读到的那个毫秒时间戳**（`AccountDto.updatedAt`
+ * 经 `Date.parse` 转换），而不是让服务端自己用刚读到的值。
+ *
+ * 这条前置条件不是锦上添花：更新是整份提交（表单草稿在打开时固化），
+ * 没有它时"甲只改名称、乙同时改职责"会让乙那次修改被甲的过期草稿
+ * **静默回退**——甲没打算动职责，界面也没告诉他动了。
+ * 带上它，服务端在临界区内比对，不一致即 `AF_ACCOUNT_CONFLICT`（可重试）。
+ */
+export interface AccountUpdateInputDto extends Partial<AccountInputDto> {
+  /** 读到的 `updatedAt`（毫秒 epoch）；缺省表示不要求前置条件。 */
+  expectedUpdatedAt?: number;
+}
+
 export interface GrantInputDto {
   accountId: string;
   workflowId: string;

@@ -10,7 +10,7 @@ import { realInspectorBundle } from "./api/inspectorMapper";
 import { ACCOUNT_ROLE_LABEL } from "./api";
 import { describeError, errorText } from "./api/error-text";
 import { buildStageCards } from "./api/stageMapper";
-import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, ModelProviderInputDto, ModelProvidersDto, NodeReviewFeedbackDto, WorkflowVersion, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, ConnectionLayerDto, EnvironmentDto, SkillOutputDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation, AccountDto, AccountInputDto, AccountsDto, NodePermDto } from "./api";
+import type { AgentProfileSummaryDto, ApprovalQueryDto, AttemptTraceDto, CompilationReportDto, CriterionAssessmentDto, EvidenceMatrixDto, ExecutorMode, FaultInjectionDto, ModelProviderInputDto, ModelProvidersDto, NodeReviewFeedbackDto, WorkflowVersion, PlanDecisionDto, PlanDto, ProposalDto, RunIntentDto, RunMode, ScmProviderDto, ConnectionLayerDto, EnvironmentDto, SkillOutputDto, SkillSummaryDto, TaskDetailDto, TaskPatchDto, TrajectoryEventDto, TrustedDeliveryDto, WorkSpecDraftInput, WorkSpecDto, WorkflowValidation, AccountDto, AccountInputDto, AccountUpdateInputDto, AccountsDto, NodePermDto } from "./api";
 import type { StageSkillOutputView, StageTraceView } from "./components/StageCard";
 import { conversationOf } from "./data/streams";
 import { inspectorOf } from "./data/inspector";
@@ -714,7 +714,7 @@ export default function App() {
 
      这不是"多加一个功能"，而是把一处**能力不对等**补齐：后端具备、界面未暴露，
      后果是用户在一个不可逆的地方留下永久错误。 */
-  const updateAccount = useCallback(async (accountId: string, input: Partial<AccountInputDto>) => {
+  const updateAccount = useCallback(async (accountId: string, input: AccountUpdateInputDto) => {
     setAccountsData(await afApi.updateAccount(accountId, input));
   }, []);
 
@@ -2716,7 +2716,7 @@ export default function App() {
              让面板显式说明"责任位清单尚不可用"，而不是继续用初始的演示模板
              渲染出一套不存在的节点（详见 MembersPane nodeRefs 说明）。 */
           workflows={apiLoad.status === "ready" ? workflowCatalog : EMPTY_WORKFLOWS}
-          onRefreshAccounts={async () => { await loadAccounts(); }}
+          onRefreshAccounts={() => loadAccounts()}
           onCreateAccount={createAccount}
           onUpdateAccount={updateAccount}
           onSetAccountState={setAccountState}

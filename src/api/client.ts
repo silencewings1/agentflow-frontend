@@ -31,6 +31,7 @@ import type {
   AccountsDto,
   AccountInputDto,
   AccountStateDto,
+  AccountUpdateInputDto,
   GrantAuditDto,
   GrantInputDto,
   GrantMutationDto,
@@ -491,10 +492,23 @@ function fixtureClient(): AfApiClient {
 
   const fixtureWriteAccount = async (
     accountId: string,
-    input: Partial<AccountInputDto>,
+    input: AccountUpdateInputDto,
   ): Promise<AccountsDto> => {
     const existing = fixtureAccounts.find((item) => item.accountId === accountId);
     if (existing === undefined) throw new AfApiError({ code: "AF_ACCOUNT_NOT_FOUND", message: "找不到该账户", retryable: false });
+    /* 乐观并发前置条件：与真实后端同口径（账户 CAS）。
+       不加这条，fixture 模式下"并发编辑被静默回退"这个问题**测不出来**——
+       于是 dev 演示看着正常，真实环境却在悄悄覆盖别人的修改。
+       这与上面 fixtureAssertStateChangeAllowed 的理由同源：两条实现必须一致，
+       否则 dev 通过、真实被拒（或反过来）。 */
+    if (input.expectedUpdatedAt !== undefined
+      && Date.parse(existing.updatedAt) !== input.expectedUpdatedAt) {
+      throw new AfApiError({
+        code: "AF_ACCOUNT_CONFLICT",
+        message: "该账户刚被其他操作改过，本次改动没有生效",
+        retryable: true,
+      });
+    }
     if (input.handle !== undefined && input.handle !== existing.handle
       && fixtureAccounts.some((item) => item.handle.toLowerCase() === input.handle!.trim().toLowerCase())) {
       throw new AfApiError({ code: "AF_ACCOUNT_EXISTS", message: "登录标识已被占用", retryable: false });
@@ -505,7 +519,16 @@ function fixtureClient(): AfApiClient {
        （后端此前正是这个形状，已修正；fixture 必须跟着一致，否则 dev 模式下
        测试通过、真实环境却被拒，两边分叉。） */
     fixtureAssertStateChangeAllowed(accountId, input.state);
-    const next: AccountDto = { ...existing, ...input, builtin: existing.builtin, updatedAt: new Date().toISOString() };
+    const next: AccountDto = {
+      ...existing,
+      ...(input.name === undefined ? {} : { name: input.name }),
+      ...(input.handle === undefined ? {} : { handle: input.handle }),
+      ...(input.role === undefined ? {} : { role: input.role }),
+      ...(input.duty === undefined ? {} : { duty: input.duty }),
+      ...(input.state === undefined ? {} : { state: input.state }),
+      builtin: existing.builtin,
+      updatedAt: new Date().toISOString(),
+    };
     /* 只列**真正变化**的字段：把未变字段也列进去，审计就会声称改了一些没改的东西。 */
     const changedFields = (Object.keys(next) as Array<keyof AccountDto>)
       .filter((field) => field !== "updatedAt" && existing[field] !== next[field]);
@@ -1120,7 +1143,7 @@ class HttpAfApiClient implements AfApiClient {
      判定的权限」在失败时静默分叉。 */
   getAccounts(signal?: AbortSignal) { return this.request<AccountsDto>("/accounts", undefined, signal); }
   createAccount(input: AccountInputDto, signal?: AbortSignal) { return this.request<AccountsDto>("/accounts", { method: "POST", body: JSON.stringify(input) }, signal); }
-  updateAccount(accountId: string, input: Partial<AccountInputDto>, signal?: AbortSignal) { return this.request<AccountsDto>(`/accounts/${encodeURIComponent(accountId)}`, { method: "PUT", body: JSON.stringify(input) }, signal); }
+  updateAccount(accountId: string, input: AccountUpdateInputDto, signal?: AbortSignal) { return this.request<AccountsDto>(`/accounts/${encodeURIComponent(accountId)}`, { method: "PUT", body: JSON.stringify(input) }, signal); }
   setAccountState(accountId: string, state: AccountStateDto, signal?: AbortSignal) { return this.request<AccountsDto>(`/accounts/${encodeURIComponent(accountId)}/state`, { method: "POST", body: JSON.stringify({ state }) }, signal); }
   setNodeGrant(input: GrantInputDto, signal?: AbortSignal) { return this.request<GrantMutationDto>("/grants", { method: "POST", body: JSON.stringify(input) }, signal); }
   /* 供应商写入：后端 schema 是 strict，body 必须逐字段对齐 ModelProviderInputDto，

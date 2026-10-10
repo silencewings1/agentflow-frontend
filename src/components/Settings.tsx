@@ -17,6 +17,7 @@ import {
   type ActorDto,
   type AccountDto,
   type AccountInputDto,
+  type AccountUpdateInputDto,
   type AccountsDto,
   type NodePermDto,
   type AgentProfileSummaryDto,
@@ -136,9 +137,9 @@ export function SettingsOverlay({
   accounts: AccountsDto | null;
   actor: ActorDto | null;
   workflows: Workflow[];
-  onRefreshAccounts: () => Promise<void>;
+  onRefreshAccounts: () => Promise<AccountsDto | null>;
   onCreateAccount: (input: AccountInputDto) => Promise<void>;
-  onUpdateAccount: (accountId: string, input: Partial<AccountInputDto>) => Promise<void>;
+  onUpdateAccount: (accountId: string, input: AccountUpdateInputDto) => Promise<void>;
   onSetAccountState: (accountId: string, state: AccountDto["state"]) => Promise<void>;
   onSetGrant: (input: {
     accountId: string;
@@ -777,7 +778,7 @@ function ModelsPane({
      两个答案不一致正是 §「界面事实不可信」记过的那类缺陷。 */
   canManage: boolean;
   onRefresh: () => Promise<void>;
-  onRefreshAccounts: () => Promise<void>;
+  onRefreshAccounts: () => Promise<AccountsDto | null>;
   onSave: (input: ModelProviderInputDto, mode: "create" | "update") => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onTest: (id: string, modelId: string) => Promise<ModelProviderTestResultDto>;

@@ -105,7 +105,8 @@ export function MembersPane({
   /** 实时编排目录：责任位矩阵的唯一节点来源（见 nodeRefs 的说明）。 */
   workflows: Workflow[];
   onToast: Toast;
-  onRefresh: () => Promise<void>;
+  /** 重读账户目录；返回**刷新后的目录**，供失败补偿使用新值。 */
+  onRefresh: () => Promise<AccountsDto | null>;
   onCreateAccount: (input: AccountInputDto) => Promise<void>;
   onUpdateAccount: (accountId: string, input: Partial<AccountInputDto>) => Promise<void>;
   onSetAccountState: (accountId: string, state: AccountDto["state"]) => Promise<void>;
@@ -132,6 +133,12 @@ export function MembersPane({
   const [editName, setEditName] = useState("");
   const [editDuty, setEditDuty] = useState("");
   const [editRole, setEditRole] = useState<AccountRoleDto>("development");
+  /* 打开表单那一刻读到的 `updatedAt`（毫秒）。这就是"用户看到的版本"，
+     保存时作为乐观并发前置条件回传。
+     为什么不改用"提交时的最新值"：那样前置条件永远成立、冲突就检测不到。
+     它与草稿是同一份快照，必须一起固化——草稿说"我基于这份内容修改"，
+     这个时间戳说"我基于这个版本修改"，两者脱节就没有意义。 */
+  const [editBase, setEditBase] = useState<number | null>(null);
 
   /* 空数组回落必须是**稳定引用**：写成 `data?.accounts ?? []` 会在每次渲染
      新建一个数组，让下面所有 useMemo 的依赖每帧都变、缓存彻底失效。 */
@@ -259,7 +266,16 @@ export function MembersPane({
    * 重读是"被拒"的补偿动作，不是无差别的失败重试——`AF_ACCOUNT_HANDLE_TAKEN`
    * 之类与身份无关的失败重读目录没有意义，只会让界面闪一下。
    */
-  const run = async (key: string, action: () => Promise<void>, onOk?: () => void) => {
+  /* `onFail` 是**可选**的失败回调，只在调用方需要针对特定错误码做补偿时传。
+     为什么不把错误整个抛出去让调用方 catch：`run` 的职责是"一次写操作 + 统一
+     呈现"，5 个调用点里有 4 个只需要统一呈现；为第 5 个改成抛错会逼所有调用点
+     都写一遍 try/catch，而它们并不关心错误码。 */
+  const run = async (
+    key: string,
+    action: () => Promise<void>,
+    onOk?: () => void,
+    onFail?: (code: string | undefined, fresh: AccountsDto | null) => void,
+  ) => {
     setBusy(key);
     try {
       await action();
@@ -278,12 +294,24 @@ export function MembersPane({
            这里漏掉就形成"同一个码在两条路径上给出两种处置"。 */
         body: errorText(apiError?.code, apiError?.message ?? "未知错误", apiError?.details),
       });
-      if (apiError?.code === "AF_PERMISSION_DENIED" || apiError?.code === "AF_ACCOUNT_SUSPENDED") {
+      /* `onFail` 必须在重读**之后**调用：它要基于刷新后的目录做补偿
+         （编辑表单要拿新的 `updatedAt` 重建基线）。若排在前面，它读到的
+         仍是冲突前的旧目录，于是"刷新基线"会拿到和原来一样的值——
+         补偿动作看起来执行了，实际什么也没变，用户依旧每次 409。 */
+      let fresh: AccountsDto | null = null;
+      if (
+        apiError?.code === "AF_PERMISSION_DENIED"
+        || apiError?.code === "AF_ACCOUNT_SUSPENDED"
+        || apiError?.code === "AF_ACCOUNT_CONFLICT"
+      ) {
         /* 重读失败不再弹第二条提示：用户刚看到"操作未生效"，再叠一条
            "读取失败"只会让他分不清哪一条才是要处理的问题；
            而重读本身是补偿动作，失败时界面保持现状即可（下一次操作会再触发）。 */
-        await onRefresh().catch(() => undefined);
+        /* 接住返回值：`data` 是本次渲染闭包里的旧值，setState 要到下一次渲染
+           才生效，因此补偿逻辑**不能**读 `data`，必须用这里显式拿回的新目录。 */
+        fresh = await onRefresh().catch(() => null);
       }
+      onFail?.(apiError?.code, fresh);
     } finally {
       setBusy(null);
     }
@@ -568,6 +596,8 @@ export function MembersPane({
                   setEditName(active.name);
                   setEditDuty(active.duty);
                   setEditRole(active.role);
+                  /* 与草稿同一份快照：这个时间戳就是"用户看到的版本" */
+                  setEditBase(Date.parse(active.updatedAt));
                   setEditingId(active.accountId);
                 }}
               >
@@ -679,10 +709,42 @@ export function MembersPane({
                         name,
                         duty,
                         ...(editRole === active.role ? {} : { role: editRole }),
+                        /* 只在解析成功时带上：`Date.parse` 失败得到 NaN，
+                           而 NaN 会被 JSON 序列化成 null，服务端 schema
+                           （int / nonnegative）直接拒——那会让"时间戳解析不出来"
+                           这种本地显示问题变成一个写不进去的硬错误。
+                           解析不出来就退回"最后写入者赢"，与改动前行为一致。 */
+                        ...(editBase !== null && Number.isFinite(editBase)
+                          ? { expectedUpdatedAt: editBase }
+                          : {}),
                       }),
                     () => {
                       setEditingId(null);
+                      setEditBase(null);
                       onToast({ tone: "ok", title: "已保存账户", body: `${name} 的资料已更新。` });
+                    },
+                    (code, fresh) => {
+                      /* 冲突后必须刷新**表单自己的基线**，否则用户永远 409。
+
+                         这是"提示让人做一件他做不到的事"的又一例：冲突提示写的是
+                         「请刷新后重试」，但界面上没有刷新入口，而真正过期的
+                         不是目录列表、是**这份草稿的基线**——`editBase` 与三个
+                         输入框都还是打开表单时的快照。只重读目录不会动草稿，
+                         用户再点一次保存送出的仍是同一个过期 `editBase`，
+                         于是**每次都 409**。
+
+                         只在冲突时刷新：其它失败（权限不足、账户已停用、网络）
+                         与"别人改过"无关，重设草稿会把用户写了一半的内容抹掉。 */
+                      if (code !== "AF_ACCOUNT_CONFLICT") return;
+                      const next = fresh?.accounts.find((a) => a.accountId === active.accountId);
+                      if (next === undefined) return;
+                      setEditBase(Date.parse(next.updatedAt));
+                      /* 也把草稿里那几个字段更新成对方的新值——否则用户会
+                         "用新基线提交旧内容"，把对方刚改的值再退回去一次，
+                         那就把刚修掉的覆盖问题换个形式又做了一遍。 */
+                      setEditName(next.name);
+                      setEditDuty(next.duty);
+                      setEditRole(next.role);
                     },
                   );
                 }}

@@ -472,11 +472,29 @@ const runBlock = membersPane.slice(
   membersPane.indexOf("const run = async") + 2200,
 );
 assert.match(runBlock, /catch \(error: unknown\)/, "MembersPane.run 必须有 catch");
+/* 窗口放宽到 900：这三个码的判定块里现在夹了一段解释"为什么 onFail 必须排在
+   重读之后"的注释（缺陷 #68）。守卫要盯的是**语义**——catch 段里判这几个码
+   并重读——而不是注释的长度；但窗口也不能无限大，否则会把无关调用算进来。 */
 assert.match(
   runBlock,
-  /AF_PERMISSION_DENIED[\s\S]{0,300}?AF_ACCOUNT_SUSPENDED[\s\S]{0,300}?await onRefresh\(\)/,
+  /AF_PERMISSION_DENIED[\s\S]{0,900}?AF_ACCOUNT_SUSPENDED[\s\S]{0,900}?await onRefresh\(\)/,
   "MembersPane.run 必须在**同一段错误处理**里判定两个码并重读，"
     + "而不是把重读放在与拒绝对无关的位置",
+);
+/* 缺陷 #68：`AF_ACCOUNT_CONFLICT` 也必须在重读之列。
+   冲突后若不重读，编辑表单拿不到新的 `updatedAt`，用户每次保存都送同一个
+   过期前置条件 ⇒ **永远 409**，而提示写的是"请刷新后重试"（界面上没有刷新入口）。 */
+assert.match(
+  runBlock,
+  /AF_ACCOUNT_CONFLICT[\s\S]{0,300}?await onRefresh\(\)/,
+  "AF_ACCOUNT_CONFLICT 必须触发重读：否则冲突后基线不刷新，用户永远 409",
+);
+/* 且 onFail 必须排在重读**之后**——排在前面时它读到的是刷新前的旧目录，
+   补偿动作看起来执行了、实际什么也没变。 */
+assert.match(
+  runBlock,
+  /await onRefresh\(\)[\s\S]{0,200}?onFail\?\.\(/,
+  "onFail 必须排在重读之后：否则补偿读到旧目录，刷新基线拿到的还是原值",
 );
 
 console.log(`治理动作准入守卫：${EXPECTED.length} 条后端路由档位一致、${gatedCalls.length} 处前端调用点已加准入、平台级 4 条路由与前端受阻态已核对、面板侧 2 个文件 ${panelRealign.length + 1} 处被拒重读已接线。`);
