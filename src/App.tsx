@@ -525,6 +525,24 @@ export default function App() {
   /* 目录不可用是否**可能**通过重试解决。后端用 details.multiUserEnabled 自证成因：
      声明未启用（false）时重试永远不会成功，因此界面不该给"重试"按钮。 */
   const [accountsRetryable, setAccountsRetryable] = useState(true);
+  /* 实例**显式声明**未启用多用户（后端 `details.multiUserEnabled === false`）。
+
+     为什么必须与"目录暂时读不到"分开成一个独立状态，而不能都当成 `accountsData===null`：
+     两者的正确处置**相反**——
+
+     · 目录读不到（瞬时故障 / 组装漏配）：拿不到授权事实，但身份体系**存在**，
+       必须 fail closed。渲染登录页是对的：用户该做的是重试或找部署方。
+     · 声明未启用：**不存在身份概念**，判定本身就不该发生。此时渲染登录页是
+       一个**死路**——页面在说"请联系部署方启用多用户"，而它本该是那个
+       "既有部署仍可继续使用"的降级形态。实测该实例上登录页只有一个
+       `disabled` 的「登录」按钮（没有可选账户），用户完全无法进入控制台，
+       而**后端是放行的**：同一实例上 `POST /tasks` 返回
+       `400 AF_INVALID_REQUEST`（载荷校验失败）——即权限判定已通过。
+
+     `architecture.md` §8.1 把这件事写得很清楚：「唯一的降级例外是实例显式声明
+     未启用多用户：此时不存在身份概念，硬拦会让**既有部署整体不可用**。」
+     卡在登录页正是这句话要避免的结果。 */
+  const [multiUserDisabled, setMultiUserDisabled] = useState(false);
   const [accountsLoading, setAccountsLoading] = useState(true);
   const [checkingIdentity, setCheckingIdentity] = useState(true);
   const [mode, setMode] = useState<"session" | "welcome">("welcome");
@@ -659,10 +677,14 @@ export default function App() {
       setAccountsData(data);
       setAccountsError(null);
       setAccountsRetryable(true);
+      setMultiUserDisabled(false);
       return data;
     } catch (error: unknown) {
       const apiError = error instanceof AfApiError ? error : undefined;
       setAccountsData(null);
+      /* 后端自证"本实例声明未启用"时记下这个事实：它决定首屏渲染登录页
+         （死路）还是直接进控制台（降级的正确形态）。 */
+      setMultiUserDisabled(apiError?.details?.multiUserEnabled === false);
       /* 传 details：目录不可用有**两种处置相反**的成因，后端会用
          details.multiUserEnabled 自证是哪一种。不传的话这里只能显示
          那条"若…否则…"的含糊文案，用户得自己猜该找部署方还是该重试。 */
@@ -2388,8 +2410,13 @@ export default function App() {
   /* 停用账户必须被挡在登录页：服务端把它解析为**已登记**身份（anonymous=false），
      因此只判 anonymous 会让一个已停用账户进入控制台、然后在每个写操作上撞 403。
      那是最糟的一种呈现——界面看起来登录成功了，实际任何动作都不生效。
-     登录页本身已把停用账户列为不可选，这里的判据与它保持一致。 */
-  if (accountsData === null || accountsData.actor.anonymous || accountsData.actor.state === "suspended") {
+     登录页本身已把停用账户列为不可选，这里的判据与它保持一致。
+
+     `multiUserDisabled` 是一个**例外**，且必须显式排除在这一行之外：
+     该实例上不存在身份概念，根本没有"该选哪个账户"这回事，渲染登录页会让
+     用户停在一个只有一个 disabled 按钮的死路上（见该 state 的说明）。
+     注意判据是**后端的声明**而非"目录读不到"——后者仍走登录页（fail closed）。 */
+  if (!multiUserDisabled && (accountsData === null || accountsData.actor.anonymous || accountsData.actor.state === "suspended")) {
     return (
       <Login
         accounts={accountsData?.accounts ?? []}
@@ -2421,7 +2448,10 @@ export default function App() {
         onNew={() => setNewTaskOpen(true)}
         pane={settingsPane}
         onPane={(p) => setSettingsPane((cur) => (cur === p ? null : p))}
-        actor={accountsData.actor}
+        /* 降级实例（声明未启用多用户）下没有身份概念：目录请求本身失败，
+           因此 `accountsData` 为 null。传 null 而不是伪造一个"假账户"——
+           Rail 已经按 `actor !== null` 决定是否渲染身份区，不会显示成已登录。 */
+        actor={accountsData?.actor ?? null}
         onLogout={logout}
       />
       <Sidebar
@@ -2665,8 +2695,8 @@ export default function App() {
           onSaveModelProvider={saveModelProvider}
           onDeleteModelProvider={deleteModelProvider}
           onTestModelProvider={testModelProvider}
-          accounts={accountsData}
-          actor={accountsData.actor}
+          accounts={accountsData ?? null}
+          actor={accountsData?.actor ?? null}
           /* 只有 bootstrap 成功回读的目录才是服务端事实；加载中/失败时传空数组，
              让面板显式说明"责任位清单尚不可用"，而不是继续用初始的演示模板
              渲染出一套不存在的节点（详见 MembersPane nodeRefs 说明）。 */

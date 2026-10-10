@@ -88,6 +88,38 @@ assert.equal(
    于是真正的"缺权限"用户反而拿到不准确的处置。 */
 assertTextExists("AF_PERMISSION_DENIED", ["缺少", "授权"]);
 
+/* ── 降级实例不得停在登录页（缺陷 #65）─────────────────────────────
+   上面那些断言只保证**文案**判对了成因。但"文案正确 + 页面是死路"仍然不可用：
+   实测 `AF_MULTI_USER_DISABLED=1` 的实例上，界面停在登录页，页面上只有一个
+   `disabled` 的「登录」按钮（该实例没有可选账户），而**后端是放行的**——
+   同一实例上 `POST /tasks` 返回 `400 AF_INVALID_REQUEST`（权限判定已通过）。
+
+   `doc/architecture.md` §8.1 写明降级例外的目的是「硬拦会让**既有部署整体不可用**」，
+   所以卡在登录页正是它要避免的结果。因此必须断言：
+
+   （a）渲染闸门把 `multiUserDisabled` 显式排除，使该形态能进控制台；
+   （b）该状态确实由**后端的声明**驱动，而不是由"目录读不到"驱动——
+       后者必须继续 fail closed（这条是安全方向，比 (a) 更不可失）。 */
+const app = readFileSync(resolve(here, "../src/App.tsx"), "utf8");
+assert.ok(
+  /if \(!multiUserDisabled && \(accountsData === null/.test(app),
+  "渲染闸门必须显式排除 multiUserDisabled：否则降级实例会停在只有一个 disabled 按钮的登录页"
+    + "（后端已放行，界面却无法进入——正是 §8.1 说要避免的「既有部署整体不可用」）",
+);
+assert.ok(
+  /setMultiUserDisabled\(apiError\?\.details\?\.multiUserEnabled === false\)/.test(app),
+  "multiUserDisabled 必须由**后端声明**（details.multiUserEnabled === false）驱动，"
+    + "不能由「目录读不到」驱动：后者要 fail closed，两者处置相反",
+);
+/* 反向判据同样要钉住：目录暂时读不到（无 details）时**不得**放行进控制台。
+   写法上要求它与 multiUserEnabled === false 严格比较，而不是宽松的真值判断——
+   `!apiError?.details?.multiUserEnabled` 会把「无 details」也算成降级，
+   方向就反了。 */
+assert.ok(
+  !/setMultiUserDisabled\(!|setMultiUserDisabled\(apiError\?\.details\?\.multiUserEnabled\)/.test(app),
+  "multiUserDisabled 不得用宽松真值判断：无 details（瞬时故障）时必须是 false，否则会把故障当成降级放行",
+);
+
 console.log(
   "errorRouting.test: 同码多因分流一致（AF_ACCOUNTS_UNAVAILABLE→details.multiUserEnabled、"
     + "AF_PERMISSION_DENIED→details.reason；后端标识与前端字面量逐字一致）",
