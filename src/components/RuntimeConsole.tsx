@@ -32,6 +32,7 @@ export function RuntimeConsole({
   confirmingOperationId,
   onConfirmOperation,
   onRefresh,
+  canGovernanceAction,
 }: {
   detail: TaskDetailDto | null;
   trajectory: TrajectoryEventDto[];
@@ -48,7 +49,16 @@ export function RuntimeConsole({
   confirmingOperationId: string | null;
   onConfirmOperation: (operationId: string) => void;
   onRefresh: () => void;
+  /** 治理写动作的准入判据：由 App 用与后端同源的判据算出后传入。
+      界面只负责呈现受阻态——判定逻辑不在这里另写一份（与 GovernanceView /
+      Sidebar 同一约定）。缺省按「允许」处理：fixture 路径没有账户目录。 */
+  canGovernanceAction?: (required: "run" | "approve" | "manage", nodeId?: string) => { allowed: boolean; reason: string };
 }) {
+  /* 治理写动作的档位准入。档位取自 handler.ts 的 guard：
+     开始执行=run，批准节点=approve（且绑定**该节点**），
+     准备远端写入=run，确认写入=run。缺省（未传）按允许处理。 */
+  const can = (required: "run" | "approve" | "manage", nodeId?: string) =>
+    canGovernanceAction?.(required, nodeId) ?? { allowed: true, reason: "" };
   if (load.status === "loading" && !detail) {
     return <section className="runtime runtime--notice">正在读取任务聚合、节点和外部操作状态…</section>;
   }
@@ -79,7 +89,7 @@ export function RuntimeConsole({
         </div>
         <div className="runtime__badges">
           {apiMode === "http" && detail.status === "created" && (
-            <button className="btn btn--accent btn--sm" disabled={starting || runActive} onClick={onStart}>
+            <button className="btn btn--accent btn--sm" data-blocked={!can("run").allowed} title={can("run").allowed ? undefined : can("run").reason} disabled={starting || runActive || !can("run").allowed} onClick={onStart}>
               <Icon.Sparkle size={12} />
               {starting ? "正在提交运行请求…" : runActive ? "后台执行中…" : "开始执行任务"}
             </button>
@@ -119,7 +129,7 @@ export function RuntimeConsole({
                   <small className="mono">attempt {node.attemptId ?? "—"} · evidence {node.evidenceRefs.length}</small>
                   {node.failureCode && <b className="runtimeNodes__failure">{node.failureCode}{node.reworkTargetNodeId ? ` → 定向返工 ${node.reworkTargetNodeId}` : ""}</b>}
                   {apiMode === "http" && node.status === "awaiting_approval" && (
-                    <button className="btn btn--accent btn--sm" disabled={approvingNodeId === node.nodeId || (node.kind === "git" && detail.preparedDelivery !== null && preparedOperation?.status !== "committed")} onClick={() => onApproveNode(node.nodeId)}>
+                    <button className="btn btn--accent btn--sm" data-blocked={!can("approve", node.nodeId).allowed} title={can("approve", node.nodeId).allowed ? undefined : can("approve", node.nodeId).reason} disabled={approvingNodeId === node.nodeId || !can("approve", node.nodeId).allowed || (node.kind === "git" && detail.preparedDelivery !== null && preparedOperation?.status !== "committed")} onClick={() => onApproveNode(node.nodeId)}>
                       <Icon.Shield size={12} />
                       {approvingNodeId === node.nodeId ? "批准并继续中…" : node.kind === "git" && detail.preparedDelivery !== null && preparedOperation?.status !== "committed" ? "先确认 MCP 写入" : "批准并继续"}
                     </button>
@@ -162,7 +172,7 @@ export function RuntimeConsole({
                   <div><dt>change set</dt><dd><code>{detail.preparedDelivery.changeSet.digest}</code></dd></div>
                   <div><dt>files</dt><dd>{detail.preparedDelivery.changeSet.files.length}</dd></div>
                 </dl>
-                <button className="btn btn--accent btn--sm" disabled={planningOperation} onClick={onPlanOperation}>
+                <button className="btn btn--accent btn--sm" data-blocked={!can("run").allowed} title={can("run").allowed ? undefined : can("run").reason} disabled={planningOperation || !can("run").allowed} onClick={onPlanOperation}>
                   <Icon.Branch size={12} />
                   {planningOperation ? "正在准备远端写入…" : "准备远端写入操作"}
                 </button>
@@ -181,7 +191,7 @@ export function RuntimeConsole({
                   <div><dt>MCP capabilities</dt><dd><code>{operation.mcpCapabilitiesDigest ?? "—"}</code></dd></div>
                 </dl>
                 {(operation.status === "planned" || operation.status === "confirmation") && (
-                  <button className="btn btn--accent btn--sm" disabled={confirmingOperationId === operation.operationId} onClick={() => onConfirmOperation(operation.operationId)}>
+                  <button className="btn btn--accent btn--sm" data-blocked={!can("run").allowed} title={can("run").allowed ? undefined : can("run").reason} disabled={confirmingOperationId === operation.operationId || !can("run").allowed} onClick={() => onConfirmOperation(operation.operationId)}>
                     <Icon.Shield size={12} />
                     {confirmingOperationId === operation.operationId ? "确认中…" : "确认 MCP 功能分支写入"}
                   </button>

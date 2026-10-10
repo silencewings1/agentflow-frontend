@@ -38,6 +38,7 @@ const app = read("../src/App.tsx");
 const settings = read("../src/components/Settings.tsx");
 const sidebar = read("../src/components/Sidebar.tsx");
 const govView = read("../src/components/GovernanceView.tsx");
+const runtimeConsole = read("../src/components/RuntimeConsole.tsx");
 
 /* ── 登记表：后端路由 → 档位 ──────────────────────────────────────────
    档位口径由用户确认（「审查/判据/计划裁决=approve，澄清/规格/编译=run，
@@ -342,5 +343,40 @@ assert.ok(
   /data-blocked=\{!gate\.allowed\}/.test(govView),
   "澄清按钮缺 data-blocked 受阻态",
 );
+
+/* ⑩ RuntimeConsole（控制面事实里的运行控制）同样必须有准入。
+   它与 GovernanceView 是同一缺陷的另一处：四个写按钮（开始执行 / 批准节点 /
+   准备远端写入 / 确认写入）此前只判 busy-state，从不判权限。
+
+   批准节点按钮的准入必须绑定 `node.nodeId`（后端 /tasks/:id/approve
+   带 nodeId，判据落在该节点上）——传 undefined 会退化成"任一节点持 approve"，
+   与后端错位。 */
+assert.ok(
+  /canGovernanceAction\?:/.test(runtimeConsole),
+  "RuntimeConsole 没有接收 canGovernanceAction —— 运行控制缺准入判据（§12.23.50）",
+);
+{
+  const btns = runtimeConsole
+    .split("<button")
+    .slice(1)
+    .map((chunk) => chunk.slice(0, chunk.indexOf("</button>")));
+  assert.ok(btns.length > 0, "RuntimeConsole 里没有解析到 <button>，本项会空转");
+  for (const [marker, tier, nodeBound] of [
+    ["onStart", "run", false],
+    ["onApproveNode(node.nodeId)", "approve", true],
+    ["onPlanOperation", "run", false],
+    ["onConfirmOperation", "run", false],
+  ] as const) {
+    const own = btns.filter((tag) => tag.includes(marker));
+    assert.equal(own.length, 1, `未唯一匹配到 RuntimeConsole 按钮 ${marker}（找到 ${own.length} 个）`);
+    const expected = nodeBound
+      ? `data-blocked={!can("${tier}", node.nodeId).allowed}`
+      : `data-blocked={!can("${tier}").allowed}`;
+    assert.ok(
+      own[0]!.includes(expected),
+      `RuntimeConsole 按钮 ${marker} 的受阻态档位不是 ${tier}${nodeBound ? " 或未绑定 node.nodeId" : ""}`,
+    );
+  }
+}
 
 console.log(`治理动作准入守卫：${EXPECTED.length} 条后端路由档位一致、${gatedCalls.length} 处前端调用点已加准入、平台级 4 条路由与前端受阻态已核对。`);

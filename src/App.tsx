@@ -2448,6 +2448,7 @@ export default function App() {
                     confirmingOperationId={confirmingOperationId}
                     onConfirmOperation={(operationId) => void confirmGitOperation(operationId)}
                     onRefresh={() => { if (activeId) void fetchTaskRuntime(activeId); }}
+                    canGovernanceAction={canGovernanceAction}
                   />
                 }
                 stream={
