@@ -223,6 +223,7 @@ export function SettingsOverlay({
                 onToast={onToast}
                 data={modelProviders}
                 error={modelProvidersError}
+                canManage={actor?.canManageAccounts === true}
                 onRefresh={onRefreshModelProviders}
                 onSave={onSaveModelProvider}
                 onDelete={onDeleteModelProvider}
@@ -751,6 +752,7 @@ function ModelsPane({
   onToast,
   data,
   error,
+  canManage,
   onRefresh,
   onSave,
   onDelete,
@@ -759,6 +761,13 @@ function ModelsPane({
   onToast: Toast;
   data: ModelProvidersDto | null;
   error: string | null;
+  /* 服务端 `/model-providers` 的三条写路由现在按**平台级**闸门判权
+     （在真实责任位上持 manage）。界面必须与写路径给出同一个答案：
+     否则非管理者能照常点击、填完整张表单、最后收到 403，
+     而那张表单已经白填了。
+     判据与服务端同源（`actor.canManageAccounts`），不在前端另立一套——
+     两个答案不一致正是 §「界面事实不可信」记过的那类缺陷。 */
+  canManage: boolean;
   onRefresh: () => Promise<void>;
   onSave: (input: ModelProviderInputDto, mode: "create" | "update") => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -808,6 +817,13 @@ function ModelsPane({
 
   const save = async () => {
     if (form === null || !canSave) return;
+    /* 前置条件不满足时不发请求：写路径会 403，而用户已经填完整张表单。
+       这里的拦截是**呈现**问题，不是安全问题——服务端才是判据的持有者，
+       它不依赖本行（本行也不应被读成"界面在保护什么"）。 */
+    if (!canManage) {
+      onToast({ tone: "warn", title: "无法写入", body: "登记或修改模型供应商需要管理权限（在至少一个真实责任位上持有「可编排」）。" });
+      return;
+    }
     setBusy(true);
     try {
       await onSave({
@@ -834,6 +850,10 @@ function ModelsPane({
 
   const remove = async () => {
     if (cur === null) return;
+    if (!canManage) {
+      onToast({ tone: "warn", title: "无法删除", body: "删除模型供应商需要管理权限（在至少一个真实责任位上持有「可编排」）。" });
+      return;
+    }
     setBusy(true);
     try {
       await onDelete(cur.id);
@@ -915,7 +935,10 @@ function ModelsPane({
           {/* 只在「正在新建」时隐藏入口：form 非空只表示正在查看某个已登记供应商，
               不能据此隐藏新增入口，否则有任一供应商后永远无法再登记新的。 */}
           {creating ? null : (
-            <button className="mpList__add" onClick={startCreate}>
+            /* 前置条件未满足时**照常可点但显式呈现受阻**（AGENTS.md §4.3）：
+               写成 disabled 会让"为什么不能点"无从得知，而模型配置是只有管理者
+               能改的平台级配置，非管理者需要知道该请谁来做，而不是面对一个灰按钮。 */
+            <button className="mpList__add" data-blocked={!canManage} onClick={startCreate}>
               <Icon.Plus size={13} />
               登记供应商
             </button>
@@ -940,7 +963,10 @@ function ModelsPane({
                 {mode === "update" && (
                   <button
                     className="iconBtn iconBtn--sm"
-                    title="删除供应商（端点与凭据一并移除）"
+                    title={canManage
+                      ? "删除供应商（端点与凭据一并移除）"
+                      : "删除供应商需要管理权限（在至少一个真实责任位上持有「可编排」）"}
+                    data-blocked={!canManage}
                     disabled={busy}
                     onClick={() => void remove()}
                   >
@@ -1075,7 +1101,12 @@ function ModelsPane({
               </div>
 
               <div className="mpForm__act">
-                <button className="btn btn--accent" disabled={!canSave || busy} onClick={() => void save()}>
+                <button
+                  className="btn btn--accent"
+                  data-blocked={!canManage}
+                  disabled={!canSave || busy}
+                  onClick={() => void save()}
+                >
                   {busy ? "写入中…" : mode === "create" ? "登记到服务端" : "保存到服务端"}
                 </button>
                 {mode === "create" && (
@@ -1083,7 +1114,9 @@ function ModelsPane({
                 )}
                 {/* 保存按钮必须说清它写的是什么，避免被读成「已生效」 */}
                 <em className="mpField__hint">
-                  保存即写入服务端设置命名空间与凭据库；界面不做本地乐观更新，以回读结果为准。
+                  {canManage
+                    ? "保存即写入服务端设置命名空间与凭据库；界面不做本地乐观更新，以回读结果为准。"
+                    : "模型供应商是平台级配置：登记、修改与删除需要管理权限（在至少一个真实责任位上持有「可编排」）。连通性测试不需要该权限。"}
                 </em>
               </div>
             </>

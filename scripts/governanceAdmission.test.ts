@@ -33,6 +33,9 @@ const read = (p: string): string => readFileSync(resolve(here, p), "utf8");
 
 const handler = read("../../packages/af/af-api/src/http/handler.ts");
 const app = read("../src/App.tsx");
+/* 模型配置的准入呈现住在 Settings.tsx，不在 App.tsx —— 平台级路由的受阻态
+   只有在这个文件里才看得到。 */
+const settings = read("../src/components/Settings.tsx");
 
 /* ── 登记表：后端路由 → 档位 ──────────────────────────────────────────
    档位口径由用户确认（「审查/判据/计划裁决=approve，澄清/规格/编译=run，
@@ -166,4 +169,37 @@ const confirmGate = app.match(/gated\("(\w+)", \{\s*label: confirmingOperationId
 assert.ok(confirmGate, "找不到 confirmGitOperation 的 gated 调用");
 assert.equal(confirmGate[1], "run", `远端写入（确认）的前端档位是 ${confirmGate[1]}，应为 run`);
 
-console.log(`治理动作准入守卫：${EXPECTED.length} 条后端路由档位一致、${gatedCalls.length} 处前端调用点已加准入。`);
+/* ⑦ 平台级写路由（编排结构 / 模型配置）必须按 canManageAccounts 判权。
+   上面 ①② 只扫 `segments[0] === 'tasks'`——那是**任务责任位**那根轴。
+   §12.23.37 的两条缺陷（`POST /workflows` 与 `/model-providers`）都长在轴外，
+   历轮扫描全绿却漏掉它们：**扫描范围本身就决定了能看见什么**。
+   这里不再只扫任务级，而是把平台级那两条也钉住。 */
+for (const [route, marker] of [
+  ["POST /workflows", "guardWorkflowWrite"],
+  ["POST /model-providers", "guardPlatformWrite"],
+  ["PUT /model-providers", "guardPlatformWrite"],
+  ["DELETE /model-providers", "guardPlatformWrite"],
+] as const) {
+  assert.ok(
+    handler.includes(marker),
+    `后端找不到 ${marker}；${route} 的平台级闸门可能被移除（§12.23.37）`,
+  );
+}
+/* 前端必须用**同一个判据**呈现受阻，否则界面事实与服务端不一致：
+   非管理者会看到可点的按钮，填完表单才收到 403。 */
+assert.ok(
+  /canManage=\{actor\?\.canManageAccounts === true\}/.test(settings),
+  "ModelsPane 没有从 actor.canManageAccounts 取管理权 —— 判据与服务端不同源，"
+  + "非管理者的受阻态会与写路径不一致",
+);
+assert.ok(
+  /data-blocked=\{!canManage\}/.test(settings),
+  "模型配置的写控件缺 data-blocked 受阻态；AGENTS.md §4.3 要求前置条件未满足时显式呈现受阻",
+);
+/* 受阻态不能只是"置灰可点"：必须在派发前就拦住，否则用户填完整张表单才收到 403。 */
+assert.ok(
+  /if \(!canManage\) \{[\s\S]{0,220}return;/.test(settings),
+  "模型配置的写操作没有在派发前拦住无管理权的身份 —— 用户会白填一整张表单",
+);
+
+console.log(`治理动作准入守卫：${EXPECTED.length} 条后端路由档位一致、${gatedCalls.length} 处前端调用点已加准入、平台级 4 条路由与前端受阻态已核对。`);

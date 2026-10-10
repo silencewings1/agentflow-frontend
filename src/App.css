@@ -409,6 +409,20 @@
   height: 26px;
 }
 
+/* 受阻的图标按钮（如无平台管理权时的「删除供应商」）。
+   与 .btn[data-blocked] 同一取向：形态先于颜色，悬停不给可交互反馈。
+   图标按钮没有文字，因此额外用 --gold 让"为什么它不一样"有处可查——
+   具体理由在 title 属性里，这里只负责让它看起来不像能点。 */
+.iconBtn[data-blocked="true"] {
+  color: color-mix(in oklab, var(--gold) 65%, var(--text-3));
+  cursor: not-allowed;
+}
+
+.iconBtn[data-blocked="true"]:hover {
+  color: color-mix(in oklab, var(--gold) 65%, var(--text-3));
+  background: none;
+}
+
 /* --------------------------- session list ------------------------------ */
 
 .sidebar__list {
