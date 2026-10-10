@@ -429,4 +429,54 @@ assert.ok(
   `realignAfterDenial(failure.code) 接入点只有 ${byCode} 处，应覆盖取消运行与归档/恢复`,
 );
 
-console.log(`治理动作准入守卫：${EXPECTED.length} 条后端路由档位一致、${gatedCalls.length} 处前端调用点已加准入、平台级 4 条路由与前端受阻态已核对。`);
+/* ── 面板侧的被拒重读：App.tsx 之外的 9 处写路径 ──────────────────
+   上面的 fromError / byCode 只统计 App.tsx 的**治理动作**接入点。
+   还存在另一类写路径：面板自己的写操作（成员与权限、模型配置），
+   它们的准入判据来自 props（`actor` / `canManageAccounts`），
+   被拒后同样必须重读，否则界面停在一个**持续错误**的状态：
+   按钮继续可点、点了继续被拒，而没有任何东西说明"你的权限已经不在了"。
+
+   为什么要单独断言：这两处的载体不是 `realignFromError`（面板拿不到它），
+   而是各自收到的 `onRefresh` / `onRefreshAccounts`。
+   只断言 App.tsx 会让面板整类退化成无人守——实测删掉 MembersPane 里那行
+   `await onRefresh()` 后，本文件其余断言与全量 688 条**全绿**。
+
+   判据锚在「catch → 重读」这个**接线事实**上，而不是调用次数：
+   面板的重读调用只应出现在错误路径里，因此按文件断言其存在，
+   并断言触发码与 App.tsx 同源（只看这两个码）——
+   重读是"被拒"的补偿动作，不是无差别的失败重试。 */
+const membersPane = read("../src/components/MembersPane.tsx");
+const panelRealign = [
+  ["MembersPane.run", membersPane, /AF_PERMISSION_DENIED[\s\S]{0,400}?await onRefresh\(\)/],
+  // ModelsPane 的 save 与 remove 两处都要接
+  ["ModelsPane.save", settings, /AF_PERMISSION_DENIED[\s\S]{0,400}?onRefreshAccounts\(\)\.catch[\s\S]{0,300}?onRefresh\(\)\.catch/],
+] as const;
+for (const [label, src, re] of panelRealign) {
+  assert.match(
+    src,
+    re as RegExp,
+    `${label} 缺少「被拒后重读」：面板的准入判据来自 props，会话中途被降权后`
+      + "按钮会一直可点、点了只报错，界面停在持续错误状态",
+  );
+}
+/* ModelsPane 的两处写路径（登记/更新、删除）都要接，不能只接一处。 */
+const modelsPaneRealigns = (settings.match(/onRefreshAccounts\(\)\.catch/g) ?? []).length;
+assert.ok(
+  modelsPaneRealigns >= 2,
+  `ModelsPane 的被拒重读只有 ${modelsPaneRealigns} 处，save 与 remove 两条写路径都要覆盖`,
+);
+/* 成员面板必须把重读放在**错误路径**里：只看出现次数会被无关调用蒙混。
+   断言 `run` 包装器的 catch 段内同时出现错误码判定与重读。 */
+const runBlock = membersPane.slice(
+  membersPane.indexOf("const run = async"),
+  membersPane.indexOf("const run = async") + 2200,
+);
+assert.match(runBlock, /catch \(error: unknown\)/, "MembersPane.run 必须有 catch");
+assert.match(
+  runBlock,
+  /AF_PERMISSION_DENIED[\s\S]{0,300}?AF_ACCOUNT_SUSPENDED[\s\S]{0,300}?await onRefresh\(\)/,
+  "MembersPane.run 必须在**同一段错误处理**里判定两个码并重读，"
+    + "而不是把重读放在与拒绝对无关的位置",
+);
+
+console.log(`治理动作准入守卫：${EXPECTED.length} 条后端路由档位一致、${gatedCalls.length} 处前端调用点已加准入、平台级 4 条路由与前端受阻态已核对、面板侧 2 个文件 ${panelRealign.length + 1} 处被拒重读已接线。`);
