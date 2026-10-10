@@ -118,8 +118,80 @@ assert.match(
   "拒绝理由必须明确指出是入口责任位缺失权限",
 );
 
+/* ⑦ 上面 ①～⑥ 只证明「两份**实现**的口径一致」（谓词、阈值、判定落点）。
+   但"实现一致"不等于"结果一致"——谓词相同而输入的字段名不同（例如
+   前端读 `node.id`、后端投影是 `node.nodeId`），推导出的集合仍会不同，
+   且这种错法**不会报错**：前端算出一个空集合或错集合，
+   按钮的可用性与服务端裁决相反。
+   本仓库已有真实数据可对照：`tests/fixtures/bootstrap.json` 是 bootstrap 的
+   实际响应（含 `entryNodeIds` 声明值）。用它做一次**逐编排的实际比对**，
+   比只比实现更接近"用户看到的按钮是不是对的"。
+
+   **本项证据的边界（必须写清，否则会被读成比实际更强的保证）**：
+   该 fixture 冻结在 `standard-code-change` **v1、9 节点**；
+   而真实实例当前是 **v3、11 节点**（多了两道 `*-review` 审批节点与
+   `prepare-change-set`）。fixture 与实况的这一差异**是既有的**，
+   由 `http-integration.spec.ts` 的 fixture 一致性用例管理——那里
+   只 seed v1，因此两份在**那个作用域内**是一致的。
+   所以本项比对覆盖的是 v1 的图形态，**不能**据此声称
+   "v3 的推导也已验证"。v3 的实况比对在 §12.23.48 单独做过；
+   若日后把 v3 图形态写进 fixture，本项会自动覆盖到。 */
+const bootstrap = JSON.parse(read("../../packages/af/af-api/tests/fixtures/bootstrap.json")) as {
+  data?: { workflows?: Array<{ workflowId: string; nodes: Array<{ nodeId: string }>; edges: Array<{ to: string; kind: string }>; entryNodeIds: string[] }> };
+};
+const workflows = bootstrap.data?.workflows ?? [];
+assert.ok(workflows.length > 0, "bootstrap fixture 里应至少有一条编排，否则本项比对是空转的");
+
+/* 除 v1 fixture 外，再用一份 **v3 图形态**（11 节点 / 15 边）做比对。
+   为什么值得加第二份：v1 是 9 节点（bootstrap 投影），v3 是 11 节点
+   （多两道 `*-review` 审批节点与 `prepare-change-set`），
+   两者的图**规模与节点集不同**，推导要在这两种形态下都成立。
+
+   （更正一处早先写错的理由：本项最初写成"v1 里没有 approve 边，
+   所以碰不到白名单/黑名单的分歧点"。实测 v1 **有**一条
+   `prepare-change-set → publish-via-mcp` 的 `approve` 边，
+   该分歧点在 v1 上同样被覆盖 —— 加 v3 的理由是"多一种图规模"，
+   不是"补上 v1 缺失的分歧点"。把理由写错会让后来人以为
+   v1 的 approve 边不存在，从而在别处做出错误推断。） */
+const v3 = JSON.parse(read("../../packages/af/af-api/tests/fixtures/bootstrap-v3-graph.json")) as {
+  data: { workflows: Array<{ workflowId: string; nodes: Array<{ nodeId: string }>; edges: Array<{ to: string; kind: string }>; entryNodeIds: string[] }> };
+};
+const v3Workflows = v3.data.workflows;
+assert.ok(v3Workflows.length > 0, "v3 图 fixture 为空，本项比对会空转");
+assert.ok(
+  v3Workflows.some((wf) => wf.edges.some((e) => e.kind === "approve")),
+  "v3 fixture 必须含至少一条 approve 边，否则它与 v1 一样碰不到谓词分歧点",
+);
+
+let compared = 0;
+for (const wf of [...workflows, ...v3Workflows]) {
+  /* 用与 App.tsx 相同的规则重算（节点字段名必须是 nodeId，与真实响应一致）。 */
+  const derived = wf.nodes
+    .filter((node) => !wf.edges.some((edge) => edge.kind !== "fail" && edge.to === node.nodeId))
+    .map((node) => node.nodeId);
+  assert.deepEqual(
+    derived,
+    wf.entryNodeIds,
+    `${wf.workflowId}: 前端推导 [${derived}] 与服务端 entryNodeIds [${wf.entryNodeIds}] 不一致`
+      + " —— 按钮可用性会与服务端裁决相反",
+  );
+  compared += 1;
+}
+/* 反向自检：确认上面的比对**真的能发现差异**，否则它可能因为
+   字段名写错（两边都取到 undefined 或空数组）而"恰好通过"。
+   这是本仓库反复记过的一类空转（见 §12.23.38 附）。 */
+const probe = workflows[0]!;
+const wrongDerived = probe.nodes.slice(1).map((node) => node.nodeId);
+assert.notDeepEqual(
+  wrongDerived,
+  probe.entryNodeIds,
+  "比对方法自检失败：去掉一个节点后仍与 entryNodeIds 相同，"
+    + "说明该编排只有一个可推导节点或比对没有真正生效",
+);
+
 console.log(
   "entryNodeDerivation.test: 入口责任位口径一致"
     + "（后端白名单 flow|approve、前端黑名单 !=fail 且经边种类全集复核为等价，"
-    + "阈值同为 run，判定同落在入口集合上）",
+    + "阈值同为 run，判定同落在入口集合上；"
+    + `并以 bootstrap 实况数据逐编排比对 ${String(compared)} 条实际推导结果）`,
 );
