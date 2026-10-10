@@ -1467,7 +1467,9 @@ export default function App() {
         body: `${wf.nodes.length} 个节点的契约与增强提示词待你确认`,
       });
     },
-    [fetchGovernance, fetchTaskRuntime, loadBootstrap, push],
+    /* realignAfterDenial 必须在这里：任务创建被 AF_PERMISSION_DENIED 拒掉时
+       要重读账户目录，否则界面会一直显示一个已经失效的「可创建」结论。 */
+    [fetchGovernance, fetchTaskRuntime, loadBootstrap, push, realignAfterDenial],
   );
 
   /** 用户确认规划 → 正式推进流水线（原 startTask 尾部的推进逻辑迁移至此） */
@@ -1513,7 +1515,7 @@ export default function App() {
       title: `规划已确认 · 按「${wf.name}」启动`,
       body: `${wf.nodes.length} 个节点 · ${wf.edges.filter((e) => e.kind === "fail").length} 条失败回退边`,
     });
-  }, [planEvent, workflow, activeId, runTurn, push, loadBootstrap, fetchTaskRuntime]);
+  }, [planEvent, workflow, activeId, runTurn, push, loadBootstrap, fetchTaskRuntime, realignAfterDenial]);
 
   /* 取消/归档/恢复都先落服务端事实，再以服务端返回的列表为准刷新界面。
      本地只读缓存绝不伪造删除：调用失败时列表保持不变，并如实提示错误码。 */
@@ -1719,7 +1721,7 @@ export default function App() {
       push({ tone: "warn", title: "审批失败", body: describeError(apiError?.code, apiError?.message) })
       await realignAfterDenial(apiError);
     }
-  }, [activeId, fetchTaskRuntime, push]);
+  }, [activeId, fetchTaskRuntime, push, realignAfterDenial]);
 
   const stop = useCallback(() => {
     timers.current.forEach(clearTimeout);
@@ -1871,7 +1873,7 @@ export default function App() {
     } finally {
       setConfirmingOperationId(null);
     }
-  }, [activeId, fetchTaskRuntime, push]);
+  }, [activeId, fetchTaskRuntime, push, realignAfterDenial]);
 
   /* unknown/failed 状态的唯一出路是显式对账（reconcile），而不是重放写操作。
      reconcile 只查询远端事实来收敛状态，绝不重放原写入 —— 这是写链悬挂后
@@ -1895,7 +1897,7 @@ export default function App() {
     } finally {
       setReconcilingOperationId(null);
     }
-  }, [activeId, fetchTaskRuntime, push]);
+  }, [activeId, fetchTaskRuntime, push, realignAfterDenial]);
 
   const planGitOperation = useCallback(async () => {
     if (!activeId || !taskRuntime?.preparedDelivery) return;
