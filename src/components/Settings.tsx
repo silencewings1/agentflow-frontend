@@ -225,6 +225,7 @@ export function SettingsOverlay({
                 error={modelProvidersError}
                 canManage={actor?.canManageAccounts === true}
                 onRefresh={onRefreshModelProviders}
+                onRefreshAccounts={onRefreshAccounts}
                 onSave={onSaveModelProvider}
                 onDelete={onDeleteModelProvider}
                 onTest={onTestModelProvider}
@@ -754,6 +755,10 @@ function ModelsPane({
   error,
   canManage,
   onRefresh,
+  /* 被拒后要重读的是**账户目录**（`canManage` 来自 `actor`），而不是供应商列表。
+     这两件事必须分开传：只调 `onRefresh`（= 重读供应商）刷新的是一个与被拒原因
+     无关的列表，`canManage` 仍旧过期——实测这样改完 `realigned: false`。 */
+  onRefreshAccounts,
   onSave,
   onDelete,
   onTest,
@@ -769,6 +774,7 @@ function ModelsPane({
      两个答案不一致正是 §「界面事实不可信」记过的那类缺陷。 */
   canManage: boolean;
   onRefresh: () => Promise<void>;
+  onRefreshAccounts: () => Promise<void>;
   onSave: (input: ModelProviderInputDto, mode: "create" | "update") => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onTest: (id: string, modelId: string) => Promise<ModelProviderTestResultDto>;
@@ -843,6 +849,17 @@ function ModelsPane({
       setSel(form.id.trim());
     } catch (e) {
       onToast({ tone: "warn", title: mode === "create" ? "登记失败" : "更新失败", body: errorText(e instanceof AfApiError ? e.code : undefined, e instanceof Error ? e.message : undefined) });
+      /* 被拒后重读，让 `actor.canManageAccounts` 回到服务端事实。
+         判据是本题的 `canManage`（来自 `actor`，与成员面板同源），因此
+         **同一个人被降权后，两个面板会一起停在旧状态**——只修一个面板
+         等于把同一个缺陷留一半。触发码与 App.tsx 的 `realignAfterDenial`
+         保持一致：重读是"被拒"的补偿，不是无差别的失败重试。 */
+      if (e instanceof AfApiError && (e.code === "AF_PERMISSION_DENIED" || e.code === "AF_ACCOUNT_SUSPENDED")) {
+        await Promise.all([
+          onRefreshAccounts().catch(() => undefined),
+          onRefresh().catch(() => undefined),
+        ]);
+      }
     } finally {
       setBusy(false);
     }
@@ -862,6 +879,14 @@ function ModelsPane({
       setForm(null);
     } catch (e) {
       onToast({ tone: "warn", title: "删除失败", body: errorText(e instanceof AfApiError ? e.code : undefined, e instanceof Error ? e.message : undefined) });
+      /* 同 save：删除失败也可能是"权限在会话中途没了"，此时界面上的
+         `canManage` 已过期，不重读就会继续把删除按钮显示为可用。 */
+      if (e instanceof AfApiError && (e.code === "AF_PERMISSION_DENIED" || e.code === "AF_ACCOUNT_SUSPENDED")) {
+        await Promise.all([
+          onRefreshAccounts().catch(() => undefined),
+          onRefresh().catch(() => undefined),
+        ]);
+      }
     } finally {
       setBusy(false);
     }
