@@ -137,13 +137,16 @@ export function MembersPane({
   onCreateAccount: (input: AccountInputDto) => Promise<void>;
   onUpdateAccount: (accountId: string, input: Partial<AccountInputDto>) => Promise<void>;
   onSetAccountState: (accountId: string, state: AccountDto["state"]) => Promise<void>;
+  /* 返回服务端回读的新目录：写完之后要描述"结果是什么"时，必须基于这份
+     权威数据，而不是本组件闭包里的 `data`（那是写入前的旧值，
+     实测据此算出过与事实相反的结论）。 */
   onSetGrant: (input: {
     accountId: string;
     workflowId: string;
     nodeId: string;
     perm: NodePermDto | null;
     expectedRevision?: number;
-  }) => Promise<void>;
+  }) => Promise<AccountsDto>;
 }) {
   const [selectedId, setSelectedId] = useState<string>("");
   const [creating, setCreating] = useState(false);
@@ -229,6 +232,43 @@ export function MembersPane({
     [grantIndex],
   );
 
+  /* 收回之后，这个责任位上还剩谁。
+
+     为什么必须真的算：原先收回的 toast 硬编码了「该责任位已无操作者」，
+     而它**在任何分支上都不读授权数据**——于是那句话与事实无关，恒为真。
+     实测：撤回李雯在 `design-review` 的授权后 toast 这么写，而该位当时
+     仍有周林（manage）与杨知远（approve）两人在承担。这类文案比没有文案更糟：
+     它把一个**可核验的假事实**用肯定的语气说了出来，读者据此会以为该节点
+     没人了，进而可能重复授权或误判风险。
+
+     为什么必须吃 `fresh` 参数而不是读组件的 `data`/`grants`：那是渲染闭包里的
+     旧值，而本函数要在**写入生效之后**回答"还剩谁"，setState 尚未生效。
+     这个坑我在这一处先踩了一次——第一版读闭包，实测服务端已 0 人、
+     界面却说"仍由周林、杨知远承担"（恰好与 #68 是同一族：写后读旧值）。
+     因此调用方把服务端回读的目录传进来，本函数是纯函数。
+
+     判据与后端同源：**只有在职（active）账户才算数**——停用者的授权还在目录里，
+     但行使不了（写路径以 AF_ACCOUNT_SUSPENDED 拦下），把停用者算作"有人"
+     会报出与后端 `wouldOrphanDirectory` 相反的结论（它的注释已写明"必须同源"）。 */
+  const remainingOperators = useCallback(
+    (fresh: AccountsDto, ref: NodeRef, excludedAccountId: string): AccountDto[] => {
+      const activeIds = new Set(fresh.accounts.filter((a) => a.state === "active").map((a) => a.accountId));
+      const byId = new Map(fresh.accounts.map((a) => [a.accountId, a]));
+      const seen = new Set<string>();
+      const out: AccountDto[] = [];
+      for (const grant of fresh.grants) {
+        if (grant.workflowId !== ref.workflowId || grant.nodeId !== ref.nodeId) continue;
+        if (grant.accountId === excludedAccountId) continue;
+        if (!activeIds.has(grant.accountId) || seen.has(grant.accountId)) continue;
+        seen.add(grant.accountId);
+        const account = byId.get(grant.accountId);
+        if (account) out.push(account);
+      }
+      return out;
+    },
+    [],
+  );
+
   /**
    * 全部责任位，按编排分组 —— 矩阵**始终列出编排里的每一个节点**，
    * 不论该账户是否已被授权。
@@ -306,14 +346,17 @@ export function MembersPane({
      都写一遍 try/catch，而它们并不关心错误码。 */
   const run = async (
     key: string,
-    action: () => Promise<void>,
-    onOk?: () => void,
+    action: () => Promise<AccountsDto | void>,
+    /* `onOk` 收下本次写入**回读的目录**（若 action 有返回值）。
+       为什么不能让它读组件的 `data`：那是渲染闭包里的旧值，setState 尚未生效，
+       据此描述"写入后的结果"会给出与事实相反的结论（实测过一次）。 */
+    onOk?: (fresh: AccountsDto | null) => void,
     onFail?: (code: string | undefined, fresh: AccountsDto | null) => void,
   ) => {
     setBusy(key);
     try {
-      await action();
-      onOk?.();
+      const fresh = await action();
+      onOk?.(fresh ?? null);
     } catch (error: unknown) {
       const apiError = error instanceof AfApiError ? error : undefined;
       onToast({
@@ -389,13 +432,31 @@ export function MembersPane({
         perm: next,
         ...(current === null ? {} : { expectedRevision: current.revision }),
       }),
-      () => onToast({
-        tone: next === null ? "warn" : "ok",
-        title: label,
-        body: next === null
-          ? `${active.name} × ${ref.nodeName}（${ref.workflowName}）· 该责任位已无操作者`
-          : `${active.name} × ${ref.nodeName}（${ref.workflowName}）`,
-      }),
+      (fresh) => {
+        /* 收回到这里已经生效，`fresh` 是服务端回读的权威目录。
+           不能读组件的 `data`——那是写入前的旧值（见 remainingOperators 的说明）。 */
+        if (next !== null || fresh === null) {
+          onToast({
+            tone: "ok",
+            title: label,
+            body: `${active.name} × ${ref.nodeName}（${ref.workflowName}）`,
+          });
+          return;
+        }
+        const rest = remainingOperators(fresh, ref, active.accountId);
+        onToast({
+          tone: rest.length === 0 ? "warn" : "ok",
+          title: label,
+          body:
+            rest.length === 0
+              ? `${active.name} × ${ref.nodeName}（${ref.workflowName}）· 该责任位已无操作者`
+              /* 还有别人时**点名列出**，而不是只说"还有 N 人"：读者最可能的
+                 下一个问题是"那现在归谁"，给出名字才能直接对接。 */
+              : `${active.name} × ${ref.nodeName}（${ref.workflowName}）· 该责任位仍由 ${rest
+                  .map((a) => a.name)
+                  .join("、")} 承担`,
+        });
+      },
     );
   };
 

@@ -767,6 +767,13 @@ export default function App() {
     try {
       const mutation = await afApi.setNodeGrant(input);
       setAccountsData(mutation.accounts);
+      /* **返回**服务端回读的新目录，而不只是存进 state。
+         调用方常常需要在「这次写入生效之后」描述结果（例如收回授权后要说
+         "这一位还剩谁"）。它们不能读 `data`：那是本次渲染闭包里的旧值，
+         setState 要到下一次渲染才生效——实测据此算出的结论与事实相反
+         （服务端已 0 人，界面却说"仍由周林、杨知远承担"）。
+         这里手上已经有权威数据，直接交出去，调用方就不必再读闭包。 */
+      return mutation.accounts;
     } catch (error: unknown) {
       /* 乐观并发冲突：**必须**把界面重新对齐到服务端事实，然后才抛出。
          不刷新的话，用户看到的是"操作未生效，请刷新后重试"——而界面里没有任何

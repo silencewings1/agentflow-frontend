@@ -141,13 +141,14 @@ export function SettingsOverlay({
   onCreateAccount: (input: AccountInputDto) => Promise<void>;
   onUpdateAccount: (accountId: string, input: AccountUpdateInputDto) => Promise<void>;
   onSetAccountState: (accountId: string, state: AccountDto["state"]) => Promise<void>;
+  /* 透传服务端回读的目录（MembersPane 需要在写入生效后描述"还剩谁"）。 */
   onSetGrant: (input: {
     accountId: string;
     workflowId: string;
     nodeId: string;
     perm: NodePermDto | null;
     expectedRevision?: number;
-  }) => Promise<void>;
+  }) => Promise<AccountsDto>;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
