@@ -234,6 +234,8 @@ export interface AccountsDto {
    */
   auditTotal: number;
   accountAuditTotal: number;
+
+
   permRank: Record<NodePermDto, number>;
   /**
    * 目录自身的可用性（不是"当前身份能做什么"）。
@@ -248,6 +250,28 @@ export interface AccountsDto {
    * 此时按"未知"处理（不显示额外提示），而不是假定目录有问题。
    */
   directory?: DirectoryHealthDto;
+}
+
+/**
+ * 审计的一页（`GET /accounts/audit`）。
+ *
+ * 为什么需要它：`GET /accounts` 只回最新一页且**无法翻页**，
+ * 而审计表只增不删——"超过上限"是必然事件。
+ * 此前界面只能说"共 N 条、这里只显示 M 条"，却**查不到**第 M+1 条；
+ * 这个类型与路由让被截断的那部分真正可查（§第 205 轮）。
+ */
+export interface AuditPageDto {
+/** 授权变更审计，按「新→旧」。 */
+audit: GrantAuditDto[];
+/** 账户级变更审计，按「新→旧」。 */
+accountAudit: AccountAuditDto[];
+/** 授权审计总条数（**未分页**的总数）。 */
+auditTotal: number;
+accountAuditTotal: number;
+/** 本页起始偏移；回写它即可翻页。 */
+offset: number;
+/** 本页实际条数上限（服务端封顶 200）。 */
+limit: number;
 }
 
 /** 目录可用性。`healthy=false` 时 `reason` 给出可执行的处置。 */
@@ -1485,6 +1509,9 @@ export interface AfApiClient {
    * 登录页本身要列出可选账户，若这里抛错，首屏会整块不可用。
    */
   getAccounts(signal?: AbortSignal): Promise<AccountsDto>;
+  /** 审计分页读取（第 205 轮）。`GET /accounts` 只回一页且无法翻页，
+   *  没有它，被截断的那部分在界面上完全不可达。 */
+  getAccountAudit(input: { accountId?: string; offset?: number; limit?: number }, signal?: AbortSignal): Promise<AuditPageDto>;
   createAccount(input: AccountInputDto, signal?: AbortSignal): Promise<AccountsDto>;
   updateAccount(accountId: string, input: Partial<AccountInputDto>, signal?: AbortSignal): Promise<AccountsDto>;
   setAccountState(accountId: string, state: AccountStateDto, signal?: AbortSignal): Promise<AccountsDto>;

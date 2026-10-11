@@ -757,6 +757,20 @@ export default function App() {
     if (next.actor.accountId === accountId) void loadAccounts();
   }, [loadAccounts]);
 
+  /* 第 205/206 轮：审计分页。
+     `GET /accounts` 只回最新一页且无法翻页，因此「更早的记录」此前在界面上
+     **完全不可达**——文案只能说"共 N 条、这里显示 M 条"。
+     这个回调把被截断的那部分真正取回，让「留痕优先」在界面上也成立。
+     不并入 `accountsData`：那一份是"目录快照"，而审计是**按需拉取的历史**，
+     混在一起会让刷新目录时被一并重置。 */
+  const loadAccountAudit = useCallback(async (input: {
+    accountId?: string;
+    offset?: number;
+    limit?: number;
+  }) => {
+    return afApi.getAccountAudit(input);
+  }, []);
+
   const setNodeGrant = useCallback(async (input: {
     accountId: string;
     workflowId: string;
@@ -2755,6 +2769,7 @@ export default function App() {
           onUpdateAccount={updateAccount}
           onSetAccountState={setAccountState}
           onSetGrant={setNodeGrant}
+          onLoadAudit={loadAccountAudit}
         />
       )}
       {newTaskOpen && (

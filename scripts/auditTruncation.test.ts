@@ -126,15 +126,29 @@ if (rowsConst !== null) {
      因此这一条钉住**提示的存在**，而不仅是它的措辞。 */
   check(
     "截断提示存在，且以「总数 > 本页」为条件（不是恒假/恒真）",
-    /\{\s*(accountAuditTotal|grantAuditTotal)\s*>\s*(accountAudit|audit)\.length\s*\?/.test(SRC),
-    "找不到形如 `{accountAuditTotal > accountAudit.length ? ... }` 的截断提示条件",
+    /\{\s*(accountAuditTotal|grantAuditTotal)\s*>\s*(accountAudit|audit)\.length\s*\?/.test(SRC)
+      || /fullAccountAudit === null && accountAuditTotal > shownAccountAudit\.length/.test(SRC),
+    "找不到以「总数 > 本页」为条件的截断提示",
   );
+  /* 第 206 轮修订：原文案断言「没有读取入口|未开放」。
+   * 那在第 205 轮之前是对的——当时 `GET /accounts` 恒返回 50 条，
+   * `?limit/?offset/?cursor/?page/?since` 全部无效，`/accounts/audit` 404，
+   * 所以界面**必须**如实说"查不到"，否则就是承诺一件做不到的事。
+   *
+   * 第 205 轮把 `GET /accounts/audit` 真正做出来了，第 206 轮接上界面，
+   * 于是「查不到」变成「可点查看」。**继续断言旧文案，等于要求界面
+   * 谎称自己做不到已经做到的事**——那比承诺做不到更坏。
+   *
+   * 因此本条改为钉住**不谎报**：提示必须与实际能力一致。
+   * `loadFullAudit` / `getAccountAudit` 的存在是"确实可读"的证据；
+   * 没有它却宣称可读，或有它却仍写「当前版本没有读取入口」，
+   * 两种脱节都会被这一条抓住。 */
   check(
-    "截断提示写明更早的记录没有读取入口（不承诺做不到的事）",
-    /没有读取入口|未开放/.test(SRC),
-    "截断提示未声明「更早的记录当前无法读取」——旧文案曾承诺「可经 API 读取」，"
-    + "实测 GET /accounts 恒返回 50 条，?limit/?offset/?cursor/?page/?since 全部无效，"
-    + "/accounts/audit 为 AF_ROUTE_NOT_FOUND",
+    "截断提示不谎报：要么声明读不到，要么给出真正的读取入口（第 206 轮）",
+    (SRC.includes("可经 `GET /accounts/audit` 读取") && SRC.includes("loadFullAudit"))
+      || (SRC.includes("没有读取入口") && !SRC.includes("loadFullAudit")),
+    "截断提示与实际能力脱节：宣称可读却没有读取入口（loadFullAudit/getAccountAudit），"
+    + "或已有读取入口却仍写「当前版本没有读取入口」——两者都是对用户说假话",
   );
 
   /* ── 7. 判据自身不得被"废掉" ───────────────────────────────────────────
@@ -151,7 +165,13 @@ if (rowsConst !== null) {
      要求返回 false。判据被改成恒真时，这一步必然失败并报出来。
      这不是"多写一条测试"，而是给判据本身装一个不依赖它的探针。 */
   const hasTruncationCondition = (src: string): boolean =>
-    /\{\s*(accountAuditTotal|grantAuditTotal)\s*>\s*(accountAudit|audit)\.length\s*\?/.test(src);
+    /* 与上面那条真实判据**同源**：第 206 轮之后截断条件改用
+       `shownAccountAudit.length` / `shownAudit.length`（展开前用
+       `fullAccountAudit === null` 短路），这里若不同步，
+       自检就会喂出一条 SRC 里已经不存在的旧形状。 */
+      /\{\s*(accountAuditTotal|grantAuditTotal)\s*>\s*(accountAudit|audit)\.length\s*\?/.test(src)
+      || /fullAccountAudit === null && accountAuditTotal > shownAccountAudit\.length/.test(src)
+      || /fullAudit === null && auditTotal > shownAudit\.length/.test(src);
 
   check(
     "判据自检：喂入不含截断条件的源码，判据必须返回 false（否则该判据已被废掉）",

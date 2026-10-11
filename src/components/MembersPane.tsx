@@ -15,6 +15,7 @@ import {
   type AccountsDto,
   type ActorDto,
   type AccountAuditDto,
+  type AuditPageDto,
   type GrantAuditDto,
   type NodeGrantDto,
   type NodePermDto,
@@ -142,6 +143,7 @@ export function MembersPane({
   onUpdateAccount,
   onSetAccountState,
   onSetGrant,
+  onLoadAudit,
 }: {
   data: AccountsDto | null;
   /** `data === null` 的成因；未提供时退回中性的"尚未加载"。 */
@@ -165,6 +167,9 @@ export function MembersPane({
     perm: NodePermDto | null;
     expectedRevision?: number;
   }) => Promise<AccountsDto>;
+  /** 取审计的一页（第 205 轮：`GET /accounts` 只回一页且无法翻页，
+   *  没有它，被截断的那部分在界面上完全不可达）。 */
+  onLoadAudit?: (input: { accountId?: string; offset?: number; limit?: number }) => Promise<AuditPageDto>;
 }) {
   const [selectedId, setSelectedId] = useState<string>("");
   const [creating, setCreating] = useState(false);
@@ -207,6 +212,81 @@ export function MembersPane({
      而审计表只增不删，超过上限是必然事件。 */
   const auditTotal = data?.auditTotal ?? audit.length;
   const accountAuditTotal = data?.accountAuditTotal ?? accountAudit.length;
+
+  /* 第 205/206 轮：被截断的审计历史。
+     `data.accountAudit` 只是最新一页；点"查看更早"时按需向
+     `GET /accounts/audit` 翻页取回，**不并入目录 state**——
+     刷新目录时它会被重置，而审计历史应当独立存续。
+     `null` = 未展开（只显示那一页）；数组 = 已加载的全量。 */
+  const [fullAccountAudit, setFullAccountAudit] = useState<AccountAuditDto[] | null>(null);
+  const [fullAudit, setFullAudit] = useState<GrantAuditDto[] | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const shownAccountAudit = fullAccountAudit ?? accountAudit;
+  const shownAudit = fullAudit ?? audit;
+
+  /* 载入**全部**账户审计：按 offset 逐窗取回，直到取满 accountAuditTotal。
+     逐窗而不是一次 limit=9999——服务端封顶 200，一次取不完也说不清取到哪。 */
+  const loadFullAudit = useCallback(async () => {
+    if (onLoadAudit === undefined) return;
+    setAuditLoading(true);
+    try {
+      const collected: AccountAuditDto[] = [];
+      for (;;) {
+        const page: AuditPageDto = await onLoadAudit({
+          accountId: selectedId === "" ? undefined : selectedId,
+          offset: collected.length,
+          limit: 200,
+        });
+        collected.push(...page.accountAudit);
+        if (page.accountAudit.length === 0 || collected.length >= page.accountAuditTotal) break;
+      }
+      setFullAccountAudit(collected);
+    } catch (error: unknown) {
+      onToast({
+        tone: "warn",
+        title: "审计历史载入失败",
+        body: errorText(
+          error instanceof AfApiError ? error.code : undefined,
+          error instanceof AfApiError ? error.message : "未知错误",
+          error instanceof AfApiError ? error.details : undefined,
+        ),
+      });
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [onLoadAudit, onToast, selectedId]);
+
+  /* 授权审计同理：`audit` 同样只是最新一页，`GET /accounts/audit` 两者都返回。
+     此前这段文案写的是「没有读取入口」——路由上线后那已不成立。 */
+  const loadFullGrantAudit = useCallback(async () => {
+    if (onLoadAudit === undefined) return;
+    setAuditLoading(true);
+    try {
+      const collected: GrantAuditDto[] = [];
+      for (;;) {
+        const page: AuditPageDto = await onLoadAudit({
+          accountId: selectedId === "" ? undefined : selectedId,
+          offset: collected.length,
+          limit: 200,
+        });
+        collected.push(...page.audit);
+        if (page.audit.length === 0 || collected.length >= page.auditTotal) break;
+      }
+      setFullAudit(collected);
+    } catch (error: unknown) {
+      onToast({
+        tone: "warn",
+        title: "授权审计历史载入失败",
+        body: errorText(
+          error instanceof AfApiError ? error.code : undefined,
+          error instanceof AfApiError ? error.message : "未知错误",
+          error instanceof AfApiError ? error.details : undefined,
+        ),
+      });
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [onLoadAudit, onToast, selectedId]);
   /* 界面实际渲染的审计条数。
      必须是**具名常量**并被所有相关文案引用：原先渲染用 `slice(0, 8)`、
      而截断说明里写死了「仅显示最新 50 条」（那是**服务端页大小**，
@@ -1127,7 +1207,7 @@ export function MembersPane({
                 {accountAudit.length === 0 ? (
                   <p className="permAudit__empty">尚无账户变更。</p>
                 ) : (
-                  accountAudit.slice(0, AUDIT_ROWS_SHOWN).map((row) => (
+                  shownAccountAudit.slice(0, AUDIT_ROWS_SHOWN).map((row) => (
                     <AccountAuditRow key={row.auditId} row={row} accounts={accounts} />
                   ))
                 )}
@@ -1146,10 +1226,24 @@ export function MembersPane({
                   141 条，`account_audit` 7 条，跨重启仍在）；"可经 API 读取"这一半
                   是假的。承诺一件做不到的事，比不承诺更坏：它会让读者以为
                   "需要时能查到"，于是不再对缺失的部分提出要求。 */}
-              {accountAuditTotal > accountAudit.length ? (
+              {/* 第 206 轮：`GET /accounts/audit` 已开放（第 205 轮），
+                  此前这里写的是「当前版本没有读取入口（界面与 API 均未开放）」——
+                  那句话在路由上线后就是**过期且误导**的：它让读者以为查不到，
+                  于是不再对缺失的部分提要求。现在改为真正可点。
+                  未展开时如实说明只显示了 N 条；展开后说明已取回全量。 */}
+              {fullAccountAudit === null && accountAuditTotal > shownAccountAudit.length ? (
                 <p className="permAudit__truncated">
-                  目录共 {accountAuditTotal} 条账户变更，此处仅显示最新 {Math.min(AUDIT_ROWS_SHOWN, accountAudit.length)} 条；
-                  更早的记录仍保存在治理存储中，但当前版本没有读取入口（界面与 API 均未开放）。
+                  目录共 {accountAuditTotal} 条账户变更，此处仅显示最新 {Math.min(AUDIT_ROWS_SHOWN, shownAccountAudit.length)} 条；
+                  更早的记录仍在治理存储中，可经 `GET /accounts/audit` 读取。
+                  {onLoadAudit !== undefined ? (
+                    <button type="button" onClick={() => void loadFullAudit()} disabled={auditLoading}>
+                      {auditLoading ? "载入中…" : "查看全部历史"}
+                    </button>
+                  ) : null}
+                </p>
+              ) : fullAccountAudit !== null ? (
+                <p className="permAudit__truncated">
+                  已取回该账户全部 {fullAccountAudit.length} 条账户变更（共 {accountAuditTotal} 条）。
                 </p>
               ) : accountAuditTotal > AUDIT_ROWS_SHOWN ? (
                 <p className="permAudit__truncated">
@@ -1171,17 +1265,26 @@ export function MembersPane({
                 {audit.length === 0 ? (
                   <p className="permAudit__empty">尚无授权变更。</p>
                 ) : (
-                  audit.slice(0, AUDIT_ROWS_SHOWN).map((row) => (
+                  shownAudit.slice(0, AUDIT_ROWS_SHOWN).map((row) => (
                     <AuditRow key={row.auditId} row={row} accounts={accounts} />
                   ))
                 )}
               </div>
-              {auditTotal > audit.length ? (
-                <p className="permAudit__truncated">
-                  目录共 {auditTotal} 条授权变更，此处仅显示最新 {Math.min(AUDIT_ROWS_SHOWN, audit.length)} 条；
-                  更早的记录仍保存在治理存储中，但当前版本没有读取入口（界面与 API 均未开放）。
-                </p>
-              ) : auditTotal > AUDIT_ROWS_SHOWN ? (
+                {fullAudit === null && auditTotal > shownAudit.length ? (
+                  <p className="permAudit__truncated">
+                    目录共 {auditTotal} 条授权变更，此处仅显示最新 {Math.min(AUDIT_ROWS_SHOWN, shownAudit.length)} 条；
+                    更早的记录仍保存在治理存储中，可经 `GET /accounts/audit` 读取。
+                    {onLoadAudit !== undefined ? (
+                      <button type="button" onClick={() => void loadFullGrantAudit()} disabled={auditLoading}>
+                        {auditLoading ? "载入中…" : "查看全部历史"}
+                      </button>
+                    ) : null}
+                  </p>
+                ) : fullAudit !== null ? (
+                  <p className="permAudit__truncated">
+                    已取回该账户全部 {fullAudit.length} 条授权变更（共 {auditTotal} 条）。
+                  </p>
+                ) : auditTotal > AUDIT_ROWS_SHOWN ? (
                 <p className="permAudit__truncated">本页显示最新 {AUDIT_ROWS_SHOWN} 条（共 {auditTotal} 条）。</p>
               ) : null}
             </section>

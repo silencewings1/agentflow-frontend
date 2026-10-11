@@ -20,6 +20,7 @@ import {
   type AccountInputDto,
   type AccountUpdateInputDto,
   type AccountsDto,
+  type AuditPageDto,
   type NodePermDto,
   type AgentProfileSummaryDto,
   type ModelProviderApi,
@@ -115,6 +116,7 @@ export function SettingsOverlay({
   onUpdateAccount,
   onSetAccountState,
   onSetGrant,
+  onLoadAudit,
 }: {
   pane: SettingsPane;
   onPane: (p: SettingsPane) => void;
@@ -155,6 +157,7 @@ export function SettingsOverlay({
     perm: NodePermDto | null;
     expectedRevision?: number;
   }) => Promise<AccountsDto>;
+  onLoadAudit?: (input: { accountId?: string; offset?: number; limit?: number }) => Promise<AuditPageDto>;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -227,6 +230,7 @@ export function SettingsOverlay({
                 onUpdateAccount={onUpdateAccount}
                 onSetAccountState={onSetAccountState}
                 onSetGrant={onSetGrant}
+                onLoadAudit={onLoadAudit}
               />
             )}
             {pane === "agents" && <AgentsPane onToast={onToast} profiles={agentProfiles} />}

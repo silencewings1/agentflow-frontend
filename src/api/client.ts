@@ -27,6 +27,7 @@ import type {
   ConnectionLayerDto,
   EnvironmentDto,
   AccountAuditDto,
+  AuditPageDto,
   AccountDto,
   AccountsDto,
   AccountInputDto,
@@ -642,6 +643,24 @@ function fixtureClient(): AfApiClient {
     setActor(handle: string | null) { fixtureActor = handle === null || handle.trim() === "" ? null : handle.trim(); },
     getActor() { return fixtureActor; },
     async getAccounts() { return snapshot(); },
+      /* fixture 的审计分页：与真后端同口径（`accountId` 不限则全量，
+         按「新→旧」取窗），使界面在 fixture 模式下也能验同一条路径。 */
+      async getAccountAudit(input) {
+        const filter = <T extends { accountId: string }>(rows: T[]): T[] =>
+          input.accountId === undefined ? rows : rows.filter((row) => row.accountId === input.accountId);
+        const grantAll = filter(fixtureAudit);
+        const accountAll = filter(fixtureAccountAudit);
+        const offset = input.offset ?? 0;
+        const limit = input.limit ?? 50;
+        return {
+          audit: grantAll.slice(offset, offset + limit),
+          accountAudit: accountAll.slice(offset, offset + limit),
+          auditTotal: grantAll.length,
+          accountAuditTotal: accountAll.length,
+          offset,
+          limit,
+        };
+      },
     async createAccount(input) {
       requireManager();
       if (fixtureAccounts.some((item) => item.handle.toLowerCase() === input.handle.trim().toLowerCase())) {
@@ -1157,6 +1176,14 @@ class HttpAfApiClient implements AfApiClient {
   confirmPushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}/confirm`, { method: "POST", body: JSON.stringify({ idempotencyKey: requestKey("git-confirm", operationId) }) }, signal); }
   getPushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}`, undefined, signal); }
   reconcilePushOperation(operationId: string, signal?: AbortSignal) { return this.request<GitOperationDto>(`/git-operations/${encodeURIComponent(operationId)}/reconcile`, { method: "POST", body: JSON.stringify({ idempotencyKey: requestKey("git-reconcile", operationId) }) }, signal); }
+    getAccountAudit(input: { accountId?: string; offset?: number; limit?: number }, signal?: AbortSignal) {
+      const q = new URLSearchParams();
+      if (input.accountId !== undefined) q.set("accountId", input.accountId);
+      if (input.offset !== undefined) q.set("offset", String(input.offset));
+      if (input.limit !== undefined) q.set("limit", String(input.limit));
+      const suffix = q.toString();
+      return this.request<AuditPageDto>(`/accounts/audit${suffix === "" ? "" : "?" + suffix}`, undefined, signal);
+    }
 }
 
 export class AfApiError extends Error {
