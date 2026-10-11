@@ -174,6 +174,46 @@ if (includeMatch === null) {
     skippedIn.slice(0, 8).join('\n      ') + (skippedIn.length > 8 ? `\n      …（另有 ${skippedIn.length - 8} 处）` : ''),
   )
 
+  /* ── 判据③：扫描器不得把「没找到」直接报成「没问题」 ────────────────────────
+     本轮为了量化「空转断言」写了���个正则扫描器，它连续三次给出错误结论——
+     而**三次都表现为「报 0 处问题」**：
+
+       ① 块体缩进判成 `>= indent + 2`，而 `if (!x) return` 根本没有花括号块，
+          同缩进的后续语句全被判成"块外"，于是 expect 找不到 → 报 0。
+       ② 改成"看到缩进变小就停"，仍漏：`expect` 与 `if` **同缩进**。
+       ③ 把保护判据写成 `expect(...\.ok...\)\.toBe\(true\)`，
+          只认一种形态；而实际代码用的是 `expect(x.status).toBe(200)`、
+          `expect(x).toBeDefined()`、跨缩进的 `expect(created.ok).toBe(true)`。
+          → 三种都判成"无保护" → 报 4 处（假阳性）。
+
+     三次的失效方向**完全一致**：找不到证据就输出"没问题"。
+     而这正是第 158 轮那类假绿的翻版——只是这次发生在**审计工具**身上。
+
+     本判据不试图用正则去判断"某段代码是否安全"（那已被证明做不到），
+     它只钉住一件事：**扫描器必须先证明自己能抓到已知的坏形态**。
+     下面是三个从真实代码里挑出来的"看起来没保护、其实有保护"的样本，
+     扫描器必须把它们认出来；一旦它开始"什么都报问题"，这条就红。 */
+  /* 不做"解析被守卫对象"这件事——本轮已经证明正则解析 `if (!x.y) return`
+     并不可靠（字符类贪婪、缩进形态、保护写法各异，每修一次就错一次）。
+     改为只问一个**语义**问题：这一行之前，是否存在**任何**肯定断言？
+     判据宁可过宽——它要抓的是"什么都没有"这种最坏形态，
+     而不是枚举全部保护写法（那交给评审）。 */
+  const hasGuard = (before: string, _after: string): boolean =>
+    /\bexpect\s*\(/.test(before)
+
+  const guardSamples: Array<[string, string, boolean, string]> = [
+    ['expect(upper.status, \'不该冲突\').toBe(200)', 'if (!upper.body.ok) return', true, '断言在 .status 上'],
+    ['expect(valid).toBeDefined()', 'if (!valid) return', true, '用 toBeDefined 而非 .ok'],
+    ['const id = await create()\nexpect(created.ok).toBe(true)', 'if (!created.ok) return', true, '上一段（同 it 内）'],
+    ['', 'if (!body.ok) return', false, '真的没有前置断言'],
+  ]
+  const misjudged = guardSamples.filter(([b, a, want]) => hasGuard(b, a) !== want)
+  check(
+    `扫描器能区分「有保护」与「无保护」${misjudged.length === 0 ? '' : `（误判 ${misjudged.length} 个样本）`}`,
+    misjudged.length === 0,
+    misjudged.map(([, , want, why]) => `样本「${why}」期望 ${want ? '有保护' : '无保护'}，判成了相反`).join('\n      '),
+  )
+
   const missed = specs.filter((rel) => !patterns.some((p) => matches(p, rel)))
   check(
     `include 覆盖全部 ${specs.length} 个 spec（漏掉 ${missed.length} 个，它们会被静默跳过）`,
