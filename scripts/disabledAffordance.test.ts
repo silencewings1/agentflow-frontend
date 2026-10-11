@@ -218,6 +218,45 @@ check(
   silentTitle === "",
   `仍有按钮的 title 只反映授权不足，其余置阻条件成立时会是空串：\n${silentTitle}`,
 );
+
+/* ── 第 218 轮：给 212/213 轮新增的 title 判据补**结构化**自检 ────────────
+   故障注入发现：把这几条判据的正则改成**永不匹配**（恒真），
+   守卫依然 22/22 全绿——上方 `probeWith` 那两条反向自检**只覆盖 CSS 通路**，
+   对新增的 title 判据完全没有约束力。
+   而第 217 轮的教训正是「防恒真 ≠ 防恒假」，这里两头都没防到：
+   恒真（什么都不匹配也通过）无人报警，恒假（匹配不到该报的）也无人报警。
+
+   办法：**不再用字面量正则**去匹配源码。
+   改为把判定逻辑抽成函数，用**人造样本**直接喂它——
+   样本是数据不是文本，因此改写法绕不过去。 */
+const OLD_TITLE_SHAPE = 'title={can("run").allowed ? undefined : can("run").reason}';
+const NEW_TITLE_SHAPE = 'title={blockReason("run", { busy: busyAction !== null })}';
+/** 判定「这行按钮是否仍用旧口径」——判据的**唯一**实现处。 */
+function usesStaleTitleShape(line: string): boolean {
+  return /title=\{can\([^)]*\)\.allowed \? undefined :/.test(line);
+}
+check(
+  "结构化自检：旧写法样本必须被判为违规",
+  usesStaleTitleShape(OLD_TITLE_SHAPE) === true,
+  "人造的旧写法样本都没被判出来——本判据已恒假",
+);
+check(
+  "结构化自检：现行写法样本必须被判为合规",
+  usesStaleTitleShape(NEW_TITLE_SHAPE) === false,
+  "现行写法被误判为旧写法——判据过严，会误报",
+);
+/* 反向自检：判据用**同一份样本**作为真实源码的输入。
+   把真实源码喂进去，条数必须与源码里实际出现的旧写法数一致——
+   若判据实现与扫描循环用的不是同一个函数，这条就会对不上。 */
+const realOldCount = disabledButtonSites.reduce(
+  (n, site) => n + site.src.split("\n").filter((l) => l.includes("disabled=") && l.includes("<button") && usesStaleTitleShape(l)).length,
+  0,
+);
+check(
+  "结构化自检：判据与扫描循环用的是同一个函数",
+  realOldCount === 0,
+  `真实源码里被判出 ${realOldCount} 处旧写法（应为 0）——判据与扫描循环可能已脱节`,
+);
 check(
   "反向自检：上面那条判据对真实的旧写法返回 true（否则它已恒假）",
   /title=\{can\([^)]*\)\.allowed \? undefined :/.test(
