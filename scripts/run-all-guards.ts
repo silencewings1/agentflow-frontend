@@ -101,7 +101,19 @@ for (const name of files) {
     continue
   }
   const ok = passed(r.status)
-  console.log(`${ok ? '  ✓' : '  ✗'} ${name}${ok ? '' : ` (exit ${r.status})`}`)
+  /* 失败的**种类**要写进汇总行，不能只给退出码（第 181 轮）。
+     一个守卫有三种红，而它们的处置完全不同：
+       · 断言失败 → 判据或被测代码错了，去改其中之一；
+       · 语法/导入错误 → 守卫**自己**坏了，它根本没跑；
+       · 其它非零 → 说不清，需要展开详情。
+     三者此前都只显示 `✗ name (exit 1)`，前 3 行输出还完全相同
+     （node 的 `triggerUncaughtException` 开头三行是共有的），
+     差异要到第 5 行才出现——只扫一眼的人会把语法错误读成断言失败。
+
+     这不是假想：第 180 轮我自己把一次回滚产生的 `SyntaxError`
+     读成了"旧版也能抓到"，结论方向完全反了。 */
+  const kind = ok ? '' : classifyFailure(`${r.stdout ?? ''}${r.stderr ?? ''}`)
+  console.log(`${ok ? '  ✓' : `  ✗ [${kind}]`} ${name}${ok ? '' : ` (exit ${r.status})`}`)
   if (!ok) {
     failed.push(name)
     /* 只回显末尾若干行：守卫的判据失败信息通常在最后，
@@ -126,4 +138,42 @@ function summary(failedCount: number, stuckCount: number, total: number): string
      混进失败数会让人以为跑过了并被否决。 */
   if (stuckCount > 0) parts.push(`${stuckCount} 个超时未完成`)
   return `\n守卫：${passed}/${total} 通过，${parts.join('、')}`
+}
+
+/**
+ * 从输出判定守卫失败的**种类**。
+ *
+ * 只看退出码无法区分"判据被否"与"守卫没跑起来"——两者都是 1，
+ * 且 Node 的异常开头三行（`node:internal/modules/run_main:111` /
+ * `triggerUncaughtException(` / `^`）在两种情况下**逐字相同**，
+ * 差异要到第 5 行才出现。因此汇总行必须自己指明种类，
+ * 否则只扫前几行的人会把语法错误读成断言失败。
+ *
+ * 判定顺序有意如此：先认"没跑起来"，再看是不是判据被否。
+ * 因为后者会给出明确的下一步（改判据或改产品），而前者要改守卫本身——
+ * 弄反了会让人去改本来正确的产品代码。
+ */
+function classifyFailure(output: string): string {
+  const text = output.trim()
+  /* 显式标记优先于一切推断。
+     有些守卫用 `console.error` + `process.exit(1)` 判红，
+     它们的中文诊断里**没有** AssertionError 字样，靠正则猜会落进
+     「待查」——而它其实是明确的判据失败（第 181 轮实测）。
+     因此约定：守卫主动打印 `[guard-fail: <种类>]` 时以它为准。 */
+  const declared = /\[guard-fail: ([a-z-]+)\]/.exec(text)
+  if (declared) {
+    const kind = declared[1]
+    if (kind === 'syntax' || kind === 'import') return '守卫自身坏了：语法或导入错误，未真正执行'
+    if (kind === 'assertion') return '断言失败：判据或被测代码有问题'
+    return `非零退出（守卫声明：${kind}）`
+  }
+  if (/SyntaxError|ERR_INVALID_TYPESCRIPT_SYNTAX|ERR_MODULE_NOT_FOUND|Cannot find module|ERR_UNKNOWN_FILE_EXTENSION/.test(text)) {
+    return '守卫自身坏了：语法或导入错误，未真正执行'
+  }
+  if (/AssertionError|ERR_ASSERTION/.test(text)) return '断言失败：判据或被测代码有问题'
+  /* console.error + process.exit 是本仓库的既有判红方式；
+     若它打印了中文诊断而不是异常栈，那基本可以确定是判据失败——
+     语法错误会带 SyntaxError 栈，未知非零则不会有成形的中文句子。 */
+  if (/[\u4e00-\u9fff]/.test(text)) return '断言失败：判据或被测代码有问题（守卫以中文诊断报红）'
+  return '非零退出，原因待查（展开下方详情）'
 }
