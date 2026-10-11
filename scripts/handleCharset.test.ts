@@ -76,7 +76,21 @@ const frontendRegexes = (() => {
   );
   const at = fns[0]!.index!;
   assert.ok(at > 0, "找不到 handleRuleNote——守卫的锚点已过期");
-  const block = frontendSrc.slice(at, frontendSrc.indexOf("\nfunction nodeRefs"));
+  /* 终点锚点同样必须断言（第 180 轮实测）。
+     `indexOf("\nfunction nodeRefs")` 未命中返回 -1，而 `slice(at, -1)`
+     会取到**文件末尾**——于是 block 里混进后面所有函数的正则，
+     "恰好一个含 @ 的正则"这条断言反而更容易成立。
+     实测把 nodeRefs 改名后守卫全绿且不报红。
+     上一轮修的是**起点**锚点（同前缀问题），终点这条一直漏着。 */
+  const END_ANCHOR = "\nfunction nodeRefs";
+  const endAt = frontendSrc.indexOf(END_ANCHOR, at);
+  assert.ok(
+    endAt > at,
+    `找不到 nodeRefs（handleRuleNote 的窗口终点）——守卫的锚点已过期。`
+      + `缺失会让 slice(at, -1) 取到文件末尾，把别的函数的正则混进来，`
+      + `而「恰好一个邮箱式正则」照样成立。先修守卫，不要放宽断言。`,
+  );
+  const block = frontendSrc.slice(at, endAt);
   const found = [...block.matchAll(/\/(\^?[^/\n]*?)\/(?:\.test|\.exec)/g)].map((m) => m[1]);
   /* 该函数用两个字面量正则：一个判 ASCII 可打印，一个判邮箱式。
      取后者（含 @ 的那个）与后端比对。 */
