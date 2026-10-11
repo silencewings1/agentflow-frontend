@@ -136,3 +136,71 @@ console.log(
     + "（界面无写死身份、取值走 approvals 的真实 actor、取不到时明说未记录，"
     + "且后端 DTO 与跨仓库字段名一致）",
 );
+
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 回调的**返回值来源**也必须钉住（第 240 轮）。
+ *
+ * ## 缺陷（第 88 处）
+ * 既��判据 ④ 断的是「声明了 prop 但**没接线**」：
+ *   /approvalActorOf=\{[\s\S]{0,400}?approvals[\s\S]{0,200}?nodeApprovals/
+ * 它检查的是**接线形状**——`approvals` 与 `nodeApprovals` 两个词出现了没有。
+ *
+ * 于是把接线保持原样、只把**返回值**掏空：
+ *
+ *   approvalActorOf={(nodeId) => {
+ *     const rows = governance?.approvals?.nodeApprovals ?? [];
+ *     const hit = [...rows].reverse().find((row) => row.nodeId === nodeId);
+ *     return null;          // ← 注入：恒不返回判定人
+ *   }}
+ *
+ * ⇒ **守卫 23/23 全绿。**
+ *
+ * 实际后果：判定人**永远拿不到**，`Stream` 一直显示「判定人未记录」。
+ * 界面不报错、文案通顺，只是「可归因」这条要求被静默放弃——
+ * 而它正是 §12「留痕优先」的核心。
+ *
+ * ## 为什么这是独立的一类
+ * 接线判据回答「**它被调用了吗**」；
+ * 本条回答「**它算出了什么**」。
+ * 与第 228 轮那条同源：接线对了，不代表逻辑对了。
+ *
+ * ## 本条的形态
+ * 不去断言「返回值**等于**某个具体人」（那是行为测试的事），
+ * 而是断言**取值链完整**：从 rows 出发 → 按 nodeId 过滤 → 取 actor 字段。
+ * 三者缺一，回调就只是「看起来接好了」。
+ * ───────────────────────────────────────────────────────────────────────── */
+{
+  const body = app.slice(app.indexOf('approvalActorOf={'), app.indexOf('approvalActorOf={') + 500)
+
+  assert.ok(
+    /nodeApprovals/.test(body),
+    'approvalActorOf 内没有出现 nodeApprovals：取值来源已断。',
+  )
+  assert.ok(
+    /nodeId\s*===\s*nodeId/.test(body),
+    'approvalActorOf 没有按 nodeId 过滤：不同节点的批准人会串台。',
+  )
+  assert.ok(
+    /return\s+[^;]*\.actor/.test(body),
+    'approvalActorOf 的返回值不来自记录的 actor 字段——' +
+      '接线形状对了，但**取值被掏空**（例如恒返回 null）。' +
+      '那样界面会一直显示「判定人未记录」，而「可归因」被静默放弃（第 240 轮）。',
+  )
+}
+
+/* ── 反向自检：本条对「掏空返回值」敏感 ────────────────────────────────── */
+{
+  const tpl = 'approvalActorOf={(nodeId) => {\n' +
+    '  const rows = governance?.approvals?.nodeApprovals ?? [];\n' +
+    '  const hit = [...rows].reverse().find((row) => row.nodeId === nodeId);\n' +
+    '  return hit ? hit.actor : null;\n' +
+    '}}'
+  assert.ok(/return\s+[^;]*\.actor/.test(tpl), '反向自检：完好样本应通过本条。')
+
+  const gutted = tpl.replace('return hit ? hit.actor : null', 'return null')
+  assert.ok(
+    !/return\s+[^;]*\.actor/.test(gutted),
+    '反向自检：掏空后的样本竟仍通过本条——判据恒真。',
+  )
+}
