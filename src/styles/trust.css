@@ -692,6 +692,22 @@
   font-weight: 600;
 }
 
+  /* 第 213 轮：人工检查点按节点 approve 档置阻后，**必须**看起来不可用。
+     `.ckpt__opt` 的常态样式带 accent 边框 + `cursor: pointer`，
+     悬停还会 translateY(-1px)——若不加这一条，
+     「被禁用」与「可点」在屏幕上完全一致，点下去什么也不发生。
+     本文件顶部 disabledAffordance 守卫正是为此而设。 */
+  .ckpt__opt:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    border-style: dashed;
+  }
+  .ckpt__opt:disabled:hover {
+    border-color: var(--line-strong);
+    color: var(--text-2);
+    transform: none;
+  }
+
 .ckpt__done {
   margin: 10px 0 0;
   font-size: 10.5px;

@@ -11,6 +11,7 @@ export function Stream({
   pendingApproval,
   onApprove,
   onCheckpoint,
+  canDecide,
   onOpenFile,
   onCopy,
   planPending,
@@ -23,6 +24,8 @@ export function Stream({
   pendingApproval: string | null;
   onApprove: (id: string, ok: boolean) => void;
   onCheckpoint?: (nodeId: string, option: string) => void;
+  /** 该节点上是否持有 approve 档（第 213 轮）。缺省按放行，与 fixture 演示路径一致。 */
+  canDecide?: (nodeId: string) => { allowed: boolean; reason: string };
   onOpenFile: (path: string) => void;
   onCopy: () => void;
   /** 规划待确认：决定规划卡片是否可操作 */
@@ -52,6 +55,7 @@ export function Stream({
             pending={pendingApproval === e.id}
             onApprove={onApprove}
             onCheckpoint={onCheckpoint}
+            canDecide={canDecide}
             onOpenFile={onOpenFile}
             onCopy={onCopy}
             planPending={planPending}
@@ -78,18 +82,22 @@ function Event({
   planPending,
   onAcceptPlan,
   approvalActorOf,
+  canDecide,
 }: {
   e: AgentEvent;
   index: number;
   pending: boolean;
   onApprove: (id: string, ok: boolean) => void;
   onCheckpoint?: (nodeId: string, option: string) => void;
+  /** 该节点上是否持有 approve 档（第 213 轮）。缺省按放行，与 fixture 演示路径一致。 */
   onOpenFile: (path: string) => void;
   onCopy: () => void;
   planPending?: boolean;
   onAcceptPlan?: () => void;
   /** 转发给检查点：判定人来自 governance.approvals（见 Stream props 说明）。 */
   approvalActorOf?: (nodeId: string) => string | null;
+  /** 该节点上是否持有 approve 档（第 213 轮）；缺省按放行。 */
+  canDecide?: (nodeId: string) => { allowed: boolean; reason: string };
 }) {
   const style = { ["--i" as string]: Math.min(index, 14) };
 
@@ -290,7 +298,7 @@ function Event({
       return <Controlled e={e} style={style} />;
 
     case "checkpoint":
-      return <Checkpoint e={e} style={style} onDecide={onCheckpoint} approvalActorOf={approvalActorOf} />;
+      return <Checkpoint e={e} style={style} onDecide={onCheckpoint} approvalActorOf={approvalActorOf} canDecide={canDecide} />;
 
     case "contract":
       return <Contract e={e} style={style} />;
@@ -732,7 +740,7 @@ function Controlled({ e, style }: { e: Extract<AgentEvent, { kind: "controlled" 
 
 /* ===================== 人工检查点（第一节人工检查层） ================= */
 
-function Checkpoint({ e, style, onDecide, approvalActorOf }: { e: Extract<AgentEvent, { kind: "checkpoint" }>; style: object; onDecide?: (nodeId: string, option: string) => void; approvalActorOf?: (nodeId: string) => string | null }) {
+  function Checkpoint({ e, style, onDecide, approvalActorOf, canDecide }: { e: Extract<AgentEvent, { kind: "checkpoint" }>; style: object; onDecide?: (nodeId: string, option: string) => void; approvalActorOf?: (nodeId: string) => string | null; canDecide?: (nodeId: string) => { allowed: boolean; reason: string } }) {
   const [pick, setPick] = useState<string | null>(e.decided ?? null);
   const select = (o: string) => { setPick(o); const nid = (e as any).afNodeId ?? e.node; onDecide?.(nid, o); };
   /* 判定人必须是**事实**，不能是编造的字符串。
@@ -763,17 +771,26 @@ function Checkpoint({ e, style, onDecide, approvalActorOf }: { e: Extract<AgentE
           ))}
         </ul>
         <div className="ckpt__acts">
-          {e.options.map((o) => (
-            <button
-              key={o}
-              className="ckpt__opt"
-              data-active={pick === o ? "true" : undefined}
-              onClick={() => select(o)}
-            >
-              {pick === o && <Icon.Check size={11} />}
-              {o}
-            </button>
-          ))}
+          {e.options.map((o) => {
+            /* 第 213 轮：无该节点 approve 档时置阻并说明缺什么。
+               此前这两枚按钮对**任何**身份都呈可点态，
+               而后端对没有该节点 approve 的身份一律 403——
+               正是「照常可点然后报错」。与 permCell / blockReason 同一条规矩。 */
+            const verdict = canDecide?.(String((e as any).afNodeId ?? e.node)) ?? { allowed: true, reason: "" };
+            return (
+              <button
+                key={o}
+                className="ckpt__opt"
+                data-active={pick === o ? "true" : undefined}
+                disabled={!verdict.allowed}
+                title={verdict.allowed ? undefined : verdict.reason}
+                onClick={() => select(o)}
+              >
+                {pick === o && <Icon.Check size={11} />}
+                {o}
+              </button>
+            );
+          })}
         </div>
         {pick && (
           <p className="ckpt__done mono">

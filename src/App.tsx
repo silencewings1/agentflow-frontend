@@ -1778,6 +1778,26 @@ export default function App() {
   /** 真实审批：人工检查点判定 → approve 节点 → 推进 + 刷新。 */
   const handleCheckpoint = useCallback(async (nodeId: string, option: string) => {
     if (!activeId) return;
+    /* 第 213 轮：人工检查点也必须先过**准入判据**，再谈调用。
+       实测（真实后端 + 无头浏览器，任务处于 awaiting_human）：
+       李雯（requirements=run，其余全 view，**没有任何 approve**）
+       看到的「同意放行 / 退回开发」**全部可点**，
+       而后端 `POST /nodes/{node}/review` 对她一律 403 AF_PERMISSION_DENIED。
+
+       这正是 AGENTS.md §4.3 直接禁止的「照常可点然后报错」：
+       与成员矩阵的 permCell、App 主按钮的 gated 都不同，
+       **这条路径此前完全没有准入判据**——
+       点下去要等一次网络往返才知道自己没有裁决权，
+       而卡片上的「已批准」还会先乐观地亮起来。
+
+       判据与 canGovernanceAction 同源（该**节点**上的 approve），
+       与后端 guard(taskId, 'approve', nodeId) 完全一致。 */
+    const admission = canGovernanceAction("approve", nodeId);
+    if (!admission.allowed) {
+      push({ tone: "warn", title: "无法裁决该节点", body: admission.reason });
+      await loadAccounts();
+      return;
+    }
     try {
       await afApi.approveTaskNode(activeId, nodeId);
       push({ tone: "ok", title: "已批准", body: `节点 ${nodeId} 已批准（${option}）` });
@@ -1790,7 +1810,7 @@ export default function App() {
       push({ tone: "warn", title: "审批失败", body: describeError(apiError?.code, apiError?.message) })
       await realignFromError(error);
     }
-  }, [activeId, fetchTaskRuntime, push, realignFromError]);
+  }, [activeId, canGovernanceAction, fetchTaskRuntime, loadAccounts, push, realignFromError]);
 
   const stop = useCallback(() => {
     timers.current.forEach(clearTimeout);
@@ -2706,6 +2726,10 @@ export default function App() {
                       pendingApproval={pendingApproval}
                       onApprove={resolveApproval}
                       onCheckpoint={handleCheckpoint}
+                      /* 第 213 轮：人工检查点按**该节点**的 approve 档置阻。
+                         与后端 guard(taskId,'approve',nodeId) 同源——
+                         「你在别的节点上有 approve」不能替别人放行这个闸门。 */
+                      canDecide={(nodeId) => canGovernanceAction("approve", nodeId)}
                       planPending={planPending}
                       onAcceptPlan={acceptPlan}
                       /* 检查点的"判定人"取自后端 approvals 里的真实 actor。

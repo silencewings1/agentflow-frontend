@@ -135,6 +135,36 @@ assert.deepEqual(
 );
 const gatedCalls = [...actionBody.matchAll(/return gated\("/g)];
 
+  /* ⑤ 人工检查点的提交路径也必须过准入（第 213 轮）。
+     实测（真实后端 + 无头浏览器）：李雯在任何 approval 节点上都没有 approve 档，
+     而「同意放行 / 退回开发」两枚按钮对**任何**身份都呈可点态，
+     点下去要等一次网络往返才收到 403。
+
+     判据钉住两件事，缺一不可：
+       · 提交处（handleCheckpoint）必须先问 canGovernanceAction；
+       · 按钮处（Checkpoint）必须按**该节点**的结论置阻。
+     只做前者，界面照样把按钮画成可点；
+     只做后者，程序内部仍会先乐观地把「已批准」点亮再回滚。 */
+  const stream = read("../src/components/Stream.tsx");
+  assert.ok(
+    /handleCheckpoint[\s\S]{0,900}?canGovernanceAction\(\s*"approve"/.test(app),
+    "handleCheckpoint 没有先过 canGovernanceAction('approve') ——" +
+      "人工检查点会成为一条无准入的写路径（照常可点然后报错）",
+  );
+  assert.ok(
+    /canDecide\?\.\(String\(\(e as any\)\.afNodeId/.test(stream),
+    "Checkpoint 的按钮没有按 canDecide 的结论置阻 —— 界面上仍会把不可点的批准画成可点",
+  );
+  assert.ok(
+    /disabled=\{!verdict\.allowed\}/.test(stream),
+    "Checkpoint 的按钮置阻后没有 disabled —— 光算结论不改控件等于没做",
+  );
+  assert.ok(
+    /canDecide=\{\(nodeId\) => canGovernanceAction\("approve", nodeId\)\}/.test(app),
+    "App 传给 Stream 的 canDecide 不是按节点判定的 approve 判据 —— " +
+      "「你在别的节点上有 approve」会变成「所有闸门都能替你放行」",
+  );
+
 /* ③ primaryAction 的返回类型必须带 blocked。 */
 assert.ok(
   /const primaryAction = useMemo\(\(\): \{ label: string; disabled: boolean; onClick: \(\) => void; blocked: string \| null \}/.test(app),
