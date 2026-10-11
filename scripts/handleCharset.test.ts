@@ -76,19 +76,24 @@ const frontendRegexes = (() => {
   );
   const at = fns[0]!.index!;
   assert.ok(at > 0, "找不到 handleRuleNote——守卫的锚点已过期");
-  /* 终点锚点同样必须断言（第 180 轮实测）。
-     `indexOf("\nfunction nodeRefs")` 未命中返回 -1，而 `slice(at, -1)`
-     会取到**文件末尾**——于是 block 里混进后面所有函数的正则，
-     "恰好一个含 @ 的正则"这条断言反而更容易成立。
-     实测把 nodeRefs 改名后守卫全绿且不报红。
-     上一轮修的是**起点**锚点（同前缀问题），终点这条一直漏着。 */
-  const END_ANCHOR = "\nfunction nodeRefs";
-  const endAt = frontendSrc.indexOf(END_ANCHOR, at);
+  /* 终点锚点必须**整词**匹配（第 187 轮实测）。
+     `indexOf("\nfunction nodeRefs")` 只做子串匹配，于是把
+     `nodeRefsRenamed` 的**前缀**当成终点：
+       改名后 indexOf 仍返回 2995，守卫照样全绿、不报红——
+       窗口看似正常，实际终点落在一个**不存在的函数**上。
+
+     这与第 178 轮修的**起点**锚点是同一个坑：那次修好了起点
+     （`\bconst accountHandleSchema\b\s*=`），终点这条一直只补了
+     "缺失"的情形（-1 → 报锚点过期），没补"同名/同前缀"的情形。
+     ⇒ 两个锚点用**同一种**判据，才不会一边紧一边松。 */
+  const endAt = findNextFunction(frontendSrc, at, "nodeRefs");
   assert.ok(
     endAt > at,
-    `找不到 nodeRefs（handleRuleNote 的窗口终点）——守卫的锚点已过期。`
+    `找不到 nodeRefs（handleRuleNote 的窗口终点）——守卫的锚点已过期或被改名。`
       + `缺失会让 slice(at, -1) 取到文件末尾，把别的函数的正则混进来，`
-      + `而「恰好一个邮箱式正则」照样成立。先修守卫，不要放宽断言。`,
+      + `而「恰好一个邮箱式正则」照样成立；被改名成 nodeRefsXxx 时，`
+      + `子串匹配还会把那个新函数的前缀当成终点，同样不报红。`
+      + `先修守卫，不要放宽断言。`,
   );
   const block = frontendSrc.slice(at, endAt);
   const found = [...block.matchAll(/\/(\^?[^/\n]*?)\/(?:\.test|\.exec)/g)].map((m) => m[1]);
@@ -159,3 +164,25 @@ console.log(
   `handleCharset: 后端与前端判定同源（${samples.length} 个样例全部一致，` +
     `${mustAccept.length} 个既有形态放行）✓`,
 );
+
+/**
+ * 从 `fromAt` 起找下一个 `function <name>(`，**整词**匹配。
+ *
+ * 为什么不能用 `indexOf("\nfunction " + name)`：那是子串匹配，
+ * `nodeRefsRenamed` 的前缀也会命中，于是窗口终点落在一个
+ * 不存在的函数上，而守卫**照常通过**（第 187 轮实测：
+ * 把 nodeRefs 改名后 indexOf 仍返回原来的位置）。
+ *
+ * 与起点锚点的 `\bconst accountHandleSchema\b\s*=` 同一判据：
+ * 一边紧一边松，等于两处锚点各有一半盲区。
+ *
+ * 返回 -1 表示**其后没有这个函数**（真缺失）；若存在同前缀的
+ * 其它函数，返回那个位置的同时，`nodeRefs` 这个名字就不再匹配
+ * 任何整词声明——调用方据此要求人来判，而不是默默取错窗口。
+ */
+function findNextFunction(source: string, fromAt: number, name: string): number {
+  const decl = new RegExp(`^function ${name}\\s*\\(`, "gm")
+  decl.lastIndex = fromAt
+  const m = decl.exec(source)
+  return m === null ? -1 : m.index
+}
