@@ -115,6 +115,27 @@ if (rowsConst !== null) {
     value !== 50,
     "常量值等于服务端页大小，说明它记录的是服务端行为而非界面行为",
   );
+
+  /* ── 6. 截断本身必须被说出来 ───────────────────────────────────────────
+     前 5 条只管「说出来的数字对不对」，管不到「该说没说」。
+     实测：把截断提示的条件改成恒假（`{false ? (`），
+     本守卫此前**全部通过** —— 提示整条消失、界面只显示 8 条、
+     不再声明目录里还有更多记录，而「只显示了 8 条」与「一共只有 8 条」
+     在屏幕上完全一样。这正是本守卫文件头所说的"在治理事实上说假话"，
+     只是发生得更隐蔽：数字仍然诚实，只是不再开口。
+     因此这一条钉住**提示的存在**，而不仅是它的措辞。 */
+  check(
+    "截断提示存在，且以「总数 > 本页」为条件（不是恒假/恒真）",
+    /\{\s*(accountAuditTotal|grantAuditTotal)\s*>\s*(accountAudit|audit)\.length\s*\?/.test(SRC),
+    "找不到形如 `{accountAuditTotal > accountAudit.length ? ... }` 的截断提示条件",
+  );
+  check(
+    "截断提示写明更早的记录没有读取入口（不承诺做不到的事）",
+    /没有读取入口|未开放/.test(SRC),
+    "截断提示未声明「更早的记录当前无法读取」——旧文案曾承诺「可经 API 读取」，"
+    + "实测 GET /accounts 恒返回 50 条，?limit/?offset/?cursor/?page/?since 全部无效，"
+    + "/accounts/audit 为 AF_ROUTE_NOT_FOUND",
+  );
 }
 
 console.log(failures === 0 ? "\nauditTruncation: 全部通过" : `\nauditTruncation: ${failures} 项失败`);
