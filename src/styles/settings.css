@@ -2441,8 +2441,23 @@
    rose 描边与红底——实测（非管理者身份）它就此变成一个常显的、看起来可点的
    "危险操作"按钮，而 `disabled` 让它点下去什么都不发生。
    藏起来比"显形但不可点"更诚实：该行此刻**没有**可用的收回操作，
-   界面就不该给出这个手势。键盘用户仍能聚焦到它并读出 aria-label，
-   因此无障碍路径不丢信息（只是不再用鼠标悬停诱导一次无效点击）。 */
+   界面就不该给出这个手势。
+
+   无障碍说明（此处曾写错，第 173 轮更正）：原先写"键盘用户仍能聚焦到它
+   并读出 aria-label，因此无障碍路径不丢信息"。**这是错的**——
+   原生 `disabled` 的 button 不可聚焦、不可 Tab 到达。
+   实测（非管理者身份，真实无头浏览器）：
+     document.querySelector('.permRow__revoke').focus() → activeElement 仍是 BODY
+     Tab 序列里可聚焦元素 69 个，`.permRow__revoke` 不在其中
+   读屏只能靠浏览器的虚拟光标读到它，且只会念出"已禁用"。
+
+   结论不变，但理由要改：藏起它**不会**额外丢信息——
+   `disabled` 本来就让它不在键盘路径上；`aria-label` 仍供虚拟光标使用。
+   真正承担告知职责的是面板顶部那条 `.permNotice`（`role="note"`），
+   它写明"没有「可编排」权限，因此只能查看"，与本按钮的 aria-label 同源。
+   若日后要让受阻按钮真正进入键盘路径，正确做法是换成
+   `aria-disabled="true"` + 保留可聚焦（而不是去掉 `disabled`），
+   并为它补一个可达的焦点样式——那属于新增无障碍能力，需单独设计。 */
 .permRow:hover .permRow__revoke:disabled,
 .permRow__revoke:disabled:hover {
   opacity: 0;
