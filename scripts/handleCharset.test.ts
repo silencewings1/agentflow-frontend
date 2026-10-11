@@ -35,8 +35,26 @@ const frontendSrc = readFileSync(resolve(here, "../src/components/MembersPane.ts
 const backendRegex = (() => {
   /* 定位 accountHandleSchema 的声明块，再在其中找第一个正则字面量。
      不直接全文搜 `/^[A-Za-z0-9.../`：那种锚法在文件里出现两次以上时会
-     静默取到错误的那个（本仓库已有"锚在注释而非承重语句"的教训）。 */
-  const declAt = backendSrc.indexOf("const accountHandleSchema");
+     静默取到错误的那个（本仓库已有"锚在注释而非承重语句"的教训）。
+
+     锚点必须带**词尾**，否则 substring 匹配会漏（第 178 轮实测）：
+     把声明改名成 `accountHandleSchemaRenamed` 后，
+     `indexOf("const accountHandleSchema")` 依然命中它的**前缀**——
+     守卫报告"后端与前端判定同源"却绿着，而它验的已是另一段代码。
+     更进一步：把真 schema 挪到文件末尾、原位留一个同前缀的诱饵，
+     守卫照样全绿，且毫无察觉地验证了**诱饵**。
+
+     ⇒ 判据从"找得到前缀"收紧为"**恰有一个**整词匹配，且它确实带
+     正则字面量"。多一个少一个都要红——那正是被篡改的信号。 */
+  const ANCHOR = "const accountHandleSchema";
+  const occurrences = [...backendSrc.matchAll(new RegExp(`\\b${ANCHOR}\\b\\s*=`, "g"))];
+  assert.ok(
+    occurrences.length === 1,
+    `期望恰好 1 处 "${ANCHOR} =" 声明，实得 ${occurrences.length} 处。`
+      + `\n0 处 = 声明被改名或删除；≥2 处 = 出现了同名或同前缀的诱饵，`
+      + `守卫会取到错误的那一个（第 178 轮实测：真 schema 被挪走、留诱饵，守卫仍全绿）。`,
+  );
+  const declAt = occurrences[0]!.index!;
   assert.ok(declAt > 0, "找不到 accountHandleSchema 声明——守卫的锚点已过期");
   const block = backendSrc.slice(declAt, declAt + 900);
   const m = block.match(/\/(\^\[A-Za-z0-9[^\n]*?)\//);
@@ -47,7 +65,16 @@ const backendRegex = (() => {
 /* 前端：把 handleRuleNote 的实现**求值出来**，而不是照抄一份判定。
    照抄等于测自己，规则改了也不会红。 */
 const frontendRegexes = (() => {
-  const at = frontendSrc.indexOf("function handleRuleNote");
+  /* 与后端锚点同一个理由（第 178 轮实测）：substring 匹配会被
+     `handleRuleNoteExtra` 之类的前缀骗过，因此同样要求**整词且恰好一处**。 */
+  const FN = "function handleRuleNote";
+  const fns = [...frontendSrc.matchAll(new RegExp(`\\b${FN}\\s*\\(`, "g"))];
+  assert.equal(
+    fns.length, 1,
+    `期望恰好 1 处 "${FN}(" 定义，实得 ${fns.length} 处。`
+      + `\n0 处 = 被改名或删除；≥2 处 = 有同前缀的同名函数，守卫会取到错误的那个。`,
+  );
+  const at = fns[0]!.index!;
   assert.ok(at > 0, "找不到 handleRuleNote——守卫的锚点已过期");
   const block = frontendSrc.slice(at, frontendSrc.indexOf("\nfunction nodeRefs"));
   const found = [...block.matchAll(/\/(\^?[^/\n]*?)\/(?:\.test|\.exec)/g)].map((m) => m[1]);
