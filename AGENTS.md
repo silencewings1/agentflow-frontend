@@ -42,7 +42,13 @@ npm run lint     # oxlint
 npm run preview  # 预览产物
 
 npx tsc --noEmit -p tsconfig.app.json   # 只做类型检查，改动中最快的反馈
+npm run guard                         # 跑完 scripts/*.test.ts 的全部守卫，提交前必须通过
 ```
+
+**关于守卫**：这些守卫读的是**源码文本**（不是运行时行为），
+拦的都是"改坏后才显现"的缺陷——而那类改动最常见的来源恰恰是
+**没打算动守卫的那次重构**。它们不经 vitest（要用 `process.exit` 汇报），
+`npm test` 也不会带上它们，所以必须显式跑 `npm run guard`。
 
 **验证纪律**：
 
@@ -459,6 +465,7 @@ border-color: color-mix(in oklab, var(--accent) 30%, var(--line));
 
 - [ ] `npx tsc --noEmit -p tsconfig.app.json` 通过
 - [ ] `npm run build` 通过
+- [ ] `npm run guard` 通过（守卫不被 `npm test` 覆盖，必须显式跑）
 - [ ] 新增 CSS 用到的每个令牌在 `index.css` 中真实存在，且两套配色都有
 - [ ] 新增状态用 `data-*` 表达，Lumen / Ink 下都验证过观感
 - [ ] 新增能力有演示数据，默认会话里能看到
