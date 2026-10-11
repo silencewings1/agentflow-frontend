@@ -175,8 +175,26 @@ assert.match(
    只断言「文件里出现过 value.presentationKnown」是不够的：同一文件另一处
    （编排策略的"适用"行）也在用它，删掉 summary 的分支后那个断言仍绿。
    因此把范围**锚定到 wfStage__sum 附近**再断言。 */
-const sumSiteStart = Math.max(0, workflowUi.indexOf("wfStage__sum") - 500);
-const sumSite = workflowUi.slice(sumSiteStart, workflowUi.indexOf("wfStage__sum") + 300);
+/* 锚点缺失必须**当场报红**，不能带着 -1 继续算（第 179 轮实测）。
+   原来的写法是 `Math.max(0, indexOf(...) - 500)`：
+   `indexOf` 未命中返回 **-1**，于是起点变成 `max(0, -501) = 0`、终点 `-1 + 300 = 299`
+   ——守卫转而去检查**文件开头 299 个字符**，与 `wfStage__sum` 毫无关系。
+
+   那次之所以还是红了，纯粹是**碰巧**：文件开头没有 `presentationKnown`
+   才让正向断言失配。真正的空转自检 `sumBlock.length > 0` 在另一处，
+   它的两个锚点（注释 + wfLegend）此时仍然存在，因此照样通过。
+   若文件开头恰好含那个词，守卫就会**报告通过**。
+
+   ⇒ 判据：先断言锚点存在，再取窗口。缺失是**守卫过期**，不是"通过"。 */
+const SUM_ANCHOR = "wfStage__sum";
+const sumAnchorAt = workflowUi.indexOf(SUM_ANCHOR);
+assert.ok(
+  sumAnchorAt >= 0,
+  `Workflow.tsx 里找不到 ${SUM_ANCHOR}——守卫的锚点已过期或类名被改名。`
+    + `先修守卫，不要放宽断言（这正是它此前检查错误片段而不报的原因）。`,
+);
+const sumSiteStart = Math.max(0, sumAnchorAt - 500);
+const sumSite = workflowUi.slice(sumSiteStart, sumAnchorAt + 300);
 assert.match(
   sumSite,
   /presentationKnown/,
