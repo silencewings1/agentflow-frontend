@@ -1198,8 +1198,15 @@ export function MembersPane({
               <SectionLabel
                 text="账户变更记录"
                 hint={
-                  accountAuditTotal > AUDIT_ROWS_SHOWN
-                    ? `共 ${accountAuditTotal} 条，显示最新 ${Math.min(AUDIT_ROWS_SHOWN, accountAudit.length)} 条`
+                    /* 第 208 轮：展开后标题必须同时说出**已取回**与**显示**两个数。
+                       原来无论展开与否都写「显示最新 8 条」，而横幅写「已取回全部 445 条」——
+                       两句合起来让人以为 445 条都在屏幕上；实测确实只有 8 行。
+                       「显示了多少」正是这个面板要回答的核心问题（留痕优先），
+                       展开之后更不能反而说不清。 */
+                    fullAccountAudit !== null
+                      ? `已取回 ${fullAccountAudit.length} 条，列表显示最新 ${Math.min(AUDIT_ROWS_SHOWN, fullAccountAudit.length)} 条`
+                    : accountAuditTotal > AUDIT_ROWS_SHOWN
+                      ? `共 ${accountAuditTotal} 条，显示最新 ${Math.min(AUDIT_ROWS_SHOWN, accountAudit.length)} 条`
                     : "谁在何时被创建、改动或停用"
                 }
               />
@@ -1243,7 +1250,7 @@ export function MembersPane({
                 </p>
               ) : fullAccountAudit !== null ? (
                 <p className="permAudit__truncated">
-                  已取回该账户全部 {fullAccountAudit.length} 条账户变更（共 {accountAuditTotal} 条）。
+                  已取回该账户全部 {fullAccountAudit.length} 条账户变更（共 {accountAuditTotal} 条）；下方列表显示最新 {Math.min(AUDIT_ROWS_SHOWN, fullAccountAudit.length)} 条。
                 </p>
               ) : accountAuditTotal > AUDIT_ROWS_SHOWN ? (
                 <p className="permAudit__truncated">
@@ -1256,7 +1263,9 @@ export function MembersPane({
               <SectionLabel
                 text="授权变更记录"
                 hint={
-                  auditTotal > AUDIT_ROWS_SHOWN
+                    fullAudit !== null
+                      ? `已取回 ${fullAudit.length} 条，列表显示最新 ${Math.min(AUDIT_ROWS_SHOWN, fullAudit.length)} 条`
+                      : auditTotal > AUDIT_ROWS_SHOWN
                     ? `共 ${auditTotal} 条，显示最新 ${Math.min(AUDIT_ROWS_SHOWN, audit.length)} 条`
                     : "与证据链三元组呼应"
                 }
@@ -1282,7 +1291,7 @@ export function MembersPane({
                   </p>
                 ) : fullAudit !== null ? (
                   <p className="permAudit__truncated">
-                    已取回该账户全部 {fullAudit.length} 条授权变更（共 {auditTotal} 条）。
+                    已取回该账户全部 {fullAudit.length} 条授权变更（共 {auditTotal} 条）；下方列表显示最新 {Math.min(AUDIT_ROWS_SHOWN, fullAudit.length)} 条。
                   </p>
                 ) : auditTotal > AUDIT_ROWS_SHOWN ? (
                 <p className="permAudit__truncated">本页显示最新 {AUDIT_ROWS_SHOWN} 条（共 {auditTotal} 条）。</p>
