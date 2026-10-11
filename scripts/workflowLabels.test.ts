@@ -206,10 +206,24 @@ assert.match(
    判成违规（第一版就是这样误报的）。真正的判别是：该 `<p>` 之前**没有** presentationKnown。
    做法与 auditAction.test.ts 的 bodyOf 一样：把这块渲染切出来，看它是否被分支包住。 */
 const sumBlockStart = workflowUi.indexOf("{/* 说明文案只有服务端给了才显示");
-const sumBlockEnd = workflowUi.indexOf("wfLegend", sumBlockStart);
-const sumBlock = sumBlockStart >= 0 && sumBlockEnd > sumBlockStart
-  ? workflowUi.slice(sumBlockStart, sumBlockEnd)
-  : "";
+/* 终点锚点必须**封口**，否则守卫会在窗口失准时照常通过（第 188 轮实测）。
+   `indexOf("wfLegend")` 是裸标识符，两种改法都会漏：
+     · 把这一处 wfLegend 删掉 → indexOf 找到**后面某处**的同名类，
+       终点后移 485 字符，而 `sumBlock.length > 0` 仍成立（窗口非空），
+       空转自检查不出；
+     · 在起点之前插入同名 wfLegend（诱饵）→ 终点变成 -1，
+       sumBlock 变成空串，却因为 `end > start` 判据在**同一处**而不成立… 
+   一句话：`length > 0` 只证明"切到了东西"，不证明"切的是**这一块**"。
+   封口后 `wfLegend` 的任何改名都不会再命中同名类，删掉则直接 -1 报红。 */
+const LEGEND_ANCHOR = 'className="wfLegend"';
+const sumBlockEnd = workflowUi.indexOf(LEGEND_ANCHOR, sumBlockStart);
+assert.ok(
+  sumBlockStart >= 0 && sumBlockEnd > sumBlockStart,
+  `找不到 ${LEGEND_ANCHOR}（说明文案渲染块的窗口终点）——守卫的锚点已过期或被改名。`
+    + `未封口的锚点会在删掉/改名后悄悄切到别处，窗口仍非空，自检发现不了。`
+    + `先修守卫，不要放宽断言。`,
+);
+const sumBlock = workflowUi.slice(sumBlockStart, sumBlockEnd);
 assert.ok(sumBlock.length > 0, "找不到 wfStage__sum 的渲染块，断言失效（先修断言，别放宽）");
 assert.match(
   sumBlock,
