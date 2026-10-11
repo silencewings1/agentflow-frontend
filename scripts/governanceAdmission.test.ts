@@ -191,6 +191,45 @@ const gatedCalls = [...actionBody.matchAll(/return gated\("/g)];
     "canReconcile 传了具体 nodeId —— 那比后端更严，会把本该放行的身份误判为无权",
   );
 
+  /* ⑦ `view` 档「从不作门槛」这条架构断言（第 216 轮）。
+     architecture.md 曾用「非测试代码里 required 的唯一实参是 'run'」来支撑它，
+     而实测 handler.ts 的 16 处 guard 调用是 run/manage/approve 三档都有——
+     **结论对，依据过期**。过期依据比过期结论更危险：
+     它看着自洽，会让人拿它去推断别的档位分布。
+     这条守卫把支撑换成**可复核的两条**，且数字随代码一起变。 */
+  const handler2 = read("../../packages/af/af-api/src/http/handler.ts");
+  const guardTiers = [...handler2.matchAll(/guard\([^)]*'(view|run|approve|manage)'/g)].map((m) => m[1]!);
+  assert.ok(
+    guardTiers.length > 0,
+    "handler.ts 里一处 guard(...) 调用都没匹配到 —— 判据本身过期了，需要重写",
+  );
+  assert.equal(
+    guardTiers.filter((t) => t === "view").length,
+    0,
+    `architecture.md 断言「view 在类型上就传不进 guard 签名」；` +
+      `但 handler.ts 出现了 ${guardTiers.filter((t) => t === "view").length} 处 guard(...,'view')`,
+  );
+  assert.ok(
+    !/required: 'view'/.test(read("../../packages/af/af-api/src/task/permission-guard.ts")),
+    "permission-guard 的 required 收到了 'view' —— 「view 不作门槛」不再成立，需同步改架构文档",
+  );
+  /* 文档里若再出现「唯一实参是 'run'」，说明依据又退回过期状态。 */
+  const arch = read("../../doc/architecture.md");
+  /* 只看**正文**：更正块本身必然要引述旧措辞，否则无法说明「改了什么」，
+     所以先把「第 216 轮更正」那一段摘掉再匹配。
+     不摘的话这条判据会因为自己的更正记录而恒红——判据自身变成噪声。 */
+  const archBody = arch.replace(/> > \*\*第 216 轮更正[\s\S]*?比过期结论更危险\*\*[\s\S]*?错误。/, "");
+  assert.ok(
+    !/唯一实参是/.test(archBody),
+    "architecture.md 正文又出现了「唯一实参是 run」——该依据已在第 216 轮证实过期" +
+      "（实测 run/manage/approve 三档都有），请改用可复核的支撑",
+  );
+  /* 反向自检：摘掉更正块之后，这句若仍被判红，判据已恒假。 */
+  assert.ok(
+    /唯一实参是/.test(arch) && !/唯一实参是/.test(archBody),
+    "反向自检失败：更正块没有被摘掉（判据已恒假，会永远报警）",
+  );
+
 /* ③ primaryAction 的返回类型必须带 blocked。 */
 assert.ok(
   /const primaryAction = useMemo\(\(\): \{ label: string; disabled: boolean; onClick: \(\) => void; blocked: string \| null \}/.test(app),
