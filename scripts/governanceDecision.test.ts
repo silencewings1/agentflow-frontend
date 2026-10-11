@@ -112,4 +112,55 @@ console.log('治理判据的判定逻辑（第 228 轮）')
   )
 }
 
-console.log('  ✓ 5 条判据全部通过')
+/* ── ⑥ 两个接收方的 can() 必须都**传下去 nodeId**（第 82 轮）───────────
+   第 228 轮只补了 `canGovernanceAction` **自身**的判定逻辑。
+   但它有两个接收方，每个都包了一层 `can()` 助手：
+
+     GovernanceView.tsx   can() → canGovernanceAction?.(required, nodeId)
+     RuntimeConsole.tsx   can() → canGovernanceAction?.(required, nodeId)
+
+   两份**逐字相同**。既有守卫对前者有 `can()` 形态判据，
+   对后者**只有「接收了 canGovernanceAction」这一条接线判据**。
+   于是同一处改动（把 nodeId 写成 undefined，即节点级判据退化为编排级）：
+
+     GovernanceView → 红（有 can() 形态判据）
+     RuntimeConsole → **守卫 23/23 全绿**   ← 第 82 处
+
+   后果：`approve` 档的**节点级**判据退化成**编排级**，
+   于是「我在别的节点有 approve 权限」也能裁决当前节点。
+   后端 `assertNodePermission` 仍会 403（安全不破），
+   但界面对用户撒了谎——与第 81 处同一类缺陷。 */
+{
+  const readComp = (p: string): string => readFileSync(resolve(process.cwd(), p), 'utf8')
+  const receivers: Array<[string, string]> = [
+    ['GovernanceView.tsx', readComp('src/components/GovernanceView.tsx')],
+    ['RuntimeConsole.tsx', readComp('src/components/RuntimeConsole.tsx')],
+  ]
+  for (const [name, src] of receivers) {
+    assert.ok(
+      /const can = \(required: "run" \| "approve" \| "manage", nodeId\?: string\) =>/.test(src),
+      `${name} 缺�� can() 助手签名——请同步本守卫与组件实现。`,
+    )
+    assert.ok(
+      /canGovernanceAction\?\.\(required,\s*nodeId\)/.test(src),
+      `${name} 的 can() **没有把 nodeId 传下去**：` +
+        '节点级判据退化为编排级判据，用户会看到自己「在别的节点有权限」也能裁决当前节点。',
+    )
+  }
+}
+
+/* ── ⑦ 反向自检：判据 ⑥ 对「人为差异」敏感 ────────────────────────────── */
+{
+  const src = readFileSync(resolve(process.cwd(), 'src/components/RuntimeConsole.tsx'), 'utf8')
+  const mutated = src.replace(
+    /canGovernanceAction\?\.\(required,\s*nodeId\)/,
+    'canGovernanceAction?.(required, undefined)',
+  )
+  assert.notEqual(mutated, src, '人造样本没能改掉 RuntimeConsole 的传参——判据 ⑥ 的正则已脱节。')
+  assert.ok(
+    !/canGovernanceAction\?\.\(required,\s*nodeId\)/.test(mutated),
+    '判据 ⑥ 对人造样本没有反应——它恒真。',
+  )
+}
+
+console.log('  ✓ 7 条判据全部通过')
