@@ -142,6 +142,38 @@ if (includeMatch === null) {
     `实际找到 ${specs.length} 个`,
   )
 
+  /* ── 判据②：不得有被跳过的用例 ────────────────────────────────────────────
+     include 正确不代表内容正确。第 159 轮实测：把一个文件的 8 条 it 全部改成
+     it.skip 之后——
+
+         Test Files  96 passed | 1 skipped (97)
+              Tests  778 passed | 8 skipped (786)
+         退出码 = 0
+
+     整个文件的覆盖凭空消失，而套件**仍然报绿**。
+     那 8 条守的正是 §152–155 的判权不变量（no-manager、悬空 manage、
+     无人可 manage、并发原子性），且**没有第二处覆盖**——
+     去掉它们不会让任何其它测试变红，于是"无人验证"这件事完全隐形。
+
+     与判据①不同，这条**不需要**运行时信息：vitest 的跳过是源码里的
+     `it.skip` / `describe.skip` / `xit` / `xdescribe`，静态就能看见。 */
+  const skipPattern = /\b(?:it|test|describe)\.skip\b|\bxit\b|\bxdescribe\b/
+  const skippedIn: string[] = []
+  for (const rel of specs) {
+    const raw = readFileSync(join(mainRepo, rel), 'utf8')
+    /* 去掉注释后再扫：`it.skip` 出现在解释为什么这么写的段落里是正常的，
+       只有**代码里**的 skip 才会真的让用例不跑。 */
+    const code = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    for (const [i, line] of code.split('\n').entries()) {
+      if (skipPattern.test(line)) skippedIn.push(`${rel}:${i + 1}  ${line.trim().slice(0, 60)}`)
+    }
+  }
+  check(
+    `没有任何用例被跳过（发现 ${skippedIn.length} 处 skip/xit/xdescribe）`,
+    skippedIn.length === 0,
+    skippedIn.slice(0, 8).join('\n      ') + (skippedIn.length > 8 ? `\n      …（另有 ${skippedIn.length - 8} 处）` : ''),
+  )
+
   const missed = specs.filter((rel) => !patterns.some((p) => matches(p, rel)))
   check(
     `include 覆盖全部 ${specs.length} 个 spec（漏掉 ${missed.length} 个，它们会被静默跳过）`,
