@@ -171,9 +171,17 @@ function classifyFailure(output: string): string {
     return '守卫自身坏了：语法或导入错误，未真正执行'
   }
   if (/AssertionError|ERR_ASSERTION/.test(text)) return '断言失败：判据或被测代码有问题'
-  /* console.error + process.exit 是本仓库的既有判红方式；
-     若它打印了中文诊断而不是异常栈，那基本可以确定是判据失败——
-     语法错误会带 SyntaxError 栈，未知非零则不会有成形的中文句子。 */
-  if (/[\u4e00-\u9fff]/.test(text)) return '断言失败：判据或被测代码有问题（守卫以中文诊断报红）'
+  /* `console.error` + `process.exit(1)` 是本仓库的既有判红方式，
+     它打印的是一句**人写的诊断**，而不是异常栈。
+
+     判据因此**反过来**——不是「有中文就算判据失败」，
+     而是「**有诊断、但没有崩溃帧**就算判据失败」：
+       · 判据失败 ⇒ 输出里有诊断，且没有 node 崩溃帧；
+       · 崩溃     ⇒ 一定带 SyntaxError 或 stack trace。
+     这样与诊断用什么语言无关。上一版靠「含中文」判断，
+     一个后来用英文写诊断的守卫会被归成「原因待查」——
+     那等于**没有结论**，比归错更糟（第 182 轮实测）。 */
+  const looksLikeCrash = /\n\s+at .*\(|\n\s*at [\w$]+ \(|node:internal|^\s*\^\s*$/m.test(text)
+  if (text.length > 0 && !looksLikeCrash) return '断言失败：判据或被测代码有问题（守卫以诊断报红）'
   return '非零退出，原因待查（展开下方详情）'
 }
