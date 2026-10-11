@@ -146,6 +146,90 @@ const gatedCalls = [...actionBody.matchAll(/return gated\("/g)];
      只做前者，界面照样把按钮画成可点；
      只做后者，程序内部仍会先乐观地把「已批准」点亮再回滚。 */
   const stream = read("../src/components/Stream.tsx");
+  /* ───────────────────────────────────────────────────────────────────────
+   * 「同一处调用」不等于「900 字���内共现」（第 245 轮，第 94 处）。
+   *
+   * ## 缺陷（第 94 处）
+   * 上面那条断言问的是：
+   *
+   *     handleCheckpoint …（≤900 字符）… canGovernanceAction("approve"
+   *
+   * 它只要求这两个词**在窗口内同时出现**，**不要求出现在同一个函数体里**。
+   * 于是把 `handleCheckpoint` 里的准入判据**整段删掉**，
+   * 而 `canDecide={(nodeId) => canGovernanceAction("approve", nodeId)}`
+   * 这条**另一个**调用点仍在文件里——
+   * 整份文件仍满足那条正则 ⇒ **守卫 23/23 全绿。**
+   *
+   * 实测（注入 68）：删掉 `handleCheckpoint` 里的
+   * `const admission = canGovernanceAction("approve", nodeId)` 与随后的
+   * `if (!admission.allowed) { … return }`，tsc 0，守卫全绿。
+   *
+   * 后果正是 AGENTS.md §4.3 明令禁止的形态：
+   * **人工检查点成了一条无准入的写路径**（照常可点然后报错）。
+   * 这条性质是第 213 轮专门补过的（当时李雯看到的按钮**全部可点**，
+   * 而后端对��一律 403）。
+   *
+   * ## 为什么不是第 92 处那种「窗口不够大」
+   * 第 92 处是窗口**本体**被顶破；这里窗口**再大也没用**——
+   * 因为另一个调用点总能让它满足。与其猜一个更大的窗口，
+   * 不如把判据改成**结构**的：**必须落在 handleCheckpoint 的函数体内**。
+   *
+   * ## 本条的形态
+   * 取出 `handleCheckpoint` 的函数体（从定义处到配平的 `}`），
+   * 在**这个范围内**找准入判据。这样别的调用点无法替它顶包。
+   * ─────────────────────────────────────────────────────────────────────── */
+  {
+    const defAt = app.indexOf('handleCheckpoint = useCallback')
+    assert.ok(defAt >= 0, 'App 里找不到 handleCheckpoint 的定义')
+    const open = app.indexOf('{', defAt)
+    assert.ok(open >= 0, 'handleCheckpoint 的函数体起点找不到')
+    let depth = 0
+    let end = -1
+    for (let k = open; k < app.length; k++) {
+      if (app[k] === '{') depth++
+      else if (app[k] === '}') {
+        depth--
+        if (depth === 0) { end = k; break }
+      }
+    }
+    assert.ok(end > 0, 'handleCheckpoint 的函数体终点找不到（括号不配对）')
+    const body = app.slice(open, end)
+
+    assert.ok(
+      /canGovernanceAction\(\s*["']approve["']/.test(body),
+      'handleCheckpoint 的**函数体内**没有 canGovernanceAction("approve") ——' +
+        '人工检查点会成为一条无准入的写路径（照常可点然后报错）。\n' +
+        '注意：光在文件别处有 canGovernanceAction("approve") **不够**——' +
+        '那可能是另一个调用点（如 canDecide），与这条路径无关（第 245 轮实测）。',
+    )
+    /* 且必须**用它的结论**挡住后续动作，而不是只调用一下就丢弃。
+       注意不能写 `/admission|\.allowed/`——那会被**别处**的 `.allowed` 顶包，
+       与第 94 处同一形态的错误。必须确认**同一次调用**被解构/赋值，
+       且那个名字确实被读。 */
+    const callAt = body.search(/canGovernanceAction\(\s*["']approve["']/)
+    assert.ok(callAt >= 0, '函数体内找不到准入调用')
+    /* 往**前**取这一行（含 `const x =`），往后取一行——
+       不要用固定字符窗口（第 244 轮第 92 处刚栽在这上面）。 */
+    const lineStart = body.lastIndexOf('\n', callAt) + 1
+    const lineEnd = body.indexOf('\n', callAt)
+    const around = body.slice(lineStart, lineEnd < 0 ? body.length : lineEnd)
+    assert.ok(
+      /(?:const|let)\s+[A-Za-z_$][\w$]*\s*=\s*canGovernanceAction\(/.test(around) ||
+        /\{[^}]*allowed[^}]*\}\s*=\s*canGovernanceAction\(/.test(around),
+      '准入结果没有被**接收**（没有赋值也没有解构）——' +
+        '只调用 canGovernanceAction 而不取它的返回值，等于没判。',
+    )
+    const nameM = /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*canGovernanceAction\(/.exec(around)
+    if (nameM) {
+      const name = nameM[1]!
+      assert.ok(
+        new RegExp(`${name}\\s*\\.\\s*allowed`).test(body),
+        `准入结果 ${name} 的 \`.allowed\` 从未被读取——` +
+          '取了结果却不用，仍然等于没判（第 245 轮）。',
+      )
+    }
+  }
+
   assert.ok(
     /handleCheckpoint[\s\S]{0,900}?canGovernanceAction\(\s*"approve"/.test(app),
     "handleCheckpoint 没有先过 canGovernanceAction('approve') ——" +
