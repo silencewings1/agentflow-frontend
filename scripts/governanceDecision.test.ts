@@ -31,7 +31,7 @@
  * @module agentflow-frontend/scripts/governance-decision
  */
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { strict as assert } from 'node:assert'
 
@@ -112,34 +112,45 @@ console.log('治理判据的判定逻辑（第 228 轮）')
   )
 }
 
-/* ── ⑥ 两个接收方的 can() 必须都**传下去 nodeId**（第 82 轮）───────────
-   第 228 轮只补了 `canGovernanceAction` **自身**的判定逻辑。
-   但它有两个接收方，每个都包了一层 `can()` 助手：
+/* ── ⑥ 接收方的 can() 必须都**传下去 nodeId**（第 82、230 轮）──────────
+   第 228 轮补了 canGovernanceAction **自身**的判定逻辑判据，
+   但它有**多个接收方**，每个都包了一层 can() 助手。
 
-     GovernanceView.tsx   can() → canGovernanceAction?.(required, nodeId)
-     RuntimeConsole.tsx   can() → canGovernanceAction?.(required, nodeId)
+   ## 第 82 轮：只测到一份
+   两份 can() 逐字相同，既有守卫对 GovernanceView 有 can() 形态判据，
+   对 RuntimeConsole **只有「接收了 canGovernanceAction」这一条接线判据**。
+   同一处改动（nodeId 写成 undefined）：
 
-   两份**逐字相同**。既有守卫对前者有 `can()` 形态判据，
-   对后者**只有「接收了 canGovernanceAction」这一条接线判据**。
-   于是同一处改动（把 nodeId 写成 undefined，即节点级判据退化为编排级）：
+     GovernanceView -> 红
+     RuntimeConsole -> **守卫 23/23 全绿**
 
-     GovernanceView → 红（有 can() 形态判据）
-     RuntimeConsole → **守卫 23/23 全绿**   ← 第 82 处
+   ## 第 230 轮：我修它的判据**又留了同一个形态的旁路**
+   上一轮我写下「要么逐处写，要么写成遍历」，然后自己**逐处写**了——
+   在判据里手列了两个文件名。于是**新增第三个接收方**时，
+   它自动落在判据之外，守卫依然 23/23 全绿。
 
-   后果：`approve` 档的**节点级**判据退化成**编排级**，
-   于是「我在别的节点有 approve 权限」也能裁决当前节点。
-   后端 `assertNodePermission` 仍会 403（安全不破），
-   但界面对用户撒了谎——与第 81 处同一类缺陷。 */
+   ⇒ 判据的**目标集合必须从代码推导，不能手列**。
+     「谁接收了这个 prop」是可以从 props 类型里读出来的，
+     判据应当**按这个规则自己枚举**，
+     而不是把当前恰好存在的文件名抄一遍——
+     后者会把「今天的清单」固化成「永远正确的清单」。
+   ⇒ 这与第 218/223/224 轮那条教训是同一条线的**第四次**：
+     判据只要依赖「我抄下来的现状」，抄漏就会变成盲区。 */
 {
-  const readComp = (p: string): string => readFileSync(resolve(process.cwd(), p), 'utf8')
-  const receivers: Array<[string, string]> = [
-    ['GovernanceView.tsx', readComp('src/components/GovernanceView.tsx')],
-    ['RuntimeConsole.tsx', readComp('src/components/RuntimeConsole.tsx')],
-  ]
-  for (const [name, src] of receivers) {
+  const compDir = resolve(process.cwd(), 'src/components')
+  /** 判据自己枚举接收方：props 类型里出现 `canGovernanceAction?:` 即算。 */
+  const receivers = readdirSync(compDir)
+    .filter((f) => f.endsWith('.tsx'))
+    .filter((f) => /canGovernanceAction\?:/.test(readFileSync(resolve(compDir, f), 'utf8')))
+    .sort()
+
+  assert.ok(receivers.length >= 2, `自动枚举到的接收方只有 ${receivers.length} 个（${receivers.join(', ')}）——枚举规则可能已失效。`)
+
+  for (const name of receivers) {
+    const src = readFileSync(resolve(compDir, name), 'utf8')
     assert.ok(
       /const can = \(required: "run" \| "approve" \| "manage", nodeId\?: string\) =>/.test(src),
-      `${name} 缺�� can() 助手签名——请同步本守卫与组件实现。`,
+      `${name} 缺少 can() 助手签名——请同步本守卫与组件实现。`,
     )
     assert.ok(
       /canGovernanceAction\?\.\(required,\s*nodeId\)/.test(src),
@@ -147,6 +158,7 @@ console.log('治理判据的判定逻辑（第 228 轮）')
         '节点级判据退化为编排级判据，用户会看到自己「在别的节点有权限」也能裁决当前节点。',
     )
   }
+  console.log(`  · ⑥ 自动枚举接收方：${receivers.join(', ')}`)
 }
 
 /* ── ⑦ 反向自检：判据 ⑥ 对「人为差异」敏感 ────────────────────────────── */
@@ -161,6 +173,33 @@ console.log('治理判据的判定逻辑（第 228 轮）')
     !/canGovernanceAction\?\.\(required,\s*nodeId\)/.test(mutated),
     '判据 ⑥ 对人造样本没有反应——它恒真。',
   )
+}
+
+/* ── ⑧ 反向自检：**新增一个接收方**时判据 ⑥ 会不会自动跟过去 ──────────
+   这是第 230 轮的直接对照：上一轮的判据是手列文件名，
+   于是「新增第三份」完全落在判据之外。
+   这里造一份人造接收方，走**判据自己的枚举函数**，
+   断言它确实会被收进集合——
+   若枚举规则已失效（如 props 写法变了），这条会先红。 */
+{
+  const enumReceivers = (src: Record<string, string>): string[] =>
+    Object.keys(src).filter((f) => /canGovernanceAction\?:/.test(src[f]!)).sort()
+
+  const real: Record<string, string> = {}
+  const compDir = resolve(process.cwd(), 'src/components')
+  for (const f of readdirSync(compDir)) {
+    if (f.endsWith('.tsx')) real[f] = readFileSync(resolve(compDir, f), 'utf8')
+  }
+  const before = enumReceivers(real)
+  assert.ok(before.includes('RuntimeConsole.tsx'), '枚举函数没能识别既有的 RuntimeConsole——枚举规则已失效。')
+
+  const withThird = { ...real, 'InjectedThird.tsx': 'canGovernanceAction?: (x: string) => void' }
+  const after = enumReceivers(withThird)
+  assert.ok(
+    after.includes('InjectedThird.tsx'),
+    '新增一份接收方后，判据 ⑥ 的枚举没有把它收进来——它又变回手列清单了。',
+  )
+  assert.equal(after.length, before.length + 1, '枚举结果数量不对，判据 ⑥ 的遍历前提已失效。')
 }
 
 console.log('  ✓ 7 条判据全部通过')
