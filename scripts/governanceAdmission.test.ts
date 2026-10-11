@@ -165,6 +165,32 @@ const gatedCalls = [...actionBody.matchAll(/return gated\("/g)];
       "「你在别的节点上有 approve」会变成「所有闸门都能替你放行」",
   );
 
+  /* ⑥ SCM 对账按钮的档位判据（第 215 轮）。
+     实测（代码走查 + 口径比对）：对账会**改写**操作记录状态
+     （planned → committed/failed），与 confirm 同为 run 档——
+     后端两处都是 guardGitOperation(id,'run')。
+     而按钮原先只判「是否正在对账」，没有档位判据。
+
+     这里原有的注释说明了「为什么对账是安全的」（只回读远端、不重放写入）。
+     但**安全不等于有授权**：安全回答的是「不会造成远端副作用」，
+     不回答「谁有权让它落地」。两件事必须分别成立，
+     而那条注释只回答了第一件——缺的是第二件。 */
+  assert.ok(
+    /const canReconcile = \(\): \{ allowed: boolean; reason: string \} => can\("run"\)/.test(govView),
+    "SCM 对账没有 run 档判据 —— 后端 guardGitOperation(id,'run') 的前置条件在界面上缺失",
+  );
+  assert.ok(
+    /disabled=\{reconcilingOperationId === op\.operationId \|\| !canReconcile\(\)\.allowed\}/.test(govView),
+    "SCM 对账按钮没有按 canReconcile 置阻 —— 光有判据不改控件等于没做",
+  );
+  /* 判据必须**逐字复刻**后端口径：后端 guard(taskId,'run') 不带 nodeId，
+     走 `nodeIds.some(...)`（任一节点持 run 即放行）。
+     前端若收窄成某个具体节点，会把后端认得的合法身份误挡成「你没权限」。 */
+  assert.ok(
+    !/canReconcile[\s\S]{0,200}?can\("run",\s*"/.test(govView),
+    "canReconcile 传了具体 nodeId —— 那比后端更严，会把本该放行的身份误判为无权",
+  );
+
 /* ③ primaryAction 的返回类型必须带 blocked。 */
 assert.ok(
   /const primaryAction = useMemo\(\(\): \{ label: string; disabled: boolean; onClick: \(\) => void; blocked: string \| null \}/.test(app),

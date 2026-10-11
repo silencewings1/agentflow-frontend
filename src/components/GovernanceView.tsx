@@ -597,6 +597,25 @@ export function GovernanceView({
      硬判只会给出错误结论（与 App 侧 canGovernanceAction 的取向一致）。 */
   const can = (required: "run" | "approve" | "manage", nodeId?: string) =>
     canGovernanceAction?.(required, nodeId) ?? { allowed: true, reason: "" };
+
+  /* 第 215 轮：SCM 对账按钮的档位判据。
+     对账会**改写**操作记录状态（planned → committed/failed），
+     与 confirm 同为 **run** 档——后端两处都用 guardGitOperation(id,'run')。
+
+     原先该按钮只判「是否正在对账」，没有档位判据，于是任何身份都能点。
+     这里原有的注释说明了「为什么对账是安全的」（只回读远端、不重放写入），
+     但**安全不等于有授权**：
+     它安全，只说明「不会造成远端副作用」，
+     并不说明「任何人都可以推进本地账本状态」。
+     两件事必须分别成立，注释只回答了第一件。 */
+  /* **不传 nodeId**：与后端 guard(taskId, 'run') 完全一致——
+     `assertWorkflowPermission` 用 `nodeIds.some(...)`，
+     即「在该任务的**任一**节点上持 run」即放行。
+     先前我一度硬编码 publish-via-mcp，那是**收窄**了判据：
+     后端认得的合法身份（run 挂在别的节点上）会被前端误挡。
+     前端判据必须**逐字复刻**后端口径，不得比后端更严——
+     那会让一个本该成功的操作，在界面上显示成「你没权限」。 */
+  const canReconcile = (): { allowed: boolean; reason: string } => can("run");
   /* 第 212 轮：受阻原因必须覆盖**全部**置阻来源。
      这些按钮的 `disabled` 由多项或运算得出——
      授权不足（can）/ 提交中（busyAction）/ 任务状态受阻（controlBlocked）/ 运行中（runActive）/ 终态。
@@ -706,7 +725,8 @@ export function GovernanceView({
                 <button
                   key={op.operationId}
                   className="btn btn--sm"
-                  disabled={reconcilingOperationId === op.operationId}
+                  disabled={reconcilingOperationId === op.operationId || !canReconcile().allowed}
+                  title={canReconcile().allowed ? undefined : canReconcile().reason}
                   onClick={() => onReconcileOperation(op.operationId)}
                 >
                   <Icon.Clock size={12} />
