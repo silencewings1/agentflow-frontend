@@ -262,4 +262,81 @@ console.log('治理判据的判定逻辑（第 228 轮）')
   )
 }
 
-console.log('  ✓ 10 条判据全部通过')
+/* ── ⑪ App 侧**每一个**自取档位判据都必须单调且无恒真捷径（第 233 轮）───
+   App.tsx 里有三个「兄弟判据」，形态相同（遍历 grants + 档位比较）：
+     canCreateWith       （入口节点要 run）
+     canGovernanceAction （节点动作按 required）
+     canManageSession    （编排级要 manage）
+
+   ## 缺陷（第 86 处）
+   既有守卫的覆盖是**逐个写死**的，且形态不一：
+     canGovernanceAction → governanceDecision 判据 ①（已带 || true 检测）
+     canCreateWith       → entryNodeDerivation 的**逐字正则**
+     canManageSession    → governanceAdmission 判据 ⑩
+
+   而 `entryNodeDerivation` 那条**正则没有收尾锚点**：
+     /permRank\(grant\.perm\) >= permRank\("run"\)/
+   于是
+     permRank(grant.perm) >= permRank("run") || true
+   **仍然匹配**（`|| true` 只是多出来的尾巴）⇒ 恒真捷径零反对。
+   同一处改成 `>= 999` 反而被抓（因为不再是那一串）。
+
+   ⇒ 这与第 218 轮那条教训是同一族的**变体**：
+     那边是「判据只认一种写法」，这边是「判据**没认完**一种写法」——
+     前缀匹配把新增的尾巴放过了。
+   ⇒ 且这是**第三个**兄弟判据同样只被「碰巧」覆盖：
+     第 82/84 处各漏一份实现，本轮发现**连判据本身也不对称**。
+
+   本条改为：枚举 App.tsx 里所有 `permRank(grant.perm) >= permRank(...)`
+   的出现点，逐个要求
+     ① 比较是单调 >=
+     ② 后面**不得**跟 `|| true` / `|| 1` 之类恒真捷径
+     ③ 阈值不是不可能达到的常数
+   ──────────────────────────────────────────────────────────────── */
+{
+  const appLocal = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8')
+  /* 右端既可能是**字面量**（permRank("run")）也可能是**变量**
+     （permRank(required)——canGovernanceAction 按调用参数取档位）。
+     只认字面量会漏掉后者，而它恰恰是判据 ① 的对象。
+     ⇒ 这里按「permRank(grant.perm) 后面跟着一个 >=
+        再跟一个 permRank( ... )」来枚举，与右端写法无关。 */
+  const cmp = [...appLocal.matchAll(/permRank\(grant\.perm\)\s*>=\s*permRank\(/g)]
+  assert.ok(cmp.length >= 3, `App.tsx 里的档位比较只有 ${cmp.length} 处（预期 ≥3）——枚举可能已失效。`)
+
+  const oneLine = (i: number): string => appLocal.split('\n')[i] ?? ''
+  for (const m of cmp) {
+    const idx = m.index ?? -1
+    const line = appLocal.slice(0, idx).split('\n').length
+    const src = oneLine(line - 1)
+    assert.ok(
+      />=\s*permRank\(/.test(src),
+      `第 ${line} 行的档位比较不再是单调 >=：${src.trim()}`,
+    )
+    assert.ok(
+      !/>=\s*permRank\([^)]*\)\s*\|\|\s*(true|1)\b/.test(src),
+      `第 ${line} 行的档位比较被接上了恒真捷径（|| true）：判据已恒真。\n    ${src.trim()}`,
+    )
+    assert.ok(
+      !/permRank\(grant\.perm\)\s*>=\s*\d{3,}\b/.test(src),
+      `第 ${line} 行的档位阈值写成了不可能达到的常数：判据已恒假。\n    ${src.trim()}`,
+    )
+  }
+  console.log(`  · ⑪ 枚举 App 侧档位比较：${cmp.length} 处`)
+}
+
+/* ── ⑫ 反向自检：判据 ⑪ 对「人为差异」敏感 ─────────────────────────────── */
+{
+  const appLocal = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8')
+  const mutated = appLocal.replace(
+    /permRank\(grant\.perm\) >= permRank\("run"\)/,
+    'permRank(grant.perm) >= permRank("run") || true',
+  )
+  assert.notEqual(mutated, appLocal, '人造样本没能在 App.tsx 里加上恒真捷径——判据 ⑪ 的正则已脱节。')
+  const bad = mutated.split('\n').find((l) => l.includes('|| true') && l.includes('permRank(grant.perm)'))
+  assert.ok(
+    bad !== undefined && />=\s*permRank\([^)]*\)\s*\|\|\s*(true|1)\b/.test(bad),
+    '判据 ⑪ 对人造的「|| true」样本没有反应——它恒真。',
+  )
+}
+
+console.log('  ✓ 12 条判据全部通过')
