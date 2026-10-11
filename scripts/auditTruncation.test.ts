@@ -136,6 +136,33 @@ if (rowsConst !== null) {
     + "实测 GET /accounts 恒返回 50 条，?limit/?offset/?cursor/?page/?since 全部无效，"
     + "/accounts/audit 为 AF_ROUTE_NOT_FOUND",
   );
+
+  /* ── 7. 判据自身不得被"废掉" ───────────────────────────────────────────
+     上面两条判据都是对 `SRC` 做正则匹配。这类判据有一个**自指的失效模式**：
+     把它改成恒真（`true`）或删掉换成一个总能匹配的正则，它就**再也不会报警**，
+     而守卫仍然"全部通过"——正是本文件存在的意义被架空。
+
+     实测（已复现）：把第 6 条第 1 项判据改成 `true`，随后把 MembersPane
+     的截断提示条件改成恒假 `{false ? (`（**真实缺陷**），
+     本守卫依然退出 0。也就是说没有任何判据能察觉自己被废掉——
+     除非专门写一条**不依赖被判据**的自检。
+
+     做法：把同一个判据的逻辑提成纯函数，喂它**不成立**的输入，
+     要求返回 false。判据被改成恒真时，这一步必然失败并报出来。
+     这不是"多写一条测试"，而是给判据本身装一个不依赖它的探针。 */
+  const hasTruncationCondition = (src: string): boolean =>
+    /\{\s*(accountAuditTotal|grantAuditTotal)\s*>\s*(accountAudit|audit)\.length\s*\?/.test(src);
+
+  check(
+    "判据自检：喂入不含截断条件的源码，判据必须返回 false（否则该判据已被废掉）",
+    hasTruncationCondition(SRC) && !hasTruncationCondition("const x = 1;"),
+    "判据对任意输入都返回 true——它已失去把关能力；此时上面的真实检查形同虚设",
+  );
+  check(
+    "判据自检：喂入含截断条件的源码，判据必须返回 true（防止判据被改成恒假）",
+    hasTruncationCondition("{accountAuditTotal > accountAudit.length ? ("),
+    "判据对真实存在的截断提示也返回 false——它已恒假，不再报警",
+  );
 }
 
 console.log(failures === 0 ? "\nauditTruncation: 全部通过" : `\nauditTruncation: ${failures} 项失败`);
