@@ -202,4 +202,64 @@ console.log('治理判据的判定逻辑（第 228 轮）')
   assert.equal(after.length, before.length + 1, '枚举结果数量不对，判据 ⑥ 的遍历前提已失效。')
 }
 
-console.log('  ✓ 7 条判据全部通过')
+/* ── ⑨ 所有「从 actor 取管理权」的组件都必须同源（第 232 轮）──────────────
+   `actor.canManageAccounts` 是后端算好的字段（`holdsRealManage`，
+   第 215 轮实测过），前端各处都应**直接取它**，不得自行推导。
+
+   ## 缺陷（第 85 处）
+   既有守卫对 `ModelsPane` 有**逐字**判据：
+       /canManage=\{actor\?\.canManageAccounts === true\}/
+   对 `MembersPane` 却**只查了提示分支**，没查 `canManage` 的**来源**：
+
+       const canManage = actor?.canManageAccounts === true;   ← 无任何判据
+
+   把它改成 `const canManage = true`，**守卫 23/23 全绿**。
+
+   MembersPane 是**多用户账户管理的核心界面**（建号、停用、授权都在里面），
+   它整块的管理准入就来自这一行。
+
+   ## 为什么用**枚举**而不是加一条 MembersPane 专用判据
+   同第 230/231 轮那条教训：手列清单会把「今天的组件」固化成清单。
+   这里按**规则**枚举——凡是自己算 `canManage` / `canManageSession`
+   且读取 `actor.canManageAccounts` 的组件，都必须保持那一行原样。
+   ──────────────────────────────────────────────────────────────── */
+{
+  const compDir = resolve(process.cwd(), 'src/components')
+  /** 按规则找出「自己取管理权」的组件：出现 canManage…= 且同时读 actor.canManageAccounts */
+  const managers = readdirSync(compDir)
+    .filter((f) => f.endsWith('.tsx'))
+    .map((f) => [f, readFileSync(resolve(compDir, f), 'utf8')] as const)
+    .filter(([, src]) => /const canManage\w*\s*=|const canManage\w* =/.test(src))
+    .filter(([, src]) => /canManageAccounts/.test(src))
+    .map(([f]) => f)
+    .sort()
+
+  assert.ok(
+    managers.includes('MembersPane.tsx'),
+    `枚举到的「自取管理权」组件里没有 MembersPane.tsx（实际：${managers.join(', ') || '无'}）——枚举规则可能已失效。`,
+  )
+
+  for (const name of managers) {
+    const src = readFileSync(resolve(compDir, name), 'utf8')
+    assert.ok(
+      /actor\?\.canManageAccounts === true/.test(src.replace(/\s+/g, ' ')),
+      `${name} 的管理权判据不再直接从 actor.canManageAccounts 取——` +
+        '若是自行推导（甚至写成常量 true），非管理者会看到可点的管理按钮，' +
+        '填完表单才收到 403。',
+    )
+  }
+  console.log(`  · ⑨ 枚举「自取管理权」组件：${managers.join(', ')}`)
+}
+
+/* ── ⑩ 反向自检：判据 ⑨ 对「人为差异」敏感 ─────────────────────────────── */
+{
+  const src = readFileSync(resolve(process.cwd(), 'src/components/MembersPane.tsx'), 'utf8')
+  const mutated = src.replace(/actor\?\.canManageAccounts === true/, 'true')
+  assert.notEqual(mutated, src, '人造样本没能改掉 MembersPane 的管理权来源——判据 ⑨ 的正则已脱节。')
+  assert.ok(
+    !/actor\?\.canManageAccounts === true/.test(mutated.replace(/\s+/g, ' ')),
+    '判据 ⑨ 对人造样本没有反应——它恒真。',
+  )
+}
+
+console.log('  ✓ 10 条判据全部通过')
