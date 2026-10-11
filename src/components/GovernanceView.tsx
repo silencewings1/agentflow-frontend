@@ -597,6 +597,32 @@ export function GovernanceView({
      硬判只会给出错误结论（与 App 侧 canGovernanceAction 的取向一致）。 */
   const can = (required: "run" | "approve" | "manage", nodeId?: string) =>
     canGovernanceAction?.(required, nodeId) ?? { allowed: true, reason: "" };
+  /* 第 212 轮：受阻原因必须覆盖**全部**置阻来源。
+     这些按钮的 `disabled` 由多项或运算得出——
+     授权不足（can）/ 提交中（busyAction）/ 任务状态受阻（controlBlocked）/ 运行中（runActive）/ 终态。
+     而原先的 `title={can(...).allowed ? undefined : can(...).reason}` **只看第一项**，
+     于是后几项任意一项成立时，按钮被禁用而 title 为空——
+     屏幕上一个没有解释的灰色按钮，用户只能猜。
+     与 App 侧 `gated` 同一口径、同一措辞，两处不能各说各话。 */
+  const blockReason = (
+    required: "run" | "approve" | "manage",
+    extra: { busy: boolean; controlBlocked: boolean; runActive: boolean; terminal: boolean },
+    nodeId?: string,
+  ): string | undefined => {
+    const admission = can(required, nodeId);
+    if (!admission.allowed) return admission.reason;
+    if (extra.controlBlocked) {
+      return String(taskStatus) === "awaiting_human"
+        ? "任务正在等待人工接管（重试预算已用尽或停在审阅闸门），需先处理该节点才能继续执行。"
+        : String(taskStatus) === "blocked_unavailable"
+          ? "任务因依赖不可用而阻塞，需先恢复依赖能力。"
+          : "任务需要对账后才能继续。";
+    }
+    if (extra.terminal) return "任务已结束，无需再次执行。";
+    if (extra.runActive) return "运行请求已在进行中，无需重复提交。";
+    if (extra.busy) return "操作正在提交中，请稍候。";
+    return undefined;
+  };
   const runActive = ["queued", "claimed", "running", "yielded"].includes(String(runIntent?.status));
   const currentEvidence = useMemo(() => evidenceMatrix?.rows ?? [], [evidenceMatrix]);
   /* 正文解析只在 DTO 变化时执行一次；返回 null 即渲染降级态，
@@ -620,15 +646,15 @@ export function GovernanceView({
 
       <div className="govActions">
         {!workSpec && onFreezeWorkSpec && <span className="govHint">先完成 WorkSpec，服务端才会生成规划事实。</span>}
-        {workSpec && onCreateWorkSpecRevision && <button className="btn btn--ghost btn--sm" data-blocked={!can("manage").allowed} title={can("manage").allowed ? undefined : can("manage").reason} disabled={busyAction !== null || runActive || !can("manage").allowed} onClick={onCreateWorkSpecRevision}>创建任务契约新版本</button>}
-        {workSpec && !proposal && onRequestProposal && <button className="btn btn--accent btn--sm" data-blocked={!can("manage").allowed} title={can("manage").allowed ? undefined : can("manage").reason} disabled={busyAction !== null || runActive || !can("manage").allowed} onClick={onRequestProposal}>{busyAction === "proposal" ? "正在生成方案…" : "生成执行方案"}</button>}
-        {proposal && !compilationReport && onCompile && <button className="btn btn--accent btn--sm" data-blocked={!can("run").allowed} title={can("run").allowed ? undefined : can("run").reason} disabled={busyAction !== null || runActive || !can("run").allowed} onClick={onCompile}>{busyAction === "compile" ? "正在检查执行计划…" : "检查执行计划"}</button>}
+        {workSpec && onCreateWorkSpecRevision && <button className="btn btn--ghost btn--sm" data-blocked={!can("manage").allowed} title={blockReason("manage", { busy: busyAction !== null, controlBlocked: false, runActive, terminal: false })} disabled={busyAction !== null || runActive || !can("manage").allowed} onClick={onCreateWorkSpecRevision}>创建任务契约新版本</button>}
+        {workSpec && !proposal && onRequestProposal && <button className="btn btn--accent btn--sm" data-blocked={!can("manage").allowed} title={blockReason("manage", { busy: busyAction !== null, controlBlocked: false, runActive, terminal: false })} disabled={busyAction !== null || runActive || !can("manage").allowed} onClick={onRequestProposal}>{busyAction === "proposal" ? "正在生成方案…" : "生成执行方案"}</button>}
+        {proposal && !compilationReport && onCompile && <button className="btn btn--accent btn--sm" data-blocked={!can("run").allowed} title={blockReason("run", { busy: busyAction !== null, controlBlocked: false, runActive, terminal: false })} disabled={busyAction !== null || runActive || !can("run").allowed} onClick={onCompile}>{busyAction === "compile" ? "正在检查执行计划…" : "检查执行计划"}</button>}
         {compilationReport?.outcome === "rejected" && <span className="govHint govHint--warn">Compiler 已拒绝当前 revision；先创建新 revision 修正 WorkSpec，再重新请求 Proposal。</span>}
-        {plan && !planDecision && onPlanDecision && <button className="btn btn--accent btn--sm" data-blocked={!can("approve").allowed} title={can("approve").allowed ? undefined : can("approve").reason} disabled={busyAction !== null || runActive || !can("approve").allowed} onClick={() => onPlanDecision("approved")}>{busyAction === "decision" ? "正在提交审批…" : "批准执行计划"}</button>}
+        {plan && !planDecision && onPlanDecision && <button className="btn btn--accent btn--sm" data-blocked={!can("approve").allowed} title={blockReason("approve", { busy: busyAction !== null, controlBlocked: false, runActive, terminal: false })} disabled={busyAction !== null || runActive || !can("approve").allowed} onClick={() => onPlanDecision("approved")}>{busyAction === "decision" ? "正在提交审批…" : "批准执行计划"}</button>}
         {plan && !planDecision && <span className="govHint govHint--warn">批准前请先读完下方「Execution Plan 与 PlanDecision」中的计划正文。</span>}
         {controlBlocked && <span className="govHint govHint--warn">当前任务处于 {statusLabel(String(taskStatus))}，请先完成澄清、能力恢复或对账，暂不能开始执行。</span>}
         {runActive && !controlBlocked && <span className="govHint govHint--info">运行请求已提交，后台正在执行；请等待节点状态刷新后再操作。</span>}
-        {planDecision?.decision === "approved" && onRun && <button className="btn btn--accent btn--sm" data-blocked={!can("run").allowed} title={can("run").allowed ? undefined : can("run").reason} disabled={busyAction !== null || controlBlocked || runActive || !can("run").allowed || ["completed", "cancelled"].includes(String(taskStatus))} onClick={onRun}>{busyAction === "run" ? "正在提交运行请求…" : "开始执行任务"}</button>}
+        {planDecision?.decision === "approved" && onRun && <button className="btn btn--accent btn--sm" data-blocked={!can("run").allowed} title={blockReason("run", { busy: busyAction !== null, controlBlocked: controlBlocked, runActive, terminal: ["completed", "cancelled"].includes(String(taskStatus)) })} disabled={busyAction !== null || controlBlocked || runActive || !can("run").allowed || ["completed", "cancelled"].includes(String(taskStatus))} onClick={onRun}>{busyAction === "run" ? "正在提交运行请求…" : "开始执行任务"}</button>}
       </div>
 
       <RequirementsGateHint gates={gates} taskStatus={taskStatus ?? currentStatus} />

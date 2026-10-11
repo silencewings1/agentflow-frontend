@@ -175,5 +175,63 @@ check(
   "pointer-events: none 未被认作覆盖",
 );
 
+/* ── 第 212 轮：光"看起来不可用"不够，还必须**说明为什么** ──────────────
+   本守卫原来只查 CSS（disabled 是否在视觉上与可用态不同），
+   于是一条**视觉合格但一言不发**的缺陷整轮漏网：
+   实测（真实后端 + 无头浏览器，任务处于 awaiting_human）：
+
+     「开始执行任务」        disabled=true  title=""
+     「创建任务契约新版本」  disabled=true  title=""
+
+   灰得对，但一个字都不说——用户只能猜。
+   而项目自己在 MembersPane 里写下的规矩是：
+
+     「受阻时**不得**继续宣告『点击将发生什么』……受阻时改为说明**为什么不能**。」
+
+   上一条查的是**外形**（看起来不可用），这一条查的是**解释**
+   （不可用时有没有给出原因）。两者缺一，控件就成了哑巴。 */
+const APP = readFileSync(join(SRC, "App.tsx"), "utf8");
+const GOV = readFileSync(join(SRC, "components/GovernanceView.tsx"), "utf8");
+
+/** 凡是"按多项条件置阻"的按钮，title 必须来自能覆盖**全部**条件的助手，
+ *  而不是只取其中一项——那样其余条件成立时 title 就成了空串。 */
+const disabledButtonSites = [
+  { file: "src/App.tsx", src: APP },
+  { file: "src/components/GovernanceView.tsx", src: GOV },
+];
+
+let silentTitle = "";
+for (const site of disabledButtonSites) {
+  for (const line of site.src.split("\n")) {
+    if (!line.includes("disabled=") || !line.includes("<button")) continue;
+    /* `title={can(x).allowed ? undefined : can(x).reason}` 只覆盖**授权不足**一种。
+       只要 disabled 还由别的条件（busy / controlBlocked / runActive / 终态）
+       决定，这行就一定会在那些状态下渲染成空 title。 */
+    if (/title=\{can\([^)]*\)\.allowed \? undefined :/.test(line)) {
+      silentTitle += `${site.file}: ${line.trim().slice(0, 90)}\n`;
+    }
+  }
+}
+
+check(
+  "置阻按钮不得再用「只覆盖授权不足」的 title 口径（第 212 轮）",
+  silentTitle === "",
+  `仍有按钮的 title 只反映授权不足，其余置阻条件成立时会是空串：\n${silentTitle}`,
+);
+check(
+  "反向自检：上面那条判据对真实的旧写法返回 true（否则它已恒假）",
+  /title=\{can\([^)]*\)\.allowed \? undefined :/.test(
+    '<button title={can("run").allowed ? undefined : can("run").reason} disabled={x} />',
+  ),
+  "判据对旧写法不匹配——它已经恒真、再也不会报警",
+);
+check(
+  "反向自检：现行 blockReason 写法不被误判",
+  !/title=\{can\([^)]*\)\.allowed \? undefined :/.test(
+    '<button title={blockReason("run", { busy: true })} disabled={x} />',
+  ),
+  "判据把正确写法也判成违规",
+);
+
 console.log(failures === 0 ? "\ndisabledAffordance: 全部通过" : `\ndisabledAffordance: ${failures} 项失败`);
 process.exit(failures === 0 ? 0 : 1);

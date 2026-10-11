@@ -2295,10 +2295,42 @@ export default function App() {
       nodeId?: string,
     ) => {
       const admission = canGovernanceAction(required, nodeId);
+      /* 状态受阻的原因要**具体到当下**：同一个灰色按钮，
+         「任务等待人工」与「正在提交」需要的下一步完全不同。
+         顺序按「先看任务状态、再看是否在跑、最后才是提交中」——
+         因为状态是用户真正要解决的那个。 */
+      const stateReason = !admission.allowed
+        ? admission.reason
+        : action.disabled
+          ? String(taskRuntime?.status) === "awaiting_human"
+            ? "任务正在等待人工接管（重试预算已用尽或停在审阅闸门），需先处理该节点才能继续执行。"
+            : String(taskRuntime?.status) === "blocked_unavailable"
+              ? "任务因依赖不可用而阻塞，需先恢复依赖能力。"
+              : String(taskRuntime?.status) === "needs_reconcile"
+                ? "任务需要对账后才能继续。"
+                : runActive
+                  ? "运行请求已在进行中，无需重复提交。"
+                  : ["completed", "cancelled"].includes(String(taskRuntime?.status))
+                    ? "任务已结束，无需再次执行。"
+                    : govBusy !== null
+                      ? "操作正在提交中，请稍候。"
+                      : ""
+          : "";
       return {
         ...action,
         disabled: action.disabled || !admission.allowed,
-        blocked: admission.allowed ? null : admission.reason,
+        blocked: admission.allowed ? stateReason || null : admission.reason,
+        /* 第 212 轮：受阻原因必须**覆盖所有**置阻来源，不能只覆盖授权不足。
+           `disabled` 有三个来源：授权不足（admission）、任务状态受阻
+           （controlBlocked / runActive / 终态）、以及提交中（govBusy）。
+           原实现只在 admission 失败时给出 reason，于是
+           **任务处于 awaiting_human 时按钮 title 为空**——
+           明明被挡住了，却什么也不说，用户只能看着一个灰色按钮猜原因。
+
+           这与 MembersPane 自己写下的规矩同一条：
+           「受阻时**不得**继续宣告『点击将发生什么』……受阻时改为说明**为什么不能**。」
+           与其对每个 disabled 分支各写一句文案（漏一个就又是一次沉默），
+           不如让 `gated` 统一兜住：只要**被挡住**，就必须给出可执行的说明。 */
       };
     };
     /* 终态任务没有「下一步治理动作」：留着禁用按钮只会让人以为漏点了什么。
