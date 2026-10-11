@@ -209,9 +209,34 @@ const gatedCalls = [...actionBody.matchAll(/return gated\("/g)];
     `architecture.md 断言「view 在类型上就传不进 guard 签名」；` +
       `但 handler.ts 出现了 ${guardTiers.filter((t) => t === "view").length} 处 guard(...,'view')`,
   );
+  /* 判据改为**结构化**而非字面量（第 217 轮）。
+     原写法是 `!/required: 'view'/.test(permission-guard.ts)`——
+     注入 `required: NodePermDto | 'view'` 就能绕过它（实测注入后守卫仍全绿）。
+     原因：它只认一种**写法**，而「required 可能是 view」有无数种写法
+     （联合类型、断言、变量间接引用）。**文本匹配代替不了语义断言。**
+     现在改为从 **DTO 类型本身**断言——
+     `guard` 的 required 与 permission-guard 的 required 都取自 `NodePermDto`，
+     那个类型若不再含 'view'，两条路径都传不进来；若它含了，本判据自然转红，
+     不依赖调用点写成什么样。 */
+  /* 判据 ③（第 217 轮重写）：查**门槛类型**，不查权限取值类型。
+     先说清一个我自己踩过的坑：`NodePermDto` **本来就该包含 'view'**
+     ——它是「权限取值」的并集（要能存 view 档的授权行）。
+     把它当门槛类型来断言是**混淆了两个概念**，会让判据恒红。
+     真正该断言的是**门槛类型**：准入签名上写的是
+     `required: 'run' | 'approve' | 'manage'`——它才是「view 传不进来」的地方。
+     所以判据改为：在 `handler.ts` 与 `permission-guard.ts` 中，
+     **`required` 的类型标注/实参里不得出现 'view'**，
+     且它必须确实出现在守卫里（防止判据空转）。 */
+  const gateSig = /required\s*:\s*'run'\s*\|\s*'approve'\s*\|\s*'manage'/.test(handler2);
   assert.ok(
-    !/required: 'view'/.test(read("../../packages/af/af-api/src/task/permission-guard.ts")),
-    "permission-guard 的 required 收到了 'view' —— 「view 不作门槛」不再成立，需同步改架构文档",
+    gateSig,
+    "handler.ts 的准入签名不再是 'run' | 'approve' | 'manage' —— " +
+      "「view 在类型上就传不进门槛」不再成立，需同步改架构文档",
+  );
+  assert.ok(
+    !/required\s*[:=][^\n;]*['"]view['"]/.test(handler2) &&
+      !/required\s*[:=][^\n;]*['"]view['"]/.test(read("../../packages/af/af-api/src/task/permission-guard.ts")),
+    "准入 required 收到了 'view' —— 「view 不作门槛」不再成立，需同步改架构文档",
   );
   /* 文档里若再出现「唯一实参是 'run'」，说明依据又退回过期状态。 */
   const arch = read("../../doc/architecture.md");
