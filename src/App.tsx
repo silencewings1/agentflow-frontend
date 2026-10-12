@@ -757,6 +757,21 @@ export default function App() {
     if (next.actor.accountId === accountId) void loadAccounts();
   }, [loadAccounts]);
 
+  /* 删除账户：不可逆，与停用并列但语义不同（停用可恢复、删除只留审计快照）。
+     服务端返回**删除后**的完整目录，界面以它重绘——不做本地乐观删除，
+     否则失败时界面会显示一个仍然存在的账户。 */
+  const deleteAccount = useCallback(async (accountId: string) => {
+    const next = await afApi.deleteAccount(accountId);
+    setAccountsData(next);
+    /* 这里**不需要**像 setAccountState 那样额外刷新身份视图，
+       理由是可判定的：后端禁止删自己（AF_PERMISSION_DENIED / self-delete），
+       因此被删账户必不可能是当前 actor；而 actor 自己的授权与状态
+       不因删除他人而改变，视图没有要更新的部分。
+       （第一版我写的是 `if (next.actor.accountId === null)`——那是**恒不成立**的
+        死条件：能走到这里说明调用方已通过身份闸门，actor 不可能是 null。
+        写成一个看起来谨慎的分支，实际什么都没做；已删掉。） */
+  }, []);
+
   /* 第 205/206 轮：审计分页。
      `GET /accounts` 只回最新一页且无法翻页，因此「更早的记录」此前在界面上
      **完全不可达**——文案只能说"共 N 条、这里显示 M 条"。
@@ -2824,6 +2839,7 @@ export default function App() {
           onCreateAccount={createAccount}
           onUpdateAccount={updateAccount}
           onSetAccountState={setAccountState}
+          onDeleteAccount={deleteAccount}
           onSetGrant={setNodeGrant}
           onLoadAudit={loadAccountAudit}
         />

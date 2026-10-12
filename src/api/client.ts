@@ -689,6 +689,63 @@ function fixtureClient(): AfApiClient {
          避免"守了一条路由、开着另一条"的分叉。 */
       return fixtureWriteAccount(accountId, { state });
     },
+    async deleteAccount(accountId) {
+      /* 与真实后端**逐条同源**，顺序也一样：权限 → 找得到 → 不是自己 →
+         不是内置 → 不是最后一位管理者。
+         两边分叉的后果是 dev 模式通过、真实环境被拒（或反之），
+         所以这里不图省事只做"删掉"这一件事。 */
+      const actor = requireManager();
+      const index = fixtureAccounts.findIndex((item) => item.accountId === accountId);
+      if (index < 0) {
+        throw new AfApiError({ code: "AF_ACCOUNT_NOT_FOUND", message: "找不到该账户", retryable: false });
+      }
+      const target = fixtureAccounts[index]!;
+      if (accountId === actor.accountId) {
+        /* 自带判别标识（同 self-suspend）：与"缺少管理权"共用码但处置相反。 */
+        throw new AfApiError({
+          code: "AF_PERMISSION_DENIED",
+          message: "不能删除当前登录账户；删除不可逆，请另一位管理者操作",
+          retryable: false,
+        });
+      }
+      if (target.builtin) {
+        throw new AfApiError({
+          code: "AF_ACCOUNT_BUILTIN",
+          message: "内置账户不可删除，请改用停用",
+          retryable: false,
+        });
+      }
+      /* 最后一位管理者：与停用同一条判据，但要看**该账户的全部** manage，
+         而不是像停用那样只看"它是否持 manage"——删除会一次性拿走全部。 */
+      if (target.state === "active" && holdsManageGrant(accountId)) {
+        const stillCovered = fixtureAccounts.some((item) =>
+          item.accountId !== accountId && item.state === "active" && holdsManageGrant(item.accountId),
+        );
+        if (!stillCovered) {
+          throw new AfApiError({
+            code: "AF_LAST_MANAGER",
+            message: "不能删除最后一位管理者：删除后目录将无人可管理",
+            retryable: false,
+          });
+        }
+      }
+      /* 账户行 + 该账户全部授权行一起删（与后端同一原子语义）；
+         授权行不写 grant 审计——那会被读成"某人收回了权限"，
+         而实际发生的是"账户不存在了"，两者处置不同。 */
+      fixtureAccounts.splice(index, 1);
+      fixtureGrants = fixtureGrants.filter((item) => item.accountId !== accountId);
+      fixtureAccountAudit = [{
+        auditId: `${accountId}-a${fixtureAccountAudit.filter((row) => row.accountId === accountId).length + 1}`,
+        action: "delete",
+        accountId,
+        /* 删除前快照——账户行消失后唯一能回放它的地方。 */
+        account: target,
+        changedFields: [],
+        actor: actor.accountId!,
+        occurredAt: new Date().toISOString(),
+      }, ...fixtureAccountAudit];
+      return snapshot();
+    },
     async setNodeGrant(input) {
       const actor = requireManager();
       if (!fixtureAccounts.some((item) => item.accountId === input.accountId)) {
@@ -1164,6 +1221,10 @@ class HttpAfApiClient implements AfApiClient {
   createAccount(input: AccountInputDto, signal?: AbortSignal) { return this.request<AccountsDto>("/accounts", { method: "POST", body: JSON.stringify(input) }, signal); }
   updateAccount(accountId: string, input: AccountUpdateInputDto, signal?: AbortSignal) { return this.request<AccountsDto>(`/accounts/${encodeURIComponent(accountId)}`, { method: "PUT", body: JSON.stringify(input) }, signal); }
   setAccountState(accountId: string, state: AccountStateDto, signal?: AbortSignal) { return this.request<AccountsDto>(`/accounts/${encodeURIComponent(accountId)}/state`, { method: "POST", body: JSON.stringify({ state }) }, signal); }
+  /* 真删账户（含其全部授权行）。与 setAccountState("suspended") 并列：
+     停用可恢复、记录与授权全留；删除不可逆，只留一条 action=delete 审计快照。
+     后端另有「不得删自己 / 不得删最后管理者 / 内置账户不可删」三道业务前置。 */
+  deleteAccount(accountId: string, signal?: AbortSignal) { return this.request<AccountsDto>(`/accounts/${accountId}`, { method: "DELETE" }, signal); }
   setNodeGrant(input: GrantInputDto, signal?: AbortSignal) { return this.request<GrantMutationDto>("/grants", { method: "POST", body: JSON.stringify(input) }, signal); }
   /* 供应商写入：后端 schema 是 strict，body 必须逐字段对齐 ModelProviderInputDto，
      且 apiKey 仅在非空时提交 —— 传 undefined 表示保留既有凭据，传空串会被 min(1) 拒绝。 */

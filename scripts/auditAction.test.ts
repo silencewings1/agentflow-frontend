@@ -176,16 +176,30 @@ assert.ok(
   '前端 POST /state 仍在向 fixtureWriteAccount 声明 action',
 );
 
-/* ⑥ action 的取值域必须与 DTO 一致：多一个少一个都会让界面落到兜底分支。 */
+/* ⑥ action 的取值域必须与 DTO 一致：多一个少一个都会让界面落到兜底分支。
+   `delete` 是后加的（删除账户 API），这条判据因此也必须跟着长大——
+   否则它守的还是"上一次的取值域"，而新增的那个动作在界面上会落到兜底文案。
+   （实测：只加类型不改本文件，这条守卫当场变红，正是它该做的事。） */
 const dto = read("../src/api/types.ts");
 assert.ok(
-  /action:\s*"create"\s*\|\s*"update"\s*\|\s*"state"/.test(dto),
+  /action:\s*"create"\s*\|\s*"update"\s*\|\s*"state"\s*\|\s*"delete"/.test(dto),
   'AccountAuditDto.action 的取值域变了，界面分支需同步',
 );
 const beTypes = read("../../packages/af/af-storage/src/types.ts");
 assert.ok(
-  /z\.enum\(\['create',\s*'update',\s*'state'\]\)/.test(beTypes),
+  /z\.enum\(\['create',\s*'update',\s*'state',\s*'delete'\]\)/.test(beTypes),
   'af-storage 的 account audit action 取值域与前端 DTO 不一致',
+);
+/* 反向断言：界面必须**真的**为 delete 写了文案分支。
+   只改类型、不改文案时，上面两条都会通过，而界面上"删除"会被读成"修改了"——
+   与缺陷 #46 同一类症状（同一个动作有两种说法），因此必须单独钉一句。
+
+   这里钉的是**分支里的实际文案**（"删除了"）而不是"有没有 delete 这个词"：
+   后者会被 `onDeleteAccount:` 这类属性名满足，而那正是"看起来改了、其实没改"
+   的典型形状。文案本身才是这个分支存在的证据。 */
+assert.ok(
+  /"delete"\s*\?\s*\n?\s*"删除了"/.test(read("../src/components/MembersPane.tsx")),
+  'MembersPane 的 action=delete 分支没有"删除了"文案，该动作会落到兜底文案（"修改了"）',
 );
 
 console.log(

@@ -206,7 +206,8 @@ export interface ActorDto {
 /** 账户变更审计条目：创建 / 改名 / 改角色 / 停用 / 恢复。 */
 export interface AccountAuditDto {
   auditId: string;
-  action: "create" | "update" | "state";
+  /** delete = 真删（不可逆）；account 字段是**删除前**的快照。 */
+  action: "create" | "update" | "state" | "delete";
   accountId: string;
   /** 变更后的账户快照，使历史可独立回放。 */
   account: AccountDto;
@@ -1515,6 +1516,9 @@ export interface AfApiClient {
   createAccount(input: AccountInputDto, signal?: AbortSignal): Promise<AccountsDto>;
   updateAccount(accountId: string, input: Partial<AccountInputDto>, signal?: AbortSignal): Promise<AccountsDto>;
   setAccountState(accountId: string, state: AccountStateDto, signal?: AbortSignal): Promise<AccountsDto>;
+  /** 真删账户（含其全部授权行），不可逆。停用是可恢复的替代品：
+      停用保留记录、授权与审计，删除只留一条 action=delete 的审计快照。 */
+  deleteAccount(accountId: string, signal?: AbortSignal): Promise<AccountsDto>;
   /** 授予/升降/收回（perm=null）一个节点权限；返回新的授权与新审计，界面直接回显。 */
   setNodeGrant(input: GrantInputDto, signal?: AbortSignal): Promise<GrantMutationDto>;
   listTasks(signal?: AbortSignal): Promise<TaskSummaryDto[]>;

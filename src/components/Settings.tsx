@@ -115,6 +115,7 @@ export function SettingsOverlay({
   onCreateAccount,
   onUpdateAccount,
   onSetAccountState,
+  onDeleteAccount,
   onSetGrant,
   onLoadAudit,
 }: {
@@ -149,6 +150,7 @@ export function SettingsOverlay({
   onCreateAccount: (input: AccountInputDto) => Promise<void>;
   onUpdateAccount: (accountId: string, input: AccountUpdateInputDto) => Promise<void>;
   onSetAccountState: (accountId: string, state: AccountDto["state"]) => Promise<void>;
+  onDeleteAccount: (accountId: string) => Promise<void>;
   /* 透传服务端回读的目录（MembersPane 需要在写入生效后描述"还剩谁"）。 */
   onSetGrant: (input: {
     accountId: string;
@@ -229,6 +231,7 @@ export function SettingsOverlay({
                 onCreateAccount={onCreateAccount}
                 onUpdateAccount={onUpdateAccount}
                 onSetAccountState={onSetAccountState}
+                onDeleteAccount={onDeleteAccount}
                 onSetGrant={onSetGrant}
                 onLoadAudit={onLoadAudit}
               />

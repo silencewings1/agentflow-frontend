@@ -142,6 +142,7 @@ export function MembersPane({
   onCreateAccount,
   onUpdateAccount,
   onSetAccountState,
+  onDeleteAccount,
   onSetGrant,
   onLoadAudit,
 }: {
@@ -157,6 +158,7 @@ export function MembersPane({
   onCreateAccount: (input: AccountInputDto) => Promise<void>;
   onUpdateAccount: (accountId: string, input: Partial<AccountInputDto>) => Promise<void>;
   onSetAccountState: (accountId: string, state: AccountDto["state"]) => Promise<void>;
+  onDeleteAccount: (accountId: string) => Promise<void>;
   /* 返回服务端回读的新目录：写完之后要描述"结果是什么"时，必须基于这份
      权威数据，而不是本组件闭包里的 `data`（那是写入前的旧值，
      实测据此算出过与事实相反的结论）。 */
@@ -183,6 +185,11 @@ export function MembersPane({
      上一个账户的值，改完提交就把 A 的职责写到 B 身上了。
      `editingId` 指明这份草稿属于哪个账户；与当前选中不一致时不渲染草稿。 */
   const [editingId, setEditingId] = useState<string | null>(null);
+  /* 正在等待二次确认的删除目标（null = 没有）。
+     用「账户 id」而不是布尔量：布尔量在切账户时会带着上一个人的"待确认"
+     状态落到下一个人身上，于是切过去只点一下就把那人删了——
+     这与编辑草稿用 id 而非布尔量是同一个理由。 */
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editDuty, setEditDuty] = useState("");
   const [editRole, setEditRole] = useState<AccountRoleDto>("development");
@@ -919,6 +926,60 @@ export function MembersPane({
                   恢复
                 </button>
               )}
+              {/* 删除入口：排在**最右**，因为它是这一行里唯一不可逆的动作。
+                  排序理由与「编辑在停用左边」同源——按可逆性递增，减少误点代价。
+
+                  为什么要两步确认：这里没有撤销路径（账户行与授权行一并消失），
+                  而"停用"与"删除"在视觉上都是一个小按钮，误点代价却差一个量级。
+                  第一步把按钮变成「确认删除」并**原地**给出后果说明，
+                  第二步才真的发出请求；移开焦点即撤销，不需要额外的取消按钮。
+
+                  三种受阻情形都显式渲染（不靠按钮消失表达，见 §4.3）：
+                    · 不能删自己 —— 与停用同一条守卫，但删除**没有恢复路径**，
+                      比停用更硬，因此文案单独写。
+                    · 内置账户 —— 契约上只能停用。
+                    · 权限不足 —— 与其它写操作同源。 */}
+              {(() => {
+                const blockedReason =
+                  active.accountId === actor.accountId
+                    ? "不能删除当前登录账户；删除不可逆，请另一位管理者操作"
+                    : active.builtin
+                      ? "内置账户不可删除，请改用「停用」"
+                      : !canManage
+                        ? "删除账户需要管理权限（在至少一个真实责任位上持有「可编排」）"
+                        : null;
+                const pending = deletingId === active.accountId;
+                return (
+                  <button
+                    className="btn btn--ghost btn--sm"
+                    disabled={blockedReason !== null || busy === `delete-${active.accountId}`}
+                    {...(blockedReason === null ? {} : { "data-blocked": "true" })}
+                    title={blockedReason ?? (pending
+                      ? "再次点击确认；移开即可撤销"
+                      : "永久删除该账户及其全部节点授权。历史审计保留一条删除快照，但账户不可恢复——若只是想让它不能登录，请改用「停用」")}
+                    onBlur={() => setDeletingId((cur) => (cur === active.accountId ? null : cur))}
+                    onClick={() => {
+                      if (blockedReason !== null) return;
+                      if (!pending) {
+                        setDeletingId(active.accountId);
+                        return;
+                      }
+                      setDeletingId(null);
+                      void run(
+                        `delete-${active.accountId}`,
+                        () => onDeleteAccount(active.accountId),
+                        () => onToast({
+                          tone: "warn",
+                          title: "已删除账户",
+                          body: `${active.name} 的账户与节点授权已移除；审计里仍可查到删除前的快照。`,
+                        }),
+                      );
+                    }}
+                  >
+                    {pending ? "确认删除" : "删除"}
+                  </button>
+                );
+              })()}
             </header>
 
             {/* 编辑表单：只在 `editingId` 等于当前选中账户时渲染。
@@ -1311,8 +1372,19 @@ export function MembersPane({
 function AccountAuditRow({ row, accounts }: { row: AccountAuditDto; accounts: AccountDto[] }) {
   const actor = accounts.find((item) => item.accountId === row.actor);
   /* 停用/恢复是最需要留痕的动作，因此单列一种说法；资料变更进一步说明改了哪些字段，
-     使"改了什么"不必靠对比前后快照才能回答。 */
-  const actionText = row.action === "create" ? "创建了" : row.action === "state" ? (row.account.state === "suspended" ? "停用了" : "恢复了") : "修改了";
+     使"改了什么"不必靠对比前后快照才能回答。
+
+     删除**必须**单列，不能落到兜底分支：兜底文案是"修改了"，
+     而删除是终局动作——把"账户被删了"显示成"改了某人"，读的人会以为
+     该账户还在、只是资料变了（与缺陷 #46 同一类：一个动作两种说法）。
+     删除行里的 `row.account` 是**删除前**的快照，这正是它还能渲染出姓名的原因。 */
+  const actionText = row.action === "create"
+    ? "创建了"
+    : row.action === "delete"
+      ? "删除了"
+      : row.action === "state"
+        ? (row.account.state === "suspended" ? "停用了" : "恢复了")
+        : "修改了";
   const FIELD_LABEL: Record<string, string> = {
     name: "姓名",
     handle: "登录标识",
