@@ -1124,13 +1124,23 @@ class HttpAfApiClient implements AfApiClient {
     }
     let response: Response;
     try {
-      response = await this.fetchImpl(`${this.baseUrl.replace(/\/$/, "")}${path}`, { ...init, signal, headers: { "content-type": "application/json", ...(this.actor === null ? {} : { "x-af-actor": this.actor }), ...init?.headers } });
+      // Accept: application/json 是网关「fetch 语义」的客户端声明（server.ts wantsJson）：
+      // 未登录时网关按此返回 401 JSON 而不是 302——浏览器跟随 302 会跨源跳到
+      // Keycloak 登录页并被 CORS 拦截，表现为「无法连接 AF API」的假网络错误。
+      response = await this.fetchImpl(`${this.baseUrl.replace(/\/$/, "")}${path}`, { ...init, signal, headers: { "accept": "application/json", "content-type": "application/json", ...(this.actor === null ? {} : { "x-af-actor": this.actor }), ...init?.headers } });
     } catch (error) {
       throw new AfApiError({
         code: "AF_NETWORK_ERROR",
         message: error instanceof Error ? error.message : "无法连接 AF API",
         retryable: true,
       });
+    }
+    if (response.status === 401) {
+      // 网关 401 JSON = 网关会话不存在/过期（OIDC 登录在网关层，AF 无会话概念）。
+      // 整页跳登录，登录后由网关的 return_to 带回当前页。
+      const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
+      window.location.assign(`/oidc/login?return_to=${returnTo}`);
+      throw new AfApiError({ code: "AF_UNAUTHENTICATED", message: "网关会话不存在或已过期，正在跳转登录…", retryable: false }, 401);
     }
     let body: AfResponse<T>;
     try {
