@@ -197,6 +197,19 @@ export const Icon = {
       <path d="M12 16.6v3.9" />
     </svg>
   ),
+  RefreshCw: ({ size = 16, ...r }: P) => (
+    <svg {...base(size)} strokeWidth={1.8} {...r}>
+      <path d="M21 12a9 9 0 1 1-2.6-6.3" />
+      <path d="M21 3v6h-6" />
+    </svg>
+  ),
+  Boxes: ({ size = 16, ...r }: P) => (
+    <svg {...base(size)} strokeWidth={1.8} {...r}>
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+      <rect x="8.5" y="3" width="7" height="7" rx="1" />
+    </svg>
+  ),
   Cloud: ({ size = 16, ...r }: P) => (
     <svg {...base(size)} {...r}>
       <path d="M7.5 18.5h9.2a3.8 3.8 0 0 0 .5-7.6 5.3 5.3 0 0 0-10.2-1 3.9 3.9 0 0 0 .5 8.6Z" />

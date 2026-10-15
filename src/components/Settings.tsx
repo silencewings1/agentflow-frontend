@@ -10,6 +10,7 @@ import {
   type ArchLayer,
 } from "../data/settings";
 import { MembersPane } from "./MembersPane";
+import { SpacesPane } from "./SpacesPane";
 import type { AccountsUnavailable } from "./MembersPane";
 import type { Workflow } from "../data/workflows";
 import {
@@ -31,7 +32,7 @@ import {
   type EnvironmentDto,
 } from "../api";
 
-export type SettingsPane = "arch" | "members" | "agents" | "models" | "connect" | "env";
+export type SettingsPane = "arch" | "members" | "spaces" | "agents" | "models" | "connect" | "env";
 
 /* 架构层的跳转落点：点击直达承载该层证据的界面，而不是让用户自己去找 */
 export type ArchJump = "workflow" | "agents" | "replay" | "evidence" | "checkpoint";
@@ -61,6 +62,12 @@ const PANES: { id: SettingsPane; label: string; glyph: IconName; desc: string }[
     label: "成员与权限",
     glyph: "Key",
     desc: "账户目录与节点授权矩阵：每个责任位由谁承担、持有什么权限等级，变更全程留痕。",
+  },
+  {
+    id: "spaces",
+    label: "空间",
+    glyph: "Boxes",
+    desc: "工作空间（容器）与成员路由：谁在哪个空间、健康状态与活跃会话。跨容器供给经管理员控制台完成。",
   },
   {
     id: "agents",
@@ -220,6 +227,7 @@ export function SettingsOverlay({
             {pane === "arch" && (
               <ArchPane onToast={onToast} runtime={runtime} onJump={onJump} profileCount={agentProfiles.length} link={connectionLayer} />
             )}
+            {pane === "spaces" && <SpacesPane onToast={onToast} />}
             {pane === "members" && (
               <MembersPane
                 data={accounts}
