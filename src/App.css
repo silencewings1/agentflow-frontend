@@ -1226,7 +1226,11 @@
    全部走下面真实定义的 portal__* 类。 */
 
 .portal {
-  min-height: 100vh;
+  height: 100vh;
+  /* body 是 overflow:hidden（Console 应用式布局的前提），门户不是 grid 外壳、
+     没有内部滚动区——自己成为滚动容器，否则内容超一屏即被裁掉，只能缩放
+     才能看全（G9 用户实测反馈）。顶栏 sticky 依赖此滚动容器。 */
+  overflow-y: auto;
   padding: 0 clamp(16px, 4vw, 48px) 48px;
   background:
     radial-gradient(1200px 400px at 20% -10%, color-mix(in oklab, var(--accent) 7%, transparent), transparent),
@@ -1559,6 +1563,12 @@
   width: 100%;
   border-collapse: collapse;
   font-size: var(--step--1);
+  /* 成员矩阵的 subject 是 36 位 UUID、handle 是长邮箱——窄屏下表格会被内容
+     撑破容器（portal 无横向滚动时整页溢出）。表格外层用块级横向滚动兜底，
+     行内不换行让长标识完整可读。 */
+  display: block;
+  overflow-x: auto;
+  white-space: nowrap;
 }
 
 .portal__table th {
