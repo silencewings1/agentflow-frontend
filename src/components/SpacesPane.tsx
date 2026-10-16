@@ -1,144 +1,195 @@
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "./Icons";
+import {
+  listProvisionSpaces,
+  listProvisionSessions,
+  createProvisionSpace,
+  decommissionProvisionSpace,
+  provisionUser,
+  removeProvisionUser,
+  PortalAdminError,
+  type ProvisionSpace,
+  type ProvisionSession,
+} from "../api/portal";
 
 /**
- * 空间管理面板（ADMIN-CONSOLE-PLAN R1/R6 只读视图 + R2/R3 操作入口）。
+ * 空间管理面板（ADMIN-CONSOLE-PLAN R1/R6 只读视图 + R2/R3 操作入口；
+ * PORTAL-PLAN G5 起也是门户「空间总览」页的宿主——主体逻辑抽成 SpacesBoard，
+ * 设置浮层与本组件各自只做薄壳）。
  *
- * 数据来源：网关反代的 /admin/provision/*（provision-agent，Bearer token）。
- * v1 简化：token 由部署方注入为 VITE_AF_PROVISION_TOKEN（编译期常量，与
- * VITE_AF_API_BASE_URL 同模式）；token 未配置时整面板显示「管理面未部署」，
- * 而不是报错——不部署 agent = 无此功能，是合法形态（§2.3 缺省即 404）。
+ * 数据来源：网关反代的 /admin/provision/*。鉴权**两种模式并存**（G10 收紧后）：
+ * - 部署形态：无 token，靠浏览器同源会话 cookie（网关校验 platformAdmin），
+ *   fetch 默认 same-origin 自带凭据，不带 Authorization 头；
+ * - 本地开发（无 Keycloak）：仍可配置 VITE_AF_PROVISION_TOKEN 走 Bearer 直通。
+ *   token 从「唯一路径」降级为「逃生舱」，不再烧进公开 bundle 依赖链。
+ * agent 未部署且无 cookie 时以 502/401 呈现「管理面不可用」，不再整面板替换。
  *
- * 展示口径：空间卡片（健康/账号数/成员映射）+ 活跃会话；写动作（加入成员）
- * 直发 agent，结果以重读为准，不做本地乐观改写（与 MembersPane 同规矩）。
+ * 展示口径：空间卡片（健康/账号数/成员映射）+ 活跃会话；写动作（新建/下线
+ * 空间、供给/移除成员）直发 agent，结果以重读为准，不做本地乐观改写
+ * （与 MembersPane 同规矩）。
  */
-type Space = {
-  space: string;
-  container: string;
-  running: boolean;
-  bootstrapOk: boolean | null;
-  accounts: number | null;
-  members: Array<{ subject: string; afHandle: string; displayName?: string }>;
-};
-type SessionRow = { sessionId: string; subject: string; accessTokenExpiresAt: number };
-type Toast = (t: { tone: "ok" | "warn" | "info"; title: string; body: string }) => void;
+export type Toast = (t: { tone: "ok" | "warn" | "info"; title: string; body: string }) => void;
 
-const TOKEN = import.meta.env.VITE_AF_PROVISION_TOKEN as string | undefined;
+/** 把 agent 调用失败翻译成可读文案；401/403 明确指向「缺管理员会话」，
+    502 明确指向「agent 未部署」。PortalAdminError 已经携带可读 message，
+    这里只补两类需要换语境的成因（数据面 vs 会话面）。 */
+function adminErrorText(error: unknown): string {
+  if (error instanceof PortalAdminError) {
+    if (error.status === 502) return "供给代理（provision-agent）不可达——管理面未部署或 agent 离线。";
+    return error.message;
+  }
+  return error instanceof Error ? error.message : "管理面不可达";
+}
 
-export function SpacesPane({ onToast }: { onToast: Toast }) {
-  const [spaces, setSpaces] = useState<Space[] | null>(null);
-  const [sessions, setSessions] = useState<SessionRow[] | null>(null);
+/**
+ * 空间总览主体：空间卡片 + 新建/下线 + 成员供给/移除 + 活跃会话。
+ * 设置浮层与门户管理区共用同一份数据与动作，避免两处各养一套判据漂移。
+ */
+export function SpacesBoard({ onToast }: { onToast: Toast }) {
+  const [spaces, setSpaces] = useState<ProvisionSpace[] | null>(null);
+  const [sessions, setSessions] = useState<ProvisionSession[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ space: "", username: "", handle: "", displayName: "" });
-
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-    accept: "application/json",
-    ...(TOKEN ? { authorization: `Bearer ${TOKEN}` } : {}),
-  };
+  const [newSpace, setNewSpace] = useState("");
 
   const refresh = useCallback(async () => {
-    if (!TOKEN) return;
     try {
       const [s, sess] = await Promise.all([
-        fetch("/admin/provision/spaces", { headers }).then((r) => r.json()),
-        fetch("/admin/sessions", { headers }).then((r) => r.json()),
+        listProvisionSpaces(),
+        listProvisionSessions().catch(() => null),
       ]);
-      if (s.ok) setSpaces(s.data.spaces);
-      else setError(s.error?.message ?? "读取失败");
-      if (sess.ok) setSessions(sess.data.sessions);
+      setSpaces(s);
+      setError(null);
+      setSessions(sess);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "管理面不可达");
+      setError(adminErrorText(e));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  if (!TOKEN) {
-    return (
-      <div className="spacesPane">
-        <p className="text-muted">
-          供给代理（provision-agent）未配置管理令牌——空间管理面未部署。
-          这是合法形态：不部署 agent 时此面板无数据源。部署方法见 deploy/ADMIN-CONSOLE-PLAN.md。
-        </p>
-      </div>
-    );
-  }
-
-  const addUser = async () => {
+  const withBusy = async (action: () => Promise<void>) => {
     setBusy(true);
     try {
-      const res = await fetch("/admin/provision/users", {
-        method: "POST",
-        headers,
-        body: JSON.stringify(form),
-      });
-      const j = await res.json();
-      if (j.ok) {
-        onToast({ tone: "ok", title: "成员已供给", body: `${form.handle} → ${form.space}（账号/身份/映射三步完成，Keycloak ${j.data.kcCreated ? "新建" : "复用"}）` });
+      await action();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addUser = (form: { space: string; username: string; handle: string; displayName: string }) =>
+    withBusy(async () => {
+      try {
+        await provisionUser({ space: form.space, username: form.username, handle: form.handle, displayName: form.displayName });
+        onToast({ tone: "ok", title: "成员已供给", body: `${form.handle} → ${form.space}（账号/身份/映射三步完成）` });
         setAdding(false);
         setForm({ space: "", username: "", handle: "", displayName: "" });
         await refresh();
-      } else {
-        onToast({ tone: "warn", title: "供给失败", body: j.error?.message ?? `HTTP ${res.status}` });
+      } catch (e) {
+        onToast({ tone: "warn", title: "供给失败", body: adminErrorText(e) });
       }
-    } finally {
-      setBusy(false);
-    }
-  };
+    });
 
-  const removeUser = async (subject: string, handle: string) => {
-    setBusy(true);
-    try {
-      const res = await fetch(`/admin/provision/users/${encodeURIComponent(subject)}`, { method: "DELETE", headers });
-      const j = await res.json();
-      if (j.ok) {
-        onToast({ tone: "ok", title: "成员已移除", body: `${handle}：会话吊销 ${j.data.revoked}、AF 账号停用、映射已删` });
+  const removeUser = (subject: string, handle: string) =>
+    withBusy(async () => {
+      try {
+        await removeProvisionUser(subject);
+        onToast({ tone: "ok", title: "成员已移除", body: `${handle}：会话吊销、AF 账号停用、映射已删` });
         await refresh();
-      } else {
-        onToast({ tone: "warn", title: "移除失败", body: j.error?.message ?? `HTTP ${res.status}` });
+      } catch (e) {
+        onToast({ tone: "warn", title: "移除失败", body: adminErrorText(e) });
       }
-    } finally {
-      setBusy(false);
-    }
-  };
+    });
+
+  const createSpace = () =>
+    withBusy(async () => {
+      try {
+        await createProvisionSpace({ space: newSpace });
+        onToast({ tone: "ok", title: "空间已创建", body: `${newSpace} 已就绪；可继续为它供给成员。` });
+        setCreating(false);
+        setNewSpace("");
+        await refresh();
+      } catch (e) {
+        onToast({ tone: "warn", title: "创建失败", body: adminErrorText(e) });
+      }
+    });
+
+  const decommission = (space: string) =>
+    withBusy(async () => {
+      try {
+        await decommissionProvisionSpace(space);
+        onToast({ tone: "ok", title: "空间已下线", body: `${space}：容器已停、映射与成员账号已处理（卷保留）。` });
+        await refresh();
+      } catch (e) {
+        onToast({ tone: "warn", title: "下线失败", body: adminErrorText(e) });
+      }
+    });
 
   return (
-    <div className="spacesPane">
-      <div className="spacesPane__head">
-        <span className="text-muted">
+    <div className="portal__board">
+      <div className="portal__boardHead">
+        <span className="portal__muted">
           {spaces === null ? (error ?? "读取中…") : `${spaces.length} 个空间 · ${sessions?.length ?? "?"} 个活跃会话`}
         </span>
-        <button className="btn" onClick={() => void refresh()} disabled={busy}>
-          <Icon.RefreshCw size={14} />
-          <span>刷新</span>
-        </button>
+        <div className="portal__boardActions">
+          <button className="portal__btn" onClick={() => setCreating(true)} disabled={busy}>
+            <Icon.Plus size={14} />
+            <span>新建空间</span>
+          </button>
+          <button className="portal__btn" onClick={() => void refresh()} disabled={busy}>
+            <Icon.RefreshCw size={14} />
+            <span>刷新</span>
+          </button>
+        </div>
       </div>
 
+      {spaces === null && error !== null && <p className="portal__error" role="alert">{error}</p>}
+
+      {creating && (
+        <div className="portal__formCard">
+          <strong>新建工作空间</strong>
+          <p className="portal__muted portal__hint">空间名即容器/上游名（如 af）。初始成员可稍后在空间卡片里供给。</p>
+          <label className="portal__field">
+            空间名
+            <input className="portal__input" value={newSpace} onChange={(e) => setNewSpace(e.target.value)} placeholder="af" />
+          </label>
+          <div className="portal__formActions">
+            <button className="portal__btn portal__btn--primary" disabled={busy || !newSpace.trim()} onClick={() => void createSpace()}>
+              提交创建
+            </button>
+            <button className="portal__btn" onClick={() => setCreating(false)}>取消</button>
+          </div>
+        </div>
+      )}
+
       {spaces?.map((s) => (
-        <div key={s.space} className="card" style={{ padding: "10px 12px", marginBottom: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <strong className="serif">{s.space}</strong>
-            <span
-              style={{
-                fontSize: 12,
-                padding: "1px 8px",
-                borderRadius: 999,
-                background: s.running ? "color-mix(in srgb, var(--green) 16%, transparent)" : "var(--muted)",
-                color: s.running ? "var(--green)" : "var(--muted-foreground)",
-              }}
-            >
+        <div key={s.space} className="portal__spaceCard">
+          <div className="portal__spaceHead">
+            <strong className="portal__spaceName">{s.space}</strong>
+            <span className="portal__statePill" data-running={s.running}>
               {s.running ? (s.bootstrapOk === true ? "运行中 · bootstrap ok" : "运行中 · 探针未过") : "已下线（卷保留）"}
             </span>
-            {s.accounts !== null && <span className="text-small text-muted">{s.accounts} 个账号</span>}
-            <span className="text-small text-muted mono">{s.container}</span>
+            {s.accounts !== null && <span className="portal__muted portal__small">{s.accounts} 个账号</span>}
+            <span className="portal__muted portal__small portal__mono">{s.container}</span>
+            {s.running && (
+              <button
+                className="portal__btn portal__btn--danger portal__small"
+                disabled={busy}
+                onClick={() => {
+                  if (!window.confirm(`下线空间「${s.space}」？容器将停止、成员账号与映射会被处理；卷保留但不可自动恢复。`)) return;
+                  void decommission(s.space);
+                }}
+              >
+                下线空间
+              </button>
+            )}
           </div>
-          <table className="table table-sm" style={{ marginTop: 6 }}>
+          <table className="portal__table">
             <thead>
               <tr>
                 <th>成员</th>
@@ -150,13 +201,15 @@ export function SpacesPane({ onToast }: { onToast: Toast }) {
               {s.members.map((m) => (
                 <tr key={m.subject}>
                   <td>{m.displayName ?? m.afHandle}</td>
-                  <td className="mono">{m.afHandle}</td>
+                  <td className="portal__mono">{m.afHandle}</td>
                   <td>
                     <button
-                      className="btn"
-                      style={{ fontSize: 12 }}
+                      className="portal__btn portal__small"
                       disabled={busy || !s.running}
-                      onClick={() => void removeUser(m.subject, m.afHandle)}
+                      onClick={() => {
+                        if (!window.confirm(`从「${s.space}」移除 ${m.afHandle}？会话将被吊销、AF 账号停用、映射删除。`)) return;
+                        void removeUser(m.subject, m.afHandle);
+                      }}
                     >
                       移除
                     </button>
@@ -165,7 +218,7 @@ export function SpacesPane({ onToast }: { onToast: Toast }) {
               ))}
               {s.members.length === 0 && (
                 <tr>
-                  <td colSpan={3} className="text-muted text-small">
+                  <td colSpan={3} className="portal__muted portal__small">
                     无成员映射
                   </td>
                 </tr>
@@ -176,40 +229,33 @@ export function SpacesPane({ onToast }: { onToast: Toast }) {
       ))}
 
       {adding ? (
-        <div className="card" style={{ padding: "10px 12px", display: "grid", gap: 8 }}>
+        <div className="portal__formCard">
           <strong>新增成员到空间</strong>
-          <label className="form-label">
+          <label className="portal__field">
             目标空间
-            <input
-              className="form-control"
-              value={form.space}
-              onChange={(e) => setForm({ ...form, space: e.target.value })}
-              placeholder="af"
-            />
+            <input className="portal__input" value={form.space} onChange={(e) => setForm({ ...form, space: e.target.value })} placeholder="af" />
           </label>
-          <label className="form-label">
+          <label className="portal__field">
             登录名（Keycloak username）
-            <input className="form-control" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
+            <input className="portal__input" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
           </label>
-          <label className="form-label">
+          <label className="portal__field">
             登录标识（handle，ASCII name@domain）
-            <input className="form-control" value={form.handle} onChange={(e) => setForm({ ...form, handle: e.target.value })} />
+            <input className="portal__input" value={form.handle} onChange={(e) => setForm({ ...form, handle: e.target.value })} />
           </label>
-          <label className="form-label">
+          <label className="portal__field">
             显示名
-            <input className="form-control" value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} />
+            <input className="portal__input" value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} />
           </label>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn btn-primary" disabled={busy || !form.space || !form.username || !form.handle} onClick={() => void addUser()}>
+          <div className="portal__formActions">
+            <button className="portal__btn portal__btn--primary" disabled={busy || !form.space || !form.username || !form.handle} onClick={() => void addUser(form)}>
               提交供给
             </button>
-            <button className="btn" onClick={() => setAdding(false)}>
-              取消
-            </button>
+            <button className="portal__btn" onClick={() => setAdding(false)}>取消</button>
           </div>
         </div>
       ) : (
-        <button className="btn" disabled={busy} onClick={() => setAdding(true)}>
+        <button className="portal__btn" disabled={busy} onClick={() => setAdding(true)}>
           <Icon.Plus size={14} />
           <span>新增成员到空间</span>
         </button>
@@ -217,8 +263,8 @@ export function SpacesPane({ onToast }: { onToast: Toast }) {
 
       {sessions !== null && sessions.length > 0 && (
         <>
-          <h3>活跃会话</h3>
-          <table className="table table-sm">
+          <h3 className="portal__sectionTitle">活跃会话</h3>
+          <table className="portal__table">
             <thead>
               <tr>
                 <th>subject</th>
@@ -228,7 +274,7 @@ export function SpacesPane({ onToast }: { onToast: Toast }) {
             <tbody>
               {sessions.map((s) => (
                 <tr key={s.sessionId}>
-                  <td className="mono">{s.subject.slice(0, 18)}…</td>
+                  <td className="portal__mono">{s.subject.slice(0, 18)}…</td>
                   <td>{new Date(s.accessTokenExpiresAt).toLocaleTimeString()}</td>
                 </tr>
               ))}
@@ -238,4 +284,13 @@ export function SpacesPane({ onToast }: { onToast: Toast }) {
       )}
     </div>
   );
+}
+
+/**
+ * 设置浮层里的空间面板（原 SpacesPane 出口，签名不变）。
+ * G10 之前这里是「无 token = 整面板显示未部署」；G10 之后 token 只是逃生舱，
+ * 部署形态靠会话 cookie，因此薄壳直接渲染同一块 SpacesBoard。
+ */
+export function SpacesPane({ onToast }: { onToast: Toast }) {
+  return <SpacesBoard onToast={onToast} />;
 }

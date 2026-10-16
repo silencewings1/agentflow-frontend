@@ -16,6 +16,14 @@ export default defineConfig({
     // （scripts/start-af-isolated.sh 会自动注入该变量）。
     proxy: {
       '/api/af': process.env.AF_BACKEND_URL ?? 'http://127.0.0.1:3080',
+      // 门户层（PORTAL-PLAN G4/G5）：/oidc/me 是**网关**端点（不在 AF API 路径
+      // 下），/admin/provision/* 与 /logout 也是网关路由（反代/登出）——开发
+      // 模式下这些请求必须打到网关而不是 AF 容器，否则门户分流与管理面在
+      // dev 下全部失灵。默认指向本地网关（deploy compose 的 AF_GATEWAY_PORT
+      // 8081）；需要指向其它网关时设置 AF_GATEWAY_URL。
+      '/oidc': process.env.AF_GATEWAY_URL ?? 'http://127.0.0.1:8081',
+      '/admin': process.env.AF_GATEWAY_URL ?? 'http://127.0.0.1:8081',
+      '/logout': process.env.AF_GATEWAY_URL ?? 'http://127.0.0.1:8081',
     },
   },
   preview: {

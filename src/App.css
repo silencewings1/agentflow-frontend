@@ -1217,6 +1217,446 @@
   background: #f8fbff;
 }
 
+/* --------------------------- portal（门户层） ----------------------------
+   PORTAL-PLAN G4/G5：登录后默认视图（工作台 + 平台管理区）。
+   命名沿用本仓 BEM 风格（portal__xxx）；令牌全部来自 src/index.css，
+   不定义新令牌、不硬编码颜色（与 styles/*.css 同一护栏）。
+   注：现状 SpacesPane/MembersPane 引用的 .text-muted/.table-sm 等
+   工具类在本样式系里并不存在（历史空引用），门户不再沿用它们，
+   全部走下面真实定义的 portal__* 类。 */
+
+.portal {
+  min-height: 100vh;
+  padding: 0 clamp(16px, 4vw, 48px) 48px;
+  background:
+    radial-gradient(1200px 400px at 20% -10%, color-mix(in oklab, var(--accent) 7%, transparent), transparent),
+    var(--bg);
+}
+
+.portal__checking {
+  padding: 96px 0;
+  text-align: center;
+  color: var(--text-3);
+  font-size: var(--step--1);
+}
+
+.portal__degraded {
+  max-width: 560px;
+  margin: 96px auto 0;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  display: grid;
+  gap: 10px;
+}
+
+.portal__degraded h1 {
+  font-family: var(--font-display);
+  font-size: var(--step-2);
+  font-weight: 500;
+}
+
+.portal__degraded p {
+  color: var(--text-2);
+  font-size: var(--step--1);
+  line-height: 1.7;
+}
+
+.portal__topbar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  min-height: 56px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.portal__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.portal__brandName {
+  font-family: var(--font-display);
+  font-size: var(--step-1);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.portal__tabs {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.portal__tab {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--r-sm);
+  font-size: var(--step--1);
+  color: var(--text-2);
+  white-space: nowrap;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+
+.portal__tab:hover {
+  background: var(--surface-2);
+}
+
+.portal__tab[data-active="true"] {
+  background: var(--surface-3);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.portal__topActions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.portal__main {
+  max-width: 980px;
+  margin: 0 auto;
+  padding-top: 28px;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+/* 我的空间条：进入 AgentFlow 工作台的显式入口（用户实测反馈的缺口）。 */
+.portal__spaceBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.portal__spaceInfo {
+  display: grid;
+  gap: 2px;
+}
+
+.portal__spaceLabel {
+  font-weight: 600;
+  font-size: var(--step-0);
+}
+
+.portal__btn.portal__enter {
+  height: 34px;
+  padding: 0 16px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  font-weight: 600;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+
+.portal__btn.portal__enter:hover {
+  background: var(--surface-3);
+  border-color: var(--text-3);
+}
+
+.portal__sectionTitle {
+  font-family: var(--font-display);
+  font-size: var(--step-2);
+  font-weight: 500;
+}
+
+.portal__listHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.portal__boardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.portal__boardActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 任务行：整行可点的列表项（按钮语义保证键盘可达）。 */
+.portal__taskRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  text-align: left;
+  transition: border-color var(--t-fast), transform var(--t-fast) var(--ease-out), background var(--t-fast);
+}
+
+.portal__taskRow:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-1);
+  transform: translateY(-1px);
+}
+
+.portal__taskTitle {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 600;
+  font-size: var(--step-0);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portal__taskTime {
+  flex-shrink: 0;
+}
+
+.portal__statePill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-3);
+  background: var(--surface-2);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.portal__statePill[data-tone="completed"] { color: var(--sage); border-color: color-mix(in oklab, var(--sage) 38%, var(--line)); background: color-mix(in oklab, var(--sage) 10%, transparent); }
+.portal__statePill[data-tone="failed"] { color: var(--rose); border-color: color-mix(in oklab, var(--rose) 38%, var(--line)); background: color-mix(in oklab, var(--rose) 9%, transparent); }
+.portal__statePill[data-tone="warn"] { color: var(--gold); border-color: color-mix(in oklab, var(--gold) 38%, var(--line)); background: color-mix(in oklab, var(--gold) 9%, transparent); }
+.portal__statePill[data-tone="running"] { color: var(--accent-text); border-color: color-mix(in oklab, var(--accent-text) 38%, var(--line)); background: color-mix(in oklab, var(--accent-text) 9%, transparent); }
+.portal__statePill[data-running="true"] { color: var(--sage); border-color: color-mix(in oklab, var(--sage) 38%, var(--line)); background: color-mix(in oklab, var(--sage) 10%, transparent); }
+
+/* 管理区公共块：卡片 / 表单 / 表格。 */
+
+.portal__board {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.portal__spaceCard {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+
+.portal__spaceHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.portal__spaceName {
+  font-family: var(--font-display);
+  font-size: var(--step-0);
+  font-weight: 600;
+}
+
+.portal__formCard {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-1);
+}
+
+.portal__formCard strong {
+  font-size: var(--step-0);
+}
+
+.portal__formActions {
+  display: flex;
+  gap: 8px;
+}
+
+.portal__field {
+  display: grid;
+  gap: 4px;
+  color: var(--text-2);
+  font-size: var(--step--2);
+}
+
+.portal__field--check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: var(--step--1);
+}
+
+.portal__input {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-xs);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--step--1);
+}
+
+.portal__input:focus {
+  outline: none;
+  border-color: var(--accent-text);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-text) 14%, transparent);
+}
+
+.portal__inlineRow {
+  display: flex;
+  gap: 8px;
+}
+
+.portal__inlineRow .portal__input {
+  flex: 1;
+  min-width: 0;
+}
+
+.portal__kcResult {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-xs);
+}
+
+.portal__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--step--1);
+}
+
+.portal__table th {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line-2);
+  color: var(--text-4);
+  font-size: var(--step--2);
+  font-weight: 500;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.portal__table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-1);
+}
+
+/* 文案工具位（portal__* 命名空间内，避免依赖不存在的全局工具类）。 */
+.portal__muted { color: var(--text-3); }
+.portal__small { font-size: var(--step--2); }
+.portal__mono { font-family: var(--font-mono); }
+.portal__hint { font-size: var(--step--2); line-height: 1.6; }
+
+/* 空态卡：只说"没有任务"不可执行——成因与对应动作必须写明（§4.3 同判据）。 */
+.portal__empty {
+  margin-top: 8px;
+  padding: 22px 24px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  background: color-mix(in oklab, var(--surface) 60%, transparent);
+  display: grid;
+  gap: 8px;
+}
+
+.portal__emptyTitle {
+  margin: 0;
+  font-size: var(--step-1);
+  font-weight: 600;
+}
+
+.portal__empty .portal__muted { margin: 0; line-height: 1.7; }
+
+.portal__error {
+  padding: 10px 12px;
+  border: 1px solid color-mix(in oklab, var(--rose) 38%, var(--line));
+  border-radius: var(--r-xs);
+  background: color-mix(in oklab, var(--rose) 8%, transparent);
+  color: var(--rose);
+  font-size: var(--step--1);
+}
+
+.portal__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text-1);
+  font-size: var(--step--1);
+  font-weight: 500;
+  text-decoration: none;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+}
+
+.portal__btn:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+}
+
+.portal__btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.portal__btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.portal__btn--primary:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--accent) 90%, #fff 10%);
+}
+
+.portal__btn--danger {
+  color: var(--rose);
+  border-color: color-mix(in oklab, var(--rose) 40%, var(--line));
+}
+
+.portal__btn--danger:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--rose) 10%, transparent);
+}
+
 /* --------------------------- responsive -------------------------------- */
 
 @media (max-width: 1400px) {
